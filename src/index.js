@@ -569,20 +569,36 @@ const MESSAGE_XP_CHANNELS = new Set([
 ]);
 MESSAGE_XP_CHANNELS.delete('bug-reports'); // Bug reports earn KXP only after staff validation.
 const messageCooldowns = new Map();
-let inviteUseCache = new Map();
-let statsUpdateTimer = null;
-let leaderboardUpdateTimer = null;
-let healthUpdateTimer = null;
-let modInboxUpdateTimer = null;
+const inviteUseCaches = new Map();
+const statsUpdateTimers = new Map();
+const leaderboardUpdateTimers = new Map();
+const healthUpdateTimers = new Map();
+const modInboxUpdateTimers = new Map();
+const setupPhases = new Map();
 
-// Setup diagnostics. This keeps /setup-klineo safe to troubleshoot without
-// exposing the bot token or other secrets. Detailed errors are written locally
-// to data/linko-errors.log and the Discord reply only shows the failing phase.
-let currentSetupPhase = 'idle';
+function inviteCacheForGuild(guildId) {
+  const id = String(guildId);
+  if (!inviteUseCaches.has(id)) inviteUseCaches.set(id, new Map());
+  return inviteUseCaches.get(id);
+}
+
+function scheduleGuildTimeout(timerMap, guild, delay, fn) {
+  const id = String(guild.id);
+  const current = timerMap.get(id);
+  if (current) clearTimeout(current);
+  const timer = setTimeout(() => runWithGuild(id, fn), delay);
+  timerMap.set(id, timer);
+}
 
 function setSetupPhase(phase) {
-  currentSetupPhase = phase;
-  console.log(`[LINKO SETUP] ${phase}`);
+  const guildId = guildDbContext.getStore() ?? 'global';
+  setupPhases.set(String(guildId), phase);
+  console.log(`[LINKO SETUP ${guildId}] ${phase}`);
+}
+
+function getSetupPhase() {
+  const guildId = guildDbContext.getStore() ?? 'global';
+  return setupPhases.get(String(guildId)) ?? 'idle';
 }
 
 function errorText(error) {
@@ -1427,8 +1443,7 @@ async function updateCommunityHealthDashboard(guild, days = getSettingInt('healt
   await seedMessage(channel, '[KLINEO-COMMUNITY-HEALTH]', { embeds: [buildHealthEmbed(guild, days)] });
 }
 function scheduleHealthUpdate(guild) {
-  clearTimeout(healthUpdateTimer);
-  healthUpdateTimer = setTimeout(() => updateCommunityHealthDashboard(guild).catch(console.error), 5000);
+  scheduleGuildTimeout(healthUpdateTimers, guild, 5000, () => updateCommunityHealthDashboard(guild).catch(console.error));
 }
 function modInboxCounts() {
   const cutoff = now() - 7 * 86400000;
@@ -1459,8 +1474,7 @@ async function updateModInbox(guild) {
   await seedMessage(channel, '[KLINEO-MOD-INBOX]', { embeds: [buildModInboxEmbed()] });
 }
 function scheduleModInboxUpdate(guild) {
-  clearTimeout(modInboxUpdateTimer);
-  modInboxUpdateTimer = setTimeout(() => updateModInbox(guild).catch(console.error), 3000);
+  scheduleGuildTimeout(modInboxUpdateTimers, guild, 3000, () => updateModInbox(guild).catch(console.error));
 }
 function accessRoleNames(access) {
   return ({
@@ -1640,8 +1654,7 @@ async function updateServerStats(guild, fetchPresences = false) {
 }
 
 function scheduleStatsUpdate(guild) {
-  clearTimeout(statsUpdateTimer);
-  statsUpdateTimer = setTimeout(() => updateServerStats(guild, false).catch(console.error), 2500);
+  scheduleGuildTimeout(statsUpdateTimers, guild, 2500, () => updateServerStats(guild, false).catch(console.error));
 }
 
 function leaderboardRows(guild, limit = 50) {
@@ -1936,8 +1949,7 @@ async function updateAllLeaderboards(guild) {
 }
 
 function scheduleLeaderboardUpdate(guild) {
-  clearTimeout(leaderboardUpdateTimer);
-  leaderboardUpdateTimer = setTimeout(() => updateAllLeaderboards(guild).catch(console.error), 5000);
+  scheduleGuildTimeout(leaderboardUpdateTimers, guild, 5000, () => updateAllLeaderboards(guild).catch(console.error));
 }
 
 function getKxpBreakdown(userId) {
@@ -2739,17 +2751,18 @@ async function createClientSpace(guild, projectName, member) {
 async function cacheInvites(guild) {
   const invites = await guild.invites.fetch().catch(() => null);
   if (!invites) return;
-  inviteUseCache = new Map(invites.map((i) => [i.code, i.uses ?? 0]));
+  inviteUseCaches.set(String(guild.id), new Map(invites.map((i) => [i.code, i.uses ?? 0])));
 }
 async function detectUsedInvite(guild) {
   const invites = await guild.invites.fetch().catch(() => null);
   if (!invites) return null;
+  const cache = inviteCacheForGuild(guild.id);
   let used = null;
   for (const invite of invites.values()) {
-    const previous = inviteUseCache.get(invite.code) ?? 0;
+    const previous = cache.get(invite.code) ?? 0;
     if ((invite.uses ?? 0) > previous) { used = invite; break; }
   }
-  inviteUseCache = new Map(invites.map((i) => [i.code, i.uses ?? 0]));
+  inviteUseCaches.set(String(guild.id), new Map(invites.map((i) => [i.code, i.uses ?? 0])));
   return used;
 }
 
