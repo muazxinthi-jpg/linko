@@ -1235,10 +1235,11 @@ function isAdmin(interaction) {
   return interaction.guild?.ownerId === interaction.user.id || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
 }
 function hasCoreRole(member) {
-  return member?.roles?.cache?.some((r) => r.name === 'KLINEO CORE');
+  const names = coreRoleNames();
+  return member?.roles?.cache?.some((r) => names.includes(r.name));
 }
 function hasStaffRole(member) {
-  const names = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR'];
+  const names = staffRoleNames();
   return member?.roles?.cache?.some((r) => names.includes(r.name));
 }
 function hasVerifiedRole(member) { return member?.roles?.cache?.some((r) => r.name === 'VERIFIED MEMBER'); }
@@ -1628,18 +1629,18 @@ function scheduleModInboxUpdate(guild) {
 function accessRoleNames(access) {
   return ({
     verified: ['VERIFIED MEMBER'], analyst: ['ANALYST','OPERATOR','STRATEGIST','VANGUARD','PRIME'], strategist: ['STRATEGIST','VANGUARD','PRIME'],
-    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: ['KLINEO CORE','KLINEO TEAM','MODERATOR'],
+    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: staffRoleNames(),
   })[access] ?? ['VERIFIED MEMBER'];
 }
 function accessOverwrites(guild, access) {
   const roles = accessRoleNames(access).map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
-  const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const all = [...new Map([...roles, ...staff].map((r) => [r.id, r])).values()];
   return privateFor(guild.roles.everyone, all);
 }
 function accessVoiceOverwrites(guild, access) {
   const roles = accessRoleNames(access).map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
-  const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const all = [...new Map([...roles, ...staff].map((r) => [r.id, r])).values()];
   return privateVoiceFor(guild.roles.everyone, all);
 }
@@ -2004,7 +2005,7 @@ async function setLeaderboardChannelVisibility(guild, type, visibility) {
   setSetupPhase('03/11 · Build permission model + categories');
   const everyone = guild.roles.everyone;
   const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
-  const staff = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const overwrites = [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])];
   if (visibility === 'public' && verified) overwrites.push(overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]));
   for (const role of staff) overwrites.push(overwrite(role.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]));
