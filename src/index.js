@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
@@ -426,6 +426,7 @@ const DEFAULT_SETTINGS = {
   official_linkedin: '',
   official_docs: '',
   official_support: '',
+  brand_accent: '',
   health_window_days: '7',
   event_reminder_30: '1',
   event_reminder_5: '1',
@@ -502,6 +503,24 @@ function communityName() {
 
 function communityNameUpper() {
   return communityName().toUpperCase().slice(0, 40);
+}
+
+function normalizeBrandAccent(raw) {
+  const match = String(raw ?? '').trim().match(/^#?([0-9a-f]{6})$/i);
+  return match ? `#${match[1].toUpperCase()}` : null;
+}
+
+function brandAccent() {
+  return normalizeBrandAccent(getSetting('brand_accent')) ?? '#B8F03A';
+}
+
+function accentRgba(hex, alpha) {
+  const normalized = normalizeBrandAccent(hex) ?? '#B8F03A';
+  const value = Number.parseInt(normalized.slice(1), 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function moduleEnabled(key) {
@@ -983,6 +1002,8 @@ const commands = [
       .addStringOption((o) => o.setName('name').setDescription('Example: community, Polkadot').setRequired(true).setMinLength(2).setMaxLength(40)))
     .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
       .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6)))
+    .addSubcommand((sc) => sc.setName('brand-color').setDescription('Set the accent color used on LINKO shareable cards.')
+      .addStringOption((o) => o.setName('hex').setDescription('6-digit hex, e.g. #B8F03A').setRequired(true).setMinLength(6).setMaxLength(7)))
     .addSubcommand((sc) => sc.setName('preset').setDescription('Apply a safe module preset before setup.')
       .addStringOption((o) => o.setName('type').setDescription('Server profile preset').setRequired(true).addChoices(
         { name: 'KlineO Full', value: 'klineo' },
@@ -1120,6 +1141,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('community-health')
     .setDescription('Staff: show community community health metrics.')
+    .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
+  new SlashCommandBuilder()
+    .setName('health-card')
+    .setDescription('Staff: generate a shareable community health image.')
     .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
   new SlashCommandBuilder().setName('refresh-health').setDescription('Staff: refresh the persistent community-health dashboard.'),
   new SlashCommandBuilder().setName('mod-inbox').setDescription('Staff: show the consolidated LINKO moderation inbox.'),
@@ -2856,6 +2881,161 @@ function fitText(ctx, text, maxWidth, startSize = 72, minSize = 34, family = 'sa
   }
   return size;
 }
+
+function compactMetric(value) {
+  return Number(value ?? 0).toLocaleString('en-US');
+}
+
+async function drawGuildIdentity(ctx, guild, x, y, size, accent) {
+  ctx.save();
+  drawRoundRect(ctx, x, y, size, size, Math.round(size * 0.28));
+  ctx.clip();
+
+  let drawn = false;
+  const iconUrl = guild.iconURL({ extension: 'png', size: 256 });
+  if (iconUrl) {
+    try {
+      const response = await fetch(iconUrl);
+      if (response.ok) {
+        const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+        ctx.drawImage(image, x, y, size, size);
+        drawn = true;
+      }
+    } catch {}
+  }
+
+  if (!drawn) {
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, size, size);
+    const initial = communityName().trim().slice(0, 1).toUpperCase() || 'L';
+    ctx.fillStyle = '#071008';
+    ctx.font = `900 ${Math.round(size * 0.52)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initial, x + size / 2, y + size / 2 + 2);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = accentRgba(accent, 0.7);
+  ctx.lineWidth = 3;
+  drawRoundRect(ctx, x, y, size, size, Math.round(size * 0.28));
+  ctx.stroke();
+}
+
+async function generateHealthCard(guild, days = 7) {
+  const W = 1600, H = 900;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  const accent = brandAccent();
+  const m = healthMetrics(guild, days);
+  const verifiedRate = m.total ? Math.round((m.verified / m.total) * 100) : 0;
+  const start = new Date(now() - Math.max(0, days - 1) * 86400000);
+  const end = new Date(now());
+  const dateLabel = `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()} — ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}`;
+
+  ctx.fillStyle = '#050607';
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(1370, 60, 0, 1370, 60, 700);
+  glow.addColorStop(0, accentRgba(accent, 0.22));
+  glow.addColorStop(0.45, accentRgba(accent, 0.07));
+  glow.addColorStop(1, accentRgba(accent, 0));
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.035)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y <= H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  await drawGuildIdentity(ctx, guild, 90, 72, 92, accent);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '800 36px sans-serif';
+  ctx.fillText(communityNameUpper(), 215, 111);
+  ctx.fillStyle = '#8E949D';
+  ctx.font = '600 20px monospace';
+  ctx.fillText('COMMUNITY INTELLIGENCE // LINKO', 215, 145);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = accent;
+  ctx.font = '800 20px monospace';
+  ctx.fillText(`${days}D SIGNAL REPORT`, 1510, 102);
+  ctx.fillStyle = '#8E949D';
+  ctx.font = '600 18px monospace';
+  ctx.fillText(dateLabel, 1510, 136);
+  ctx.textAlign = 'left';
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '900 72px sans-serif';
+  ctx.fillText('COMMUNITY HEALTH', 90, 255);
+  ctx.fillStyle = '#A1A7AF';
+  ctx.font = '500 23px sans-serif';
+  ctx.fillText('Public-safe activity, growth and participation signals from your Discord community.', 94, 296);
+
+  const metricCard = (label, value, note, x, y, w = 438, h = 150) => {
+    drawRoundRect(ctx, x, y, w, h, 26);
+    ctx.fillStyle = 'rgba(255,255,255,0.052)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.105)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#8E949D';
+    ctx.font = '700 18px sans-serif';
+    ctx.fillText(label.toUpperCase(), x + 28, y + 38);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 44px monospace';
+    ctx.fillText(String(value), x + 28, y + 92);
+    ctx.fillStyle = note?.startsWith('+') ? accent : '#737A83';
+    ctx.font = '600 16px sans-serif';
+    ctx.fillText(note || ' ', x + 28, y + 125);
+  };
+
+  metricCard('Members', compactMetric(m.total), `${compactMetric(m.online)} online now`, 90, 350);
+  metricCard('Verified', compactMetric(m.verified), `${verifiedRate}% of members`, 565, 350);
+  metricCard('Contributors', compactMetric(m.contributors), `active in the last ${days} days`, 1040, 350);
+
+  metricCard('Qualified messages', compactMetric(m.qualifiedMessages), 'meaningful tracked messages', 90, 525);
+  metricCard('New joins', compactMetric(m.joins), `${compactMetric(m.verifications)} newly verified`, 565, 525);
+  metricCard('Activation', `${m.activationRate}%`, `${compactMetric(m.activated)} activated new members`, 1040, 525);
+
+  drawRoundRect(ctx, 90, 705, 1388, 86, 24);
+  ctx.fillStyle = 'rgba(255,255,255,0.045)';
+  ctx.fill();
+  ctx.strokeStyle = accentRgba(accent, 0.3);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const loopItem = (label, value, x) => {
+    ctx.fillStyle = accent;
+    ctx.font = '900 24px monospace';
+    ctx.fillText(compactMetric(value), x, 749);
+    ctx.fillStyle = '#A1A7AF';
+    ctx.font = '650 16px sans-serif';
+    ctx.fillText(label, x, 774);
+  };
+  loopItem('valid referrals', m.validReferrals, 125);
+  loopItem('approved social posts', m.social, 440);
+  loopItem('event attendees', m.eventAttendees, 805);
+  loopItem('product suggestions', m.suggestions, 1128);
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(90, 835, 94, 4);
+  ctx.fillStyle = '#8E949D';
+  ctx.font = '650 17px monospace';
+  ctx.fillText('GENERATED BY LINKO · PUBLIC-SAFE COMMUNITY SIGNALS', 205, 842);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '700 18px sans-serif';
+  ctx.fillText(guild.name.slice(0, 48), 1510, 842);
+  ctx.textAlign = 'left';
+
+  const caption = `${communityName()} community health, last ${days} days: ${m.contributors} contributors, ${m.qualifiedMessages} qualified messages, ${m.joins} new joins and ${m.activationRate}% activation among new verifications.`;
+  return { buffer: canvas.toBuffer('image/png'), caption };
+}
+
 async function generateSocialCard(guild, member, type) {
   const W = 1600, H = 900;
   const canvas = createCanvas(W, H);
@@ -3799,6 +3979,18 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: rows.length ? `**Upcoming ${communityName()} Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : `No upcoming ${communityName()} events are scheduled.`, ephemeral: true });
     }
 
+    if (interaction.commandName === 'health-card') {
+      if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+      const days = interaction.options.getInteger('days') ?? (getSettingInt('health_window_days') || 7);
+      await interaction.deferReply({ ephemeral: true });
+      const card = await generateHealthCard(interaction.guild, days);
+      const file = new AttachmentBuilder(card.buffer, { name: `linko-community-health-${interaction.guildId}-${days}d.png` });
+      return interaction.editReply({
+        content: `**${communityName()} Community Health card is ready.**\nSuggested caption:\n${card.caption}\n\nThe image contains public-safe community metrics only.`,
+        files: [file],
+      });
+    }
+
     if (interaction.commandName === 'community-health' || interaction.commandName === 'refresh-health') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const days = interaction.commandName === 'community-health' ? (interaction.options.getInteger('days') ?? (getSettingInt('health_window_days') || 7)) : (getSettingInt('health_window_days') || 7);
@@ -4283,7 +4475,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
           ['Liquidity Studio', 'liquidity_studio'],
         ].map(([label, key]) => `${moduleEnabled(key) ? '✅' : '⛔'} ${label}`).join('\n');
         return interaction.reply({
-          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
+          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nCard accent: **${brandAccent()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
           ephemeral: true,
         });
       }
@@ -4318,6 +4510,12 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
         await updatePublicKxpDocs(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
         return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged, and the XP category was renamed where possible.`, ephemeral: true });
+      }
+      if (action === 'brand-color') {
+        const accent = normalizeBrandAccent(interaction.options.getString('hex', true));
+        if (!accent) return interaction.reply({ content: 'Brand color must be a valid 6-digit hex value, for example **#B8F03A**.', ephemeral: true });
+        setSetting('brand_accent', accent);
+        return interaction.reply({ content: `✅ Shareable LINKO cards for this server will now use **${accent}** as the accent color. The Discord server icon is used automatically as the card logo.`, ephemeral: true });
       }
       if (action === 'preset') {
         const preset = interaction.options.getString('type', true);
@@ -4517,7 +4715,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
 
     if (interaction.commandName === 'mod-help') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
-      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/health-card` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
     }
 
     if (interaction.commandName === 'grant-klineo-role') {
