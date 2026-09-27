@@ -533,6 +533,19 @@ function categoryName(key) {
   return CATEGORY_NAMES[key];
 }
 
+function xpSlug() {
+  return xpLabel().toLowerCase();
+}
+function xpChannelName(kind) {
+  if (kind === 'how') return `⚡・how-to-earn-${xpSlug()}`;
+  if (kind === 'leaderboard') return `🏆・${xpSlug()}-leaderboard`;
+  if (kind === 'log') return `⚡・${xpSlug()}-log`;
+  throw new Error(`Unknown XP channel kind: ${kind}`);
+}
+function xpChannelBase(kind) {
+  return baseChannelName(xpChannelName(kind));
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -1939,7 +1952,7 @@ function leaderboardChannelBase(type) {
   if (type === 'referrals') return 'referral-leaderboard';
   if (type === 'creators') return 'kreator-leaderboard';
   if (type === 'campaign') return 'campaign-leaderboard';
-  return 'kxp-leaderboard';
+  return xpChannelBase('leaderboard');
 }
 
 function leaderboardVisibilityKey(type) {
@@ -2392,7 +2405,7 @@ Approved posts are published here by LINKO. KREATOR posts can also earn reaction
 [KLINEO-SOCIAL]`;
 }
 async function updatePublicKxpDocs(guild) {
-  const how = guild.channels.cache.find((c) => baseChannelName(c.name) === 'how-to-earn-kxp' && c.isTextBased());
+  const how = guild.channels.cache.find((c) => baseChannelName(c.name) === xpChannelBase('how') && c.isTextBased());
   const social = guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
   const links = guild.channels.cache.find((c) => baseChannelName(c.name) === 'official-links' && c.isTextBased());
   if (how) await seedMessage(how, '[KLINEO-KXP]', { content: kxpRulesContent() });
@@ -2463,7 +2476,7 @@ async function addXp(guild, userId, amount, reason, actorId = null) {
   db.prepare('UPDATE users SET xp = ?, last_seen_at = ? WHERE user_id = ?').run(next, now(), userId);
   db.prepare('INSERT INTO xp_log (user_id, amount, reason, created_at, actor_id) VALUES (?, ?, ?, ?, ?)').run(userId, applied, reason, now(), actorId);
   await syncRankRole(guild, userId, true);
-  const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'kxp-log' && c.isTextBased());
+  const log = guild.channels.cache.find((c) => baseChannelName(c.name) === xpChannelBase('log') && c.isTextBased());
   if (log) log.send(`<@${userId}> ${applied >= 0 ? '+' : ''}${applied} ${xpLabel()} — ${reason}${actorId ? ` — by <@${actorId}>` : ''}`).catch(() => {});
   scheduleLeaderboardUpdate(guild);
   scheduleHealthUpdate(guild);
@@ -2568,9 +2581,9 @@ async function buildKlineO(guild) {
   channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: 'Structured KlineO product suggestions and status updates. Submit with /suggest.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
-  channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.howKxp, topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('how'), topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Use LINKO member commands here: /rank /points /leaderboard /invite /invites /join-source /confirm-invited /wallet /submit-post /social-card /apply-founder.' }, verifiedBase);
-  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.leaderboard, topic: `${communityName()} Top 50 ${xpLabel()} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
+  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('leaderboard'), topic: `${communityName()} Top 50 ${xpLabel()} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `${communityName()} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   await setLeaderboardChannelVisibility(guild, 'kxp', getSetting('kxp_leaderboard_visibility'));
   await setLeaderboardChannelVisibility(guild, 'referrals', getSetting('referral_leaderboard_visibility'));
@@ -2648,7 +2661,7 @@ async function buildKlineO(guild) {
     ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, 'KlineO social-post KXP review queue.'],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
-    ['kxpLog', CHANNEL_NAMES.kxpLog, 'KXP awards and deductions.'],
+    ['kxpLog', xpChannelName('log'), `${xpLabel()} awards and deductions.`],
     ['walletLog', CHANNEL_NAMES.walletLog, 'Masked wallet submissions and changes. Full addresses are never posted here.'],
     ['botLog', CHANNEL_NAMES.botLog, 'LINKO operations and bot logs.'],
   ];
