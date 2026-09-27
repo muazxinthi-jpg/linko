@@ -27,6 +27,9 @@ For LINKO-published approved KREATOR posts:
 - `🏁・campaign-leaderboard` is public to verified members by default.
 - Campaign KXP also contributes to the lifetime KREATOR leaderboard and normal overall KXP.
 - Closing a campaign blocks new tagged submissions and freezes new reaction-milestone awards for that campaign.
+- Closed campaign leaderboard messages remain visible for **7 days**, then LINKO removes the temporary board automatically.
+- The campaign record and already-awarded KXP remain intact, so lifetime KREATOR and overall KXP rankings are unaffected.
+- Expired campaign reaction-detail rows are pruned after the retention window to keep SQLite lightweight.
 
 ## Upgrade safety
 
