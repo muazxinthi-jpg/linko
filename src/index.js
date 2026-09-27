@@ -3023,20 +3023,26 @@ async function publishOfficialLinks(guild) {
   return true;
 }
 async function createClientSpace(guild, projectName, member) {
-  const core = guild.roles.cache.find((r) => r.name === 'KLINEO CORE');
-  const team = guild.roles.cache.find((r) => r.name === 'KLINEO TEAM');
+  if (!moduleEnabled('studio')) throw new Error('The Studio module is disabled in this server.');
+  const core = coreRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).find(Boolean);
+  const team = teamRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).find(Boolean);
   const moderator = guild.roles.cache.find((r) => r.name === 'MODERATOR');
   const studio = guild.roles.cache.find((r) => r.name === 'STUDIO CLIENT');
-  if (!core || !team || !moderator || !studio) throw new Error('Run /setup-klineo first.');
-  await member.roles.add(studio, `KlineO Studio client for ${projectName}`);
+  if (!core || !team || !moderator || !studio) throw new Error('Run /setup-linko first.');
+  await member.roles.add(studio, `${communityName()} Studio client for ${projectName}`);
   const everyone = guild.roles.everyone;
   const allowed = [core, team, moderator];
   const perms = [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(member.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]), ...allowed.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))];
   const category = await ensureCategory(guild, `CLIENT・${projectName.toUpperCase()}`, perms);
   const created = {};
-  for (const [key, name, topic] of [['overview', '📋・overview', `${projectName} private KlineO Studio overview.`], ['liquidityOps', '💧・liquidity-ops', `${projectName} liquidity operations.`], ['reports', '📊・reports', `${projectName} reports and deliverables.`], ['support', '🆘・support', `${projectName} private support.`]]) created[key] = await ensureTextChannel(guild, category, { name, topic }, perms);
+  for (const [key, channelName, topic] of [
+    ['overview', '📋・overview', `${projectName} private Studio overview.`],
+    ['liquidityOps', '💧・liquidity-ops', `${projectName} liquidity operations.`],
+    ['reports', '📊・reports', `${projectName} reports and deliverables.`],
+    ['support', '🆘・support', `${projectName} private support.`],
+  ]) created[key] = await ensureTextChannel(guild, category, { name: channelName, topic }, perms);
   created.voice = await ensureVoiceChannel(guild, category, { name: `🎙️ ${projectName} Project Room`, userLimit: 20 }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect]), overwrite(member.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]), ...allowed.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]))]);
-  await seedMessage(created.overview, '[KLINEO-CLIENT-SPACE]', { content: `**${projectName} × KlineO Liquidity Studio**\n\nPrivate workspace for the client and KlineO team. Keep sensitive market, treasury, listing and operational information inside this category.\n\n[KLINEO-CLIENT-SPACE]` });
+  await seedMessage(created.overview, '[KLINEO-CLIENT-SPACE]', { content: `**${projectName} × ${communityName()} Studio**\n\nPrivate workspace for the client and authorized team. Keep sensitive market, treasury, listing and operational information inside this category.\n\n[KLINEO-CLIENT-SPACE]` });
   return category;
 }
 
@@ -3754,7 +3760,7 @@ client.on('interactionCreate', async (interaction) => {
         const duplicate = network === 'evm'
           ? db.prepare('SELECT user_id FROM wallets WHERE network = ? AND LOWER(address) = LOWER(?) LIMIT 1').get(network, address)
           : db.prepare('SELECT user_id FROM wallets WHERE network = ? AND address = ? LIMIT 1').get(network, address);
-        if (duplicate && duplicate.user_id !== interaction.user.id) return interaction.reply({ content: 'That public address is already submitted by another KlineO member. Ask KLINEO CORE if this is a legitimate shared address.', ephemeral: true });
+        if (duplicate && duplicate.user_id !== interaction.user.id) return interaction.reply({ content: 'That public address is already submitted by another KlineO member. Ask a CORE administrator if this is a legitimate shared address.', ephemeral: true });
         const priorHistory = db.prepare('SELECT id FROM wallet_history WHERE user_id = ? AND network = ? LIMIT 1').get(interaction.user.id, network);
         const changedAt = now();
         const lockHours = Math.max(0, getSettingInt('wallet_change_lock_hours'));
@@ -4054,7 +4060,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!role) role = await interaction.guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${interaction.user.tag}` });
         let category = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAMES.languages);
         if (!category) category = await ensureCategory(interaction.guild, CATEGORY_NAMES.languages, [overwrite(interaction.guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
-        const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => interaction.guild.roles.cache.find((r) => r.name===n)).filter(Boolean);
+        const staff = staffRoleNames().map((n) => interaction.guild.roles.cache.find((r) => r.name===n)).filter(Boolean);
         const perms = privateFor(interaction.guild.roles.everyone, [role, ...staff]);
         const chName = `${emoji}・${slug}`;
         let channel = interaction.guild.channels.cache.find((c) => c.parentId===category.id && c.name===chName && c.type===ChannelType.GuildText);
@@ -4132,7 +4138,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.editReply(`📦 Archived **${channel.name}**. It is now staff-only.`);
       }
       if (action === 'delete') {
-        if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.editReply('Only KLINEO CORE / administrators can permanently delete managed channels.');
+        if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.editReply('Only CORE / administrators can permanently delete managed channels.');
         db.prepare('DELETE FROM managed_channels WHERE channel_id=?').run(channel.id);
         await channel.delete(`LINKO permanent delete by ${interaction.user.tag}`);
         return interaction.editReply('🗑️ Managed channel permanently deleted.');
@@ -4330,7 +4336,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'wallet-admin') {
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'KLINEO CORE / Administrator only.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'CORE / Administrator only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       const rows = walletRows(user.id);
       const primary = walletPrimary(user.id);
@@ -4353,7 +4359,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
     }
 
     if (interaction.commandName === 'export-wallets') {
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'KLINEO CORE / Administrator only.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'CORE / Administrator only.', ephemeral: true });
       await interaction.deferReply({ ephemeral: true });
       await interaction.guild.members.fetch().catch(() => null);
       const network = interaction.options.getString('network', true);
@@ -4540,7 +4546,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
         await publishOfficialLinks(interaction.guild);
         return interaction.reply({ content: '✅ Official Links card refreshed.', ephemeral: true });
       }
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only KLINEO CORE / server administrators can change official links.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only CORE / server administrators can change official links.', ephemeral: true });
       const type = interaction.options.getString('type', true);
       const key = officialLinkKey(type);
       if (!key) return interaction.reply({ content: 'Unknown official link type.', ephemeral: true });
@@ -4564,7 +4570,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
         const text = rows.length ? rows.map((r) => `<@${r.user_id}> — **${r.role_title}**`).join('\n') : 'No official founder/team profiles configured yet.';
         return interaction.reply({ content: text, ephemeral: true });
       }
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only KLINEO CORE / server administrators can change official team profiles.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only CORE / server administrators can change official team profiles.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       if (action === 'remove') {
         db.prepare('DELETE FROM team_profiles WHERE user_id = ?').run(user.id);
