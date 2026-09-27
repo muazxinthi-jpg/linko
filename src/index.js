@@ -1574,8 +1574,8 @@ function healthMetrics(guild, days = 7) {
   const social = Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status = 'approved' AND reviewed_at >= ?").get(cutoff)?.c ?? 0);
   const suggestions = Number(db.prepare('SELECT COUNT(*) AS c FROM product_suggestions WHERE created_at >= ?').get(cutoff)?.c ?? 0);
   const eventAttendees = Number(db.prepare(`SELECT COUNT(DISTINCT ea.user_id) AS c FROM event_attendance ea JOIN community_events ce ON ce.id = ea.event_id WHERE COALESCE(ce.ended_at, ce.start_at) >= ?`).get(cutoff)?.c ?? 0);
-  const activated = Number(db.prepare(`SELECT COUNT(*) AS c FROM users u LEFT JOIN member_activation a ON a.user_id=u.user_id WHERE u.joined_at >= ? AND u.verified_at IS NOT NULL AND (a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL)`).get(cutoff)?.c ?? 0);
-  const activationRate = verifications ? Math.round((activated / verifications) * 100) : 0;
+  const activated = Number(db.prepare(`SELECT COUNT(*) AS c FROM users u LEFT JOIN member_activation a ON a.user_id=u.user_id WHERE u.verified_at >= ? AND (a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL)`).get(cutoff)?.c ?? 0);
+  const activationRate = verifications ? Math.min(100, Math.round((activated / verifications) * 100)) : null;
   const rankCounts = Object.fromEntries(RANKS.map((r) => [r.name, 0]));
   for (const m of humans.values()) if (verifiedRole && m.roles.cache.has(verifiedRole.id)) rankCounts[rankForXp(getXp(m.id)).name]++;
   return { days, total: humans.size, verified, online, joins, verifications, contributors, qualifiedMessages, validReferrals, social, suggestions, eventAttendees, activated, activationRate, rankCounts };
@@ -1586,7 +1586,7 @@ function buildHealthEmbed(guild, days = 7) {
   return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 ${communityName()} Community Health · ${days}d`)
     .addFields(
       { name: 'Community', value: `Members: **${m.total}**\nVerified: **${m.verified}**\nOnline now: **${m.online}**`, inline: true },
-      { name: `${days}d growth`, value: `New joins: **${m.joins}**\nVerified: **${m.verifications}**\nActivation: **${m.activationRate}%**`, inline: true },
+      { name: `${days}d growth`, value: `New joins: **${m.joins}**\nVerified: **${m.verifications}**\nActivation: **${m.activationRate == null ? '—' : `${m.activationRate}%`}**`, inline: true },
       { name: `${days}d engagement`, value: `Contributors: **${m.contributors}**\nQualified messages: **${m.qualifiedMessages}**\nEvent attendees: **${m.eventAttendees}**`, inline: true },
       { name: 'Growth loops', value: `Valid referrals: **${m.validReferrals}**\nApproved social posts: **${m.social}**\nProduct suggestions: **${m.suggestions}**`, inline: true },
       { name: 'Rank distribution', value: ranks || 'No data' },
@@ -2924,117 +2924,279 @@ async function drawGuildIdentity(ctx, guild, x, y, size, accent) {
   ctx.stroke();
 }
 
+function healthPeriodMetrics(days, offsetPeriods = 0) {
+  const duration = days * 86400000;
+  const end = now() - (offsetPeriods * duration);
+  const start = end - duration;
+  const between = (column) => `${column} >= ? AND ${column} < ?`;
+
+  const joins = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('joined_at')}`).get(start, end)?.c ?? 0);
+  const verifications = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('verified_at')}`).get(start, end)?.c ?? 0);
+  const contributors = Number(db.prepare(`SELECT COUNT(DISTINCT user_id) AS c FROM xp_log WHERE ${between('created_at')} AND amount > 0`).get(start, end)?.c ?? 0);
+  const qualifiedMessages = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND reason LIKE 'Qualified community message:%' AND amount > 0`).get(start, end)?.c ?? 0);
+  const validReferrals = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0`).get(start, end)?.c ?? 0);
+  const social = Number(db.prepare(`SELECT COUNT(*) AS c FROM social_submissions WHERE status='approved' AND ${between('reviewed_at')}`).get(start, end)?.c ?? 0);
+  const suggestions = Number(db.prepare(`SELECT COUNT(*) AS c FROM product_suggestions WHERE ${between('created_at')}`).get(start, end)?.c ?? 0);
+  const eventAttendees = Number(db.prepare(`SELECT COUNT(DISTINCT ea.user_id) AS c FROM event_attendance ea JOIN community_events ce ON ce.id=ea.event_id WHERE ${between('COALESCE(ce.ended_at, ce.start_at)')}`).get(start, end)?.c ?? 0);
+
+  return { start, end, joins, verifications, contributors, qualifiedMessages, validReferrals, social, suggestions, eventAttendees };
+}
+
+function metricTrend(current, previous) {
+  const c = Number(current ?? 0);
+  const p = Number(previous ?? 0);
+  if (c === 0 && p === 0) return { label: 'No change', direction: 'flat' };
+  if (p === 0) return { label: c > 0 ? 'New vs prior' : 'No change', direction: c > 0 ? 'up' : 'flat' };
+  const pct = Math.round(((c - p) / p) * 100);
+  if (pct === 0) return { label: '0% vs prior', direction: 'flat' };
+  return { label: `${pct > 0 ? '+' : ''}${pct}% vs prior`, direction: pct > 0 ? 'up' : 'down' };
+}
+
+function healthCardStatus(metrics, previous) {
+  if (metrics.joins > 0 && metrics.verifications === 0) return { label: 'NEEDS ACTIVATION', tone: 'warn' };
+  if (metrics.contributors === 0 && metrics.qualifiedMessages === 0) return { label: 'LOW ACTIVITY', tone: 'muted' };
+  const momentum =
+    metrics.contributors > previous.contributors ||
+    metrics.qualifiedMessages > previous.qualifiedMessages ||
+    metrics.joins > previous.joins;
+  if (metrics.activationRate != null && metrics.activationRate >= 60 && metrics.contributors > 0) return { label: 'HEALTHY CORE', tone: 'good' };
+  if (momentum) return { label: 'MOMENTUM UP', tone: 'good' };
+  return { label: 'STABLE CORE', tone: 'neutral' };
+}
+
+function healthCardInsight(metrics, previous, days) {
+  if (metrics.joins > 0 && metrics.verifications === 0) {
+    return `${metrics.joins} new ${metrics.joins === 1 ? 'member joined' : 'members joined'}, but none verified yet. The clearest opportunity is improving onboarding and verification.`;
+  }
+  if (metrics.contributors > 0 && metrics.qualifiedMessages === 0) {
+    return `${metrics.contributors} active ${metrics.contributors === 1 ? 'contributor is' : 'contributors are'} showing up, but no qualified messages were recorded in this ${days}-day window.`;
+  }
+  if (metrics.contributors > previous.contributors) {
+    return `Active contributors increased from ${previous.contributors} to ${metrics.contributors} versus the previous ${days} days, while ${metrics.qualifiedMessages} qualified messages were recorded.`;
+  }
+  if (metrics.activationRate != null && metrics.activationRate >= 60) {
+    return `${metrics.activationRate}% of newly verified members completed at least one activation step. Participation is converting into deeper community activity.`;
+  }
+  if (metrics.joins === 0 && metrics.contributors > 0) {
+    return `The current community core remains active, with ${metrics.contributors} ${metrics.contributors === 1 ? 'contributor' : 'contributors'}, but no new joins were recorded in this window.`;
+  }
+  return `Community activity is steady: ${metrics.contributors} active ${metrics.contributors === 1 ? 'contributor' : 'contributors'}, ${metrics.qualifiedMessages} qualified messages and ${metrics.joins} new ${metrics.joins === 1 ? 'join' : 'joins'} in the last ${days} days.`;
+}
+
+function wrapCanvasText(ctx, text, maxWidth, maxLines = 2) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth || !line) {
+      line = candidate;
+      continue;
+    }
+    lines.push(line);
+    line = word;
+    if (lines.length >= maxLines - 1) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+    let last = lines[maxLines - 1];
+    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
+    lines[maxLines - 1] = `${last.replace(/[\s,.]+$/, '')}…`;
+  }
+  return lines;
+}
+
 async function generateHealthCard(guild, days = 7) {
   const W = 1600, H = 900;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
   const accent = brandAccent();
   const m = healthMetrics(guild, days);
+  const current = healthPeriodMetrics(days, 0);
+  const previous = healthPeriodMetrics(days, 1);
+  const status = healthCardStatus(m, previous);
+  const insight = healthCardInsight(m, previous, days);
   const verifiedRate = m.total ? Math.round((m.verified / m.total) * 100) : 0;
-  const start = new Date(now() - Math.max(0, days - 1) * 86400000);
-  const end = new Date(now());
-  const dateLabel = `${start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()} — ${end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}`;
+  const startDate = new Date(current.start);
+  const endDate = new Date(current.end);
+  const dateLabel = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()} - ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}`;
 
   ctx.fillStyle = '#050607';
   ctx.fillRect(0, 0, W, H);
 
-  const glow = ctx.createRadialGradient(1370, 60, 0, 1370, 60, 700);
-  glow.addColorStop(0, accentRgba(accent, 0.22));
-  glow.addColorStop(0.45, accentRgba(accent, 0.07));
+  const glow = ctx.createRadialGradient(1390, 20, 0, 1390, 20, 760);
+  glow.addColorStop(0, accentRgba(accent, 0.24));
+  glow.addColorStop(0.42, accentRgba(accent, 0.075));
   glow.addColorStop(1, accentRgba(accent, 0));
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y <= H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  const leftGlow = ctx.createRadialGradient(100, 700, 0, 100, 700, 500);
+  leftGlow.addColorStop(0, 'rgba(255,255,255,0.035)');
+  leftGlow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = leftGlow;
+  ctx.fillRect(0, 350, 700, 550);
 
-  await drawGuildIdentity(ctx, guild, 90, 72, 92, accent);
+  ctx.strokeStyle = 'rgba(255,255,255,0.028)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 96) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y <= H; y += 96) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  await drawGuildIdentity(ctx, guild, 86, 66, 88, accent);
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = '800 36px sans-serif';
-  ctx.fillText(communityNameUpper(), 215, 111);
-  ctx.fillStyle = '#8E949D';
-  ctx.font = '600 20px monospace';
-  ctx.fillText('COMMUNITY INTELLIGENCE // LINKO', 215, 145);
+  ctx.font = '850 35px sans-serif';
+  ctx.fillText(communityNameUpper(), 205, 104);
+  ctx.fillStyle = '#90969F';
+  ctx.font = '650 18px monospace';
+  ctx.fillText('COMMUNITY HEALTH REPORT', 205, 137);
 
   ctx.textAlign = 'right';
+  ctx.fillStyle = '#A7ADB5';
+  ctx.font = '650 17px monospace';
+  ctx.fillText(dateLabel, 1510, 89);
   ctx.fillStyle = accent;
-  ctx.font = '800 20px monospace';
-  ctx.fillText(`${days}D SIGNAL REPORT`, 1510, 102);
-  ctx.fillStyle = '#8E949D';
-  ctx.font = '600 18px monospace';
-  ctx.fillText(dateLabel, 1510, 136);
+  ctx.font = '800 18px monospace';
+  ctx.fillText(`LAST ${days} DAYS · VS PRIOR ${days} DAYS`, 1510, 121);
   ctx.textAlign = 'left';
 
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = '900 72px sans-serif';
-  ctx.fillText('COMMUNITY HEALTH', 90, 255);
-  ctx.fillStyle = '#A1A7AF';
-  ctx.font = '500 23px sans-serif';
-  ctx.fillText('Public-safe activity, growth and participation signals from your Discord community.', 94, 296);
+  ctx.font = '900 63px sans-serif';
+  ctx.fillText('Community Health', 88, 238);
+  ctx.fillStyle = '#A8AEB6';
+  ctx.font = '500 21px sans-serif';
+  ctx.fillText('Growth, participation and activation signals that are safe to share publicly.', 92, 276);
 
-  const metricCard = (label, value, note, x, y, w = 438, h = 150) => {
-    drawRoundRect(ctx, x, y, w, h, 26);
-    ctx.fillStyle = 'rgba(255,255,255,0.052)';
+  const badgeColors = {
+    good: { fill: accentRgba(accent, 0.14), stroke: accentRgba(accent, 0.55), text: accent },
+    warn: { fill: 'rgba(246,200,95,0.11)', stroke: 'rgba(246,200,95,0.48)', text: '#F6C85F' },
+    muted: { fill: 'rgba(142,148,157,0.10)', stroke: 'rgba(142,148,157,0.30)', text: '#A4AAB2' },
+    neutral: { fill: 'rgba(255,255,255,0.055)', stroke: 'rgba(255,255,255,0.14)', text: '#D7DADF' },
+  };
+  const badge = badgeColors[status.tone] ?? badgeColors.neutral;
+  ctx.font = '800 18px monospace';
+  const badgeW = Math.max(190, ctx.measureText(status.label).width + 54);
+  drawRoundRect(ctx, 1510 - badgeW, 190, badgeW, 50, 25);
+  ctx.fillStyle = badge.fill; ctx.fill();
+  ctx.strokeStyle = badge.stroke; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = badge.text;
+  ctx.textAlign = 'center';
+  ctx.fillText(status.label, 1510 - badgeW / 2, 222);
+  ctx.textAlign = 'left';
+
+  drawRoundRect(ctx, 88, 312, 1422, 64, 20);
+  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.085)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = accent;
+  ctx.fillRect(88, 312, 6, 64);
+  ctx.fillStyle = '#D9DDE2';
+  ctx.font = '600 18px sans-serif';
+  const insightLines = wrapCanvasText(ctx, `Key insight: ${insight}`, 1350, 2);
+  insightLines.forEach((line, i) => ctx.fillText(line, 118, 339 + i * 23));
+
+  const primary = [
+    { label: 'Active Contributors', value: compactMetric(m.contributors), trend: metricTrend(current.contributors, previous.contributors), note: `unique contributors in ${days}d` },
+    { label: 'Qualified Messages', value: compactMetric(m.qualifiedMessages), trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages), note: 'meaningful tracked messages' },
+    { label: 'New Joins', value: compactMetric(m.joins), trend: metricTrend(current.joins, previous.joins), note: `${compactMetric(m.verifications)} newly verified` },
+    { label: 'Activation', value: m.activationRate == null ? '—' : `${m.activationRate}%`, trend: null, note: m.verifications ? `${compactMetric(m.activated)} of ${compactMetric(m.verifications)} new verifications activated` : 'no new verifications yet' },
+  ];
+
+  const trendTone = (trend) => {
+    if (!trend || trend.direction === 'flat') return '#8F969F';
+    return trend.direction === 'up' ? accent : '#FB7185';
+  };
+
+  const cardW = 339;
+  const gap = 22;
+  primary.forEach((item, index) => {
+    const x = 88 + index * (cardW + gap);
+    const y = 402;
+    drawRoundRect(ctx, x, y, cardW, 176, 26);
+    ctx.fillStyle = index === 0 ? accentRgba(accent, 0.075) : 'rgba(255,255,255,0.05)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.105)';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = index === 0 ? accentRgba(accent, 0.32) : 'rgba(255,255,255,0.11)';
+    ctx.lineWidth = 1.3;
     ctx.stroke();
 
-    ctx.fillStyle = '#8E949D';
-    ctx.font = '700 18px sans-serif';
-    ctx.fillText(label.toUpperCase(), x + 28, y + 38);
+    ctx.fillStyle = index === 0 ? accent : '#9AA1A9';
+    ctx.font = '750 16px sans-serif';
+    ctx.fillText(item.label.toUpperCase(), x + 24, y + 35);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = '900 44px monospace';
-    ctx.fillText(String(value), x + 28, y + 92);
-    ctx.fillStyle = note?.startsWith('+') ? accent : '#737A83';
-    ctx.font = '600 16px sans-serif';
-    ctx.fillText(note || ' ', x + 28, y + 125);
-  };
+    ctx.font = '900 46px monospace';
+    ctx.fillText(item.value, x + 24, y + 91);
+    ctx.fillStyle = '#777F88';
+    ctx.font = '600 14px sans-serif';
+    ctx.fillText(item.note, x + 24, y + 119);
 
-  metricCard('Members', compactMetric(m.total), `${compactMetric(m.online)} online now`, 90, 350);
-  metricCard('Verified', compactMetric(m.verified), `${verifiedRate}% of members`, 565, 350);
-  metricCard('Contributors', compactMetric(m.contributors), `active in the last ${days} days`, 1040, 350);
+    if (item.trend) {
+      ctx.fillStyle = trendTone(item.trend);
+      ctx.font = '750 14px monospace';
+      ctx.fillText(item.trend.label, x + 24, y + 151);
+    } else {
+      ctx.fillStyle = '#69717A';
+      ctx.font = '650 14px monospace';
+      ctx.fillText('CURRENT PERIOD', x + 24, y + 151);
+    }
+  });
 
-  metricCard('Qualified messages', compactMetric(m.qualifiedMessages), 'meaningful tracked messages', 90, 525);
-  metricCard('New joins', compactMetric(m.joins), `${compactMetric(m.verifications)} newly verified`, 565, 525);
-  metricCard('Activation', `${m.activationRate}%`, `${compactMetric(m.activated)} activated new members`, 1040, 525);
+  const secondary = [
+    ['Total Members', compactMetric(m.total), `${compactMetric(m.online)} online`],
+    ['Verified Members', compactMetric(m.verified), `${verifiedRate}% of members`],
+    ['Valid Referrals', compactMetric(m.validReferrals), metricTrend(current.validReferrals, previous.validReferrals).label],
+    ['Social Posts', compactMetric(m.social), metricTrend(current.social, previous.social).label],
+    ['Event Attendees', compactMetric(m.eventAttendees), metricTrend(current.eventAttendees, previous.eventAttendees).label],
+    ['Suggestions', compactMetric(m.suggestions), metricTrend(current.suggestions, previous.suggestions).label],
+  ];
 
-  drawRoundRect(ctx, 90, 705, 1388, 86, 24);
-  ctx.fillStyle = 'rgba(255,255,255,0.045)';
+  const secW = 221;
+  const secGap = 16;
+  secondary.forEach(([label, value, note], index) => {
+    const x = 88 + index * (secW + secGap);
+    const y = 604;
+    drawRoundRect(ctx, x, y, secW, 118, 20);
+    ctx.fillStyle = 'rgba(255,255,255,0.038)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.075)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#858D96';
+    ctx.font = '700 13px sans-serif';
+    ctx.fillText(label.toUpperCase(), x + 18, y + 27);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 28px monospace';
+    ctx.fillText(value, x + 18, y + 65);
+    ctx.fillStyle = '#6E7680';
+    ctx.font = '600 12px sans-serif';
+    ctx.fillText(String(note).slice(0, 28), x + 18, y + 91);
+  });
+
+  drawRoundRect(ctx, 88, 750, 1422, 64, 20);
+  ctx.fillStyle = accentRgba(accent, 0.055);
   ctx.fill();
-  ctx.strokeStyle = accentRgba(accent, 0.3);
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = accentRgba(accent, 0.18);
+  ctx.lineWidth = 1;
   ctx.stroke();
-
-  const loopItem = (label, value, x) => {
-    ctx.fillStyle = accent;
-    ctx.font = '900 24px monospace';
-    ctx.fillText(compactMetric(value), x, 749);
-    ctx.fillStyle = '#A1A7AF';
-    ctx.font = '600 16px sans-serif';
-    ctx.fillText(label, x, 774);
-  };
-  loopItem('valid referrals', m.validReferrals, 125);
-  loopItem('approved social posts', m.social, 440);
-  loopItem('event attendees', m.eventAttendees, 805);
-  loopItem('product suggestions', m.suggestions, 1128);
+  ctx.fillStyle = '#A6ADB5';
+  ctx.font = '600 15px monospace';
+  ctx.fillText('PUBLIC-SAFE SIGNALS ONLY', 116, 789);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '700 16px sans-serif';
+  ctx.fillText('No message content, wallet data or private member information appears on this card.', 375, 789);
 
   ctx.fillStyle = accent;
-  ctx.fillRect(90, 835, 94, 4);
-  ctx.fillStyle = '#8E949D';
-  ctx.font = '600 17px monospace';
-  ctx.fillText('GENERATED BY LINKO · PUBLIC-SAFE COMMUNITY SIGNALS', 205, 842);
+  ctx.fillRect(88, 850, 84, 4);
+  ctx.fillStyle = '#7D858E';
+  ctx.font = '650 15px monospace';
+  ctx.fillText('GENERATED BY LINKO', 192, 856);
   ctx.textAlign = 'right';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '700 18px sans-serif';
-  ctx.fillText(guild.name.slice(0, 48), 1510, 842);
+  ctx.fillStyle = '#B6BBC2';
+  ctx.font = '650 15px sans-serif';
+  ctx.fillText(guild.name.slice(0, 48), 1510, 856);
   ctx.textAlign = 'left';
 
   const countLabel = (value, singular, plural = `${singular}s`) => `${value} ${Number(value) === 1 ? singular : plural}`;
-  const caption = `${communityName()} community health, last ${days} days: ${countLabel(m.contributors, 'contributor')}, ${countLabel(m.qualifiedMessages, 'qualified message')}, ${countLabel(m.joins, 'new join')} and ${m.activationRate}% activation among new verifications.`;
-  return { buffer: canvas.toBuffer('image/png'), caption };
+  const activationCaption = m.activationRate == null ? 'no new verifications yet' : `${m.activationRate}% activation among new verifications`;
+  const caption = `${communityName()} community health, last ${days} days: ${countLabel(m.contributors, 'active contributor')}, ${countLabel(m.qualifiedMessages, 'qualified message')}, ${countLabel(m.joins, 'new join')}, and ${activationCaption}. ${insight}`;
+  return { buffer: canvas.toBuffer('image/png'), caption, status: status.label };
 }
 
 async function generateSocialCard(guild, member, type) {
