@@ -2735,31 +2735,47 @@ async function buildLinko(guild) {
   if (moduleEnabled('events')) channels.events = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.events, topic: `Official ${name} community events, AMAs and campaigns.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('06/11 · Create Signal, Social, Founder, Studio, higher-level + voice spaces');
-  for (const [key, name, topic] of [
-    ['analystChat', CHANNEL_NAMES.analystChat, 'ANALYST+ discussion. Links unlock at STRATEGIST.'],
-    ['tradeAnalysis', CHANNEL_NAMES.tradeAnalysis, 'ANALYST+ trade analysis. Links unlock at STRATEGIST.'],
-    ['marketThesis', CHANNEL_NAMES.marketThesis, 'ANALYST+ market theses. Links unlock at STRATEGIST.'],
-    ['aiStrategies', CHANNEL_NAMES.aiStrategies, 'ANALYST+ AI strategy discussion. Links unlock at STRATEGIST.'],
-  ]) channels[key] = await ensureTextChannel(guild, categories.signal, { name, topic, slowmode: 5 }, signalPrivate);
-  channels.analystVoice = await ensureVoiceChannel(guild, categories.signal, { name: '🔊 Analyst Room', userLimit: 30 }, privateVoiceFor(everyone, signalRoles));
+  if (moduleEnabled('signals') && categories.signal) {
+    for (const [key, name, topic] of [
+      ['analystChat', CHANNEL_NAMES.analystChat, 'ANALYST+ discussion. Links unlock at STRATEGIST.'],
+      ['tradeAnalysis', CHANNEL_NAMES.tradeAnalysis, 'ANALYST+ trade analysis. Links unlock at STRATEGIST.'],
+      ['marketThesis', CHANNEL_NAMES.marketThesis, 'ANALYST+ market theses. Links unlock at STRATEGIST.'],
+      ['aiStrategies', CHANNEL_NAMES.aiStrategies, 'ANALYST+ AI strategy discussion. Links unlock at STRATEGIST.'],
+    ]) channels[key] = await ensureTextChannel(guild, categories.signal, { name, topic, slowmode: 5 }, signalPrivate);
+    channels.analystVoice = await ensureVoiceChannel(guild, categories.signal, { name: '🔊 Analyst Room', userLimit: 30 }, privateVoiceFor(everyone, signalRoles));
+  
+  
+  }
 
-  channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: 'Approved KlineO community posts appear here. Submit via /submit-post.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: 'Optional KlineO content missions and community briefs.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: 'Live KREATOR leaderboard. Creator KXP also counts toward the overall KXP leaderboard.' }, staffPrivate);
-  channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: 'Public KREATOR campaign leaderboards. Campaign KXP also counts toward KREATOR + overall KXP.' }, staffPrivate);
-  await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
-  await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
+  if (moduleEnabled('kreator') && categories.social && categories.creators) {
+    channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: `Approved ${name} community posts appear here. Submit via /submit-post.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: `Optional ${name} content missions and community briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Creator ${label} also counts toward overall ${label}.` }, staffPrivate);
+    channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `Public KREATOR campaign leaderboards. Campaign ${label} also counts toward KREATOR + overall ${label}.` }, staffPrivate);
+    await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
+    await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
+  
+    for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators.'], [CHANNEL_NAMES.contentCollabs, `${name} creator collaborations.`], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name, topic }, creatorsPrivate);
+  
+  
+  }
 
-  for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators.'], [CHANNEL_NAMES.contentCollabs, 'KlineO creator collaborations.'], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name, topic }, creatorsPrivate);
+  if (moduleEnabled('founders') && categories.founders && roles.founder) {
+    channels.founderLobby = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderLobby, topic: 'Private discussion for verified founders and Studio clients.' }, foundersPrivate);
+    channels.founderDirectory = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderDirectory, topic: 'Approved founder/project websites and social profiles.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...[roles.founder, ...(roles.studio ? [roles.studio] : [])].map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.liquidityStudio = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.liquidityStudio, topic: `${name} Studio capabilities, process and onboarding.` }, foundersPrivate);
+    for (const [name, topic] of [[CHANNEL_NAMES.marketStructure, 'Founder-level market structure discussion.'], [CHANNEL_NAMES.founderResources, 'Founder resources and operating references.'], [CHANNEL_NAMES.studioRequests, 'Discuss Liquidity Studio onboarding and next steps.']]) await ensureTextChannel(guild, categories.founders, { name, topic }, foundersPrivate);
+    await ensureVoiceChannel(guild, categories.founders, { name: '🎙️ Founder Roundtable', userLimit: 25 }, privateVoiceFor(everyone, [roles.founder, ...(roles.studio ? [roles.studio] : []), ...staff]));
+  
+  
+  }
 
-  channels.founderLobby = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderLobby, topic: 'Private discussion for verified founders and Studio clients.' }, foundersPrivate);
-  channels.founderDirectory = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderDirectory, topic: 'Approved founder/project websites and social profiles.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...[roles.founder, roles.studio].map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.liquidityStudio = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.liquidityStudio, topic: 'KlineO Liquidity Studio capabilities, process and onboarding.' }, foundersPrivate);
-  for (const [name, topic] of [[CHANNEL_NAMES.marketStructure, 'Founder-level market structure discussion.'], [CHANNEL_NAMES.founderResources, 'Founder resources and operating references.'], [CHANNEL_NAMES.studioRequests, 'Discuss Liquidity Studio onboarding and next steps.']]) await ensureTextChannel(guild, categories.founders, { name, topic }, foundersPrivate);
-  await ensureVoiceChannel(guild, categories.founders, { name: '🎙️ Founder Roundtable', userLimit: 25 }, privateVoiceFor(everyone, [roles.founder, roles.studio, ...staff]));
-
-  channels.studioAnnouncements = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.studioAnnouncements, topic: 'Private Liquidity Studio notices.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.studio.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.clientSupport = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.clientSupport, topic: 'General support for active Liquidity Studio clients.' }, studioPrivate);
+  if (moduleEnabled('studio') && categories.studio && roles.studio) {
+    channels.studioAnnouncements = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.studioAnnouncements, topic: `Private ${name} Studio notices.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.studio.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.clientSupport = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.clientSupport, topic: `General support for active ${name} Studio clients.` }, studioPrivate);
+  
+  
+  }
 
   channels.strategist = await ensureTextChannel(guild, categories.high, { name: CHANNEL_NAMES.strategist, topic: 'STRATEGIST+ room. Links are permitted here.' }, privateFor(everyone, l5plus));
   channels.vanguard = await ensureTextChannel(guild, categories.high, { name: CHANNEL_NAMES.vanguard, topic: 'VANGUARD+ community lounge.' }, privateFor(everyone, l6plus));
