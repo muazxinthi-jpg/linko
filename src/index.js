@@ -3310,7 +3310,8 @@ client.once('clientReady', async () => {
         const guild = await client.guilds.fetch(guildId);
         const fullGuild = await guild.fetch();
         getGuildDb(fullGuild.id);
-        await fullGuild.commands.set(commands);
+        ensureServerProfile(fullGuild);
+        await fullGuild.commands.set(commandsForCurrentProfile());
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
         await cacheInvites(fullGuild);
