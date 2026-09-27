@@ -3268,7 +3268,16 @@ client.once('clientReady', async () => {
         const guild = await client.guilds.fetch(guildId);
         const fullGuild = await guild.fetch();
         getGuildDb(fullGuild.id);
-        if (!String(getSetting('community_name') ?? '').trim()) setSetting('community_name', fullGuild.name);
+        if (!String(getSetting('community_name') ?? '').trim()) {
+          setSetting('community_name', fullGuild.name);
+          if (fullGuild.name.trim().toLowerCase() === 'klineo') {
+            applyServerPreset('klineo');
+            setSetting('xp_label', 'KXP');
+          } else {
+            applyServerPreset('community');
+            setSetting('xp_label', 'XP');
+          }
+        }
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
