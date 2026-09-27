@@ -21,9 +21,11 @@ Use this checklist before merging the KREATOR release into production.
 14. Close the campaign and confirm:
    - new submissions cannot tag it,
    - no new reaction milestone KXP is awarded to posts in that closed campaign,
-   - the existing leaderboard remains viewable.
-15. Verify `/leaderboard` for KXP, Referrals, Kreators, and Creator Campaign.
-16. Verify `/leaderboard-settings` can control all four leaderboard surfaces.
-17. Verify `/refresh-leaderboard` refreshes all leaderboard surfaces.
-18. Check Railway runtime logs for startup errors and confirm `/app/data` remains mounted.
-19. Confirm existing KXP, referrals, wallets, settings, and community data remain intact after the additive SQLite migration.
+   - the frozen campaign leaderboard remains visible during the 7-day retention window.
+15. Confirm an expired campaign board is removed after the retention window while the user's KREATOR lifetime score and overall KXP remain unchanged.
+16. Confirm detailed reaction rows for expired campaigns are pruned without removing awarded KXP.
+17. Verify `/leaderboard` for KXP, Referrals, Kreators, and Creator Campaign.
+18. Verify `/leaderboard-settings` can control all four leaderboard surfaces.
+19. Verify `/refresh-leaderboard` refreshes all leaderboard surfaces.
+20. Check Railway runtime logs for startup errors and confirm `/app/data` remains mounted.
+21. Confirm existing KXP, referrals, wallets, settings, and community data remain intact after the additive SQLite migration.
