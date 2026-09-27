@@ -2939,7 +2939,7 @@ client.once('clientReady', async () => {
     for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
     await cacheInvites(fullGuild);
     console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id})`);
-    console.log('Run /setup-klineo confirm:true to sync LINKO v10.3 KlineO engagement + live leaderboard + wallet features.');
+    console.log('Run /setup-klineo confirm:true to sync LINKO v10.6 KREATOR + campaign + engagement features.');
     setInterval(() => checkPendingReferrals(fullGuild).catch(console.error), 60 * 60 * 1000);
     setInterval(() => processVoiceEventMinute(fullGuild).catch(console.error), 60 * 1000);
     setInterval(() => updateServerStats(fullGuild, false).catch(console.error), 5 * 60 * 1000);
@@ -2999,7 +2999,18 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.message.partial) await reaction.message.fetch();
     if (!reaction.message.guild || reaction.message.guild.id !== GUILD_ID) return;
     await recordImpactEngagement(reaction.message.id, user.id, 'reaction');
-  } catch {}
+    await handleCreatorPostReaction(reaction, user, true);
+  } catch (error) { logLinkoError('messageReactionAdd', error); }
+});
+
+client.on('messageReactionRemove', async (reaction, user) => {
+  if (user.bot) return;
+  try {
+    if (reaction.partial) await reaction.fetch();
+    if (reaction.message.partial) await reaction.message.fetch();
+    if (!reaction.message.guild || reaction.message.guild.id !== GUILD_ID) return;
+    await handleCreatorPostReaction(reaction, user, false);
+  } catch (error) { logLinkoError('messageReactionRemove', error); }
 });
 
 client.on('messageCreate', async (message) => {
@@ -3096,7 +3107,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         currentSetupPhase = 'idle';
-        return interaction.editReply('✅ KlineO LINKO v10.5 FINAL synced: activation/onboarding, community health, events, product roadmap, moderator inbox, language/interest roles, safe channel manager, impact KXP, referrals and all previous KlineO controls are active.');
+        return interaction.editReply('✅ KlineO LINKO v10.6 synced: activation/onboarding, community health, events, product roadmap, moderator inbox, language/interest roles, safe channel manager, impact KXP, referrals and all previous KlineO controls are active.');
       } catch (error) {
         const phase = currentSetupPhase;
         logLinkoError(`setup-klineo failed during ${phase}`, error);
@@ -3120,7 +3131,18 @@ client.on('interactionCreate', async (interaction) => {
       const type = interaction.options.getString('type') ?? 'kxp';
       if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: 'This leaderboard is currently private to KlineO staff.', ephemeral: true });
       const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
-      return interaction.reply({ embeds: type === 'referrals' ? buildReferralLeaderboardEmbeds(interaction.guild, limit) : buildLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
+      if (type === 'referrals') return interaction.reply({ embeds: buildReferralLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
+      if (type === 'creators') return interaction.reply({ embeds: buildCreatorLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
+      if (type === 'campaign') {
+        const campaignId = interaction.options.getInteger('campaign');
+        if (!campaignId) {
+          const active = creatorCampaigns('active');
+          const text = active.length ? active.map((c) => `**#${c.id}** · ${c.name}`).join('\n') : 'No active creator campaigns.';
+          return interaction.reply({ content: `**Active KlineO Creator Campaigns**\n${text}\n\nUse \`/leaderboard type:Creator Campaign campaign:<ID>\`.`, ephemeral: !leaderboardIsPublic(type) });
+        }
+        return interaction.reply({ embeds: buildCampaignLeaderboardEmbeds(interaction.guild, campaignId, limit), ephemeral: !leaderboardIsPublic(type) });
+      }
+      return interaction.reply({ embeds: buildLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
     }
 
     if (interaction.commandName === 'commands') {
@@ -3579,6 +3601,33 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    if (interaction.commandName === 'creator-campaign') {
+      if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+      const action = interaction.options.getSubcommand();
+      if (action === 'list') {
+        const rows = creatorCampaigns();
+        const text = rows.length ? rows.slice(0, 25).map((c) => `**#${c.id}** · ${c.name} · ${String(c.status).toUpperCase()}${c.description ? `\n${c.description}` : ''}`).join('\n\n') : 'No creator campaigns yet.';
+        return interaction.reply({ content: text, ephemeral: true });
+      }
+      if (action === 'create') {
+        const name = interaction.options.getString('name', true).trim();
+        const description = interaction.options.getString('description')?.trim() || '';
+        const result = db.prepare('INSERT INTO creator_campaigns (name, description, status, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(name, description, 'active', interaction.user.id, now());
+        const id = Number(result.lastInsertRowid);
+        await updateCampaignLeaderboardMessages(interaction.guild);
+        return interaction.reply({ content: `✅ Created creator campaign **#${id} · ${name}**. KREATORs can tag approved posts with \`/submit-post campaign:${id}\`.`, ephemeral: true });
+      }
+      if (action === 'close') {
+        const id = interaction.options.getInteger('campaign', true);
+        const campaign = creatorCampaignById(id);
+        if (!campaign) return interaction.reply({ content: `Campaign #${id} does not exist.`, ephemeral: true });
+        if (campaign.status === 'closed') return interaction.reply({ content: `Campaign #${id} is already closed.`, ephemeral: true });
+        db.prepare("UPDATE creator_campaigns SET status = 'closed', closed_at = ? WHERE id = ?").run(now(), id);
+        await updateCampaignLeaderboardMessages(interaction.guild);
+        return interaction.reply({ content: `✅ Closed creator campaign **#${id} · ${campaign.name}**. Its leaderboard is now frozen for new submissions.`, ephemeral: true });
+      }
+    }
+
     if (interaction.commandName === 'give-xp') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
@@ -3709,7 +3758,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'refresh-leaderboard') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       await updateAllLeaderboards(interaction.guild);
-      return interaction.reply({ content: '✅ KXP and referral Top 50 leaderboards refreshed.', ephemeral: true });
+      return interaction.reply({ content: '✅ KXP, referral, KREATOR and campaign leaderboards refreshed.', ephemeral: true });
     }
 
     if (interaction.commandName === 'export-leaderboard') {
@@ -3791,6 +3840,7 @@ Message: **+${getSettingInt('kxp_message')}**
 Voice: **+${getSettingInt('kxp_voice_interval')} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
 Valid referral: **+${getSettingInt('kxp_valid_referral')}**
 Approved social post: **+${getSettingInt('kxp_social_post')}**
+KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions** (max ${getSettingInt('creator_reaction_cap')} milestones/post)
 Valid bug report: **+${getSettingInt('kxp_bug_report')}**
 First-time X / Telegram / wallet item: **+${getSettingInt('kxp_profile_submission')}**
 Message daily cap: **${getSettingInt('message_daily_cap')} KXP**
@@ -3818,14 +3868,18 @@ Voice event: ${active ? `**ACTIVE** — ${active.name} in <#${active.channel_id}
         return interaction.reply({ content: `**LEADERBOARD SETTINGS**
 KXP Points: **${getSetting('kxp_leaderboard_visibility')}**
 Referrals: **${getSetting('referral_leaderboard_visibility')}**
+KREATORs: **${getSetting('creator_leaderboard_visibility')}**
+Creator Campaigns: **${getSetting('campaign_leaderboard_visibility')}**
 
 Public = visible to verified members. Private = visible only to KlineO staff.`, ephemeral: true });
       }
       if (!board || !visibility) return interaction.reply({ content: 'Choose both **board** and **visibility**, or leave both blank to view current settings.', ephemeral: true });
       setSetting(leaderboardVisibilityKey(board), visibility);
       await setLeaderboardChannelVisibility(interaction.guild, board, visibility);
-      await updateLeaderboardMessage(interaction.guild, board);
-      return interaction.reply({ content: `✅ ${board === 'kxp' ? 'KXP Points' : 'Referral'} leaderboard is now **${visibility.toUpperCase()}**.`, ephemeral: true });
+      if (board === 'campaign') await updateCampaignLeaderboardMessages(interaction.guild);
+      else await updateLeaderboardMessage(interaction.guild, board);
+      const label = board === 'kxp' ? 'KXP Points' : board === 'referrals' ? 'Referral' : board === 'creators' ? 'KREATOR' : 'Creator Campaign';
+      return interaction.reply({ content: `✅ ${label} leaderboard is now **${visibility.toUpperCase()}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'voice-event') {
@@ -3952,7 +4006,7 @@ Join <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_inter
 
     if (interaction.commandName === 'mod-help') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
-      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
     }
 
     if (interaction.commandName === 'grant-klineo-role') {
