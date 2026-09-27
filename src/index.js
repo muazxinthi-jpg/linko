@@ -1702,7 +1702,7 @@ async function refreshBrandMessages(guild) {
   if (welcome && verify) {
     const channels = { rules: ch('rules'), verify };
     if (channels.rules) await seedMessage(welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
-    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel('VERIFY & ENTER KLINEO').setStyle(ButtonStyle.Success));
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success));
     await seedMessage(verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [row] });
   }
   if (links) await seedMessage(links, '[KLINEO-OFFICIAL-LINKS]', { embeds: [buildOfficialLinksEmbed()] });
@@ -2655,7 +2655,7 @@ async function buildKlineO(guild) {
   for (const [key, name, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name, topic }, staffPrivate);
 
   setSetupPhase('09/11 · Seed verification, rules, docs + command guides');
-  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel('VERIFY & ENTER KLINEO').setStyle(ButtonStyle.Success));
+  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success));
   await seedMessage(channels.verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [verifyButton] });
   await seedMessage(channels.welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
   await seedMessage(channels.rules, '[KLINEO-RULES]', { content: `**KlineO Community Rules**\n\n1. Never share seed phrases, private keys or recovery information.\n2. Never send funds because of an unsolicited Discord DM.\n3. Only trust official links in <#${channels.links.id}>.\n4. No phishing, wallet-drainers, impersonation or malicious files.\n5. **No user-posted links in public community channels.**\n6. In the ANALYST+ Signal Room, links unlock at **STRATEGIST**.\n7. Social posts about KlineO must be submitted through \`/submit-post\`; approved posts can earn KXP.\n8. No spam, unsolicited promotion or guaranteed-return claims.\n9. Do not redistribute private Founder or Liquidity Studio discussions.\n10. Respect other members and moderators.\n\n[KLINEO-RULES]` });
@@ -2973,33 +2973,35 @@ async function processVoiceEventMinute(guild) {
 }
 
 async function sendWelcomeDm(member) {
+  const name = communityName();
   const verify = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verify');
   const rules = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'rules');
   const attribution = getJoinAttribution(member.id);
-  const detected = attribution?.detected_inviter_id ? `\n\nLINKO detected <@${attribution.detected_inviter_id}> as the invite creator. Confirm that by running \`/join-source source:Invited by a KlineO member\` (you can leave the member option empty), or choose the correct non-member source.` : '';
-  await member.send(`**Welcome to KlineO.**\n\n1. Read ${rules ? `<#${rules.id}>` : '#rules'}.\n2. Before verification, run **/join-source** and tell LINKO how you joined KlineO.${detected}\n3. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.\n\nIf a member invited you manually, select them in /join-source. They will need to confirm the referral, but you do **not** have to wait for that confirmation to enter KlineO.\n\nKlineO staff will never ask for your seed phrase, private key or funds via unsolicited DM.`).catch(() => {});
+  const detected = attribution?.detected_inviter_id ? `\n\nLINKO detected <@${attribution.detected_inviter_id}> as the invite creator. Confirm that by running \`/join-source source:Invited by a member\` (you can leave the member option empty), or choose the correct non-member source.` : '';
+  await member.send(`**Welcome to ${name}.**\n\n1. Read ${rules ? `<#${rules.id}>` : '#rules'}.\n2. Before verification, run **/join-source** and tell LINKO how you joined ${name}.${detected}\n3. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.\n\nIf a member invited you manually, select them in /join-source. They will need to confirm the referral, but you do **not** have to wait for that confirmation to enter.\n\n${name} staff will never ask for your seed phrase, private key or funds via unsolicited DM.`).catch(() => {});
 }
 
 async function verifyMember(interaction) {
+  const name = communityName();
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (hasVerifiedRole(member)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
   const attribution = getJoinAttribution(member.id);
   if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
-    return interaction.reply({ content: 'Before you can enter KlineO, run **/join-source** in this server and select how you joined. If a member invited you, select that member. This keeps referral attribution accurate.', ephemeral: true });
+    return interaction.reply({ content: `Before you can enter ${name}, run **/join-source** in this server and select how you joined. If a member invited you, select that member. This keeps referral attribution accurate.`, ephemeral: true });
   }
   const ageHours = (now() - interaction.user.createdTimestamp) / 3600000;
   if (ageHours < MIN_ACCOUNT_AGE_HOURS) return interaction.reply({ content: `This Discord account is too new to verify yet. Please try again after it is ${MIN_ACCOUNT_AGE_HOURS} hours old.`, ephemeral: true });
-  const verified = interaction.guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const verifiedRole = interaction.guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
   const l1 = interaction.guild.roles.cache.find((r) => r.name === 'OBSERVER');
-  if (!verified || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-klineo.', ephemeral: true });
-  await member.roles.add([verified, l1], 'KlineO self-verification');
+  if (!verifiedRole || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-linko.', ephemeral: true });
+  await member.roles.add([verifiedRole, l1], 'LINKO self-verification');
   ensureUserRow(member.id, member.joinedTimestamp ?? now());
   db.prepare('UPDATE users SET verified_at = ? WHERE user_id = ?').run(now(), member.id);
   const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verification-log' && c.isTextBased());
-  if (log) log.send(`✅ ${member} verified and entered KlineO as **OBSERVER**. Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.`).catch(() => {});
+  if (log) log.send(`✅ ${member} verified and entered ${name} as **OBSERVER**. Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.`).catch(() => {});
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   scheduleHealthUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-  return interaction.reply({ content: `✅ Verified. Welcome to KlineO. You now have **OBSERVER** access. Join source recorded as **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' && !Number(attribution.inviter_confirmed) ? ' Your referral remains pending until the inviter confirms it.' : ''} Run \`/onboarding\` to choose interests/languages and complete your activation checklist.`, ephemeral: true });
+  return interaction.reply({ content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Join source recorded as **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' && !Number(attribution.inviter_confirmed) ? ' Your referral remains pending until the inviter confirms it.' : ''} Run \`/onboarding\` to complete your activation checklist.`, ephemeral: true });
 }
 
 async function createFounderApplicationModal(interaction) {
@@ -3385,6 +3387,16 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
     if (!interaction.isChatInputCommand()) return;
 
+    if (!moduleEnabled('kreator') && ['creator-campaign', 'submit-post'].includes(interaction.commandName)) {
+      return interaction.reply({ content: 'The **KREATOR** module is disabled in this server.', ephemeral: true });
+    }
+    if (!moduleEnabled('founder_hub') && interaction.commandName === 'apply-founder') {
+      return interaction.reply({ content: 'The **Founder Hub** module is disabled in this server.', ephemeral: true });
+    }
+    if (!moduleEnabled('liquidity_studio') && interaction.commandName === 'create-client-space') {
+      return interaction.reply({ content: 'The **Liquidity Studio** module is disabled in this server.', ephemeral: true });
+    }
+
     // Acknowledge long-running setup immediately. Discord requires an initial
     // interaction response within ~3 seconds; command logging must never block it.
     if (interaction.commandName === 'setup-klineo' || interaction.commandName === 'setup-linko') {
@@ -3423,8 +3435,12 @@ client.on('interactionCreate', async (interaction) => {
       if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: 'This leaderboard is currently private to KlineO staff.', ephemeral: true });
       const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
       if (type === 'referrals') return interaction.reply({ embeds: buildReferralLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
-      if (type === 'creators') return interaction.reply({ embeds: buildCreatorLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
+      if (type === 'creators') {
+        if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
+        return interaction.reply({ embeds: buildCreatorLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
+      }
       if (type === 'campaign') {
+        if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
         const campaignId = interaction.options.getInteger('campaign');
         if (!campaignId) {
           const active = creatorCampaigns('active');
