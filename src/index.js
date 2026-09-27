@@ -514,6 +514,26 @@ const PROFILE_MODULES = Object.freeze({
   product: 'module_product',
 });
 
+function xpSlug() {
+  return xpLabel().toLowerCase();
+}
+
+function xpLeaderboardChannelName() {
+  return `🏆・${xpSlug()}-leaderboard`;
+}
+
+function howToEarnXpChannelName() {
+  return `⚡・how-to-earn-${xpSlug()}`;
+}
+
+function xpLeaderboardBase() {
+  return baseChannelName(xpLeaderboardChannelName());
+}
+
+function howToEarnXpBase() {
+  return baseChannelName(howToEarnXpChannelName());
+}
+
 function communityName() {
   return String(getSetting('server_name') || 'Community').trim() || 'Community';
 }
@@ -2019,7 +2039,7 @@ function leaderboardChannelBase(type) {
   if (type === 'referrals') return 'referral-leaderboard';
   if (type === 'creators') return 'kreator-leaderboard';
   if (type === 'campaign') return 'campaign-leaderboard';
-  return 'kxp-leaderboard';
+  return xpLeaderboardBase();
 }
 
 function leaderboardVisibilityKey(type) {
@@ -2472,7 +2492,7 @@ Approved posts are published here by LINKO. KREATOR posts can also earn reaction
 [KLINEO-SOCIAL]`;
 }
 async function updatePublicKxpDocs(guild) {
-  const how = guild.channels.cache.find((c) => baseChannelName(c.name) === 'how-to-earn-kxp' && c.isTextBased());
+  const how = guild.channels.cache.find((c) => baseChannelName(c.name) === howToEarnXpBase() && c.isTextBased());
   const social = guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
   const links = guild.channels.cache.find((c) => baseChannelName(c.name) === 'official-links' && c.isTextBased());
   if (how) await seedMessage(how, '[KLINEO-KXP]', { content: kxpRulesContent() });
