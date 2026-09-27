@@ -949,10 +949,25 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('server-settings')
-    .setDescription('Administrator: view or change this server\'s LINKO settings.')
+    .setDescription('Administrator: view or change this server\'s LINKO profile.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View server-level LINKO settings.'))
+    .addSubcommand((sc) => sc.setName('community-name').setDescription('Set the community/project display name.')
+      .addStringOption((o) => o.setName('name').setDescription('Example: KlineO, Polkadot').setRequired(true).setMinLength(2).setMaxLength(40)))
     .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
-      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6))),
+      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6)))
+    .addSubcommand((sc) => sc.setName('preset').setDescription('Apply a safe module preset before setup.')
+      .addStringOption((o) => o.setName('type').setDescription('Server profile preset').setRequired(true).addChoices(
+        { name: 'KlineO Full', value: 'klineo' },
+        { name: 'Core Community', value: 'community' },
+      )))
+    .addSubcommand((sc) => sc.setName('module').setDescription('Enable or disable an optional LINKO module.')
+      .addStringOption((o) => o.setName('name').setDescription('Module').setRequired(true).addChoices(
+        { name: 'Signal Room', value: 'signal_room' },
+        { name: 'KREATOR', value: 'kreator' },
+        { name: 'Founder Hub', value: 'founder_hub' },
+        { name: 'Liquidity Studio', value: 'liquidity_studio' },
+      ))
+      .addBooleanOption((o) => o.setName('enabled').setDescription('Enable or disable').setRequired(true)))
 
   new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
   new SlashCommandBuilder()
