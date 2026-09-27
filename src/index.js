@@ -2190,9 +2190,10 @@ async function awardFirstSubmissionKxp(guild, userId, item, label, actorId = nul
 }
 
 function joinSourceLabel(source) {
+  const name = communityName();
   return ({
-    member: 'Invited by a KlineO member',
-    organic: 'Found KlineO myself',
+    member: `Invited by a ${name} member`,
+    organic: `Found ${name} myself`,
     x: 'X / social media',
     telegram: 'Telegram',
     event: 'Event / AMA',
