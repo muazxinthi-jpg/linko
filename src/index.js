@@ -3544,18 +3544,22 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
       if (interaction.customId === 'klineo_verify') return verifyMember(interaction);
       if (interaction.customId.startsWith('social_approve:')) {
+        if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleSocialReview(interaction, Number(id), true);
       }
       if (interaction.customId.startsWith('social_reject:')) {
+        if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleSocialReview(interaction, Number(id), false);
       }
       if (interaction.customId.startsWith('founder_approve:')) {
+        if (!moduleEnabled('founders')) return interaction.reply({ content: 'The Founder module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleFounderReview(interaction, 'approve', Number(id));
       }
       if (interaction.customId.startsWith('founder_reject:')) {
+        if (!moduleEnabled('founders')) return interaction.reply({ content: 'The Founder module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleFounderReview(interaction, 'reject', Number(id));
       }
@@ -3567,6 +3571,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.editReply(`✅ Suggestion #${id} → **${suggestionStatusLabel(status)}**.`);
       }
       if (interaction.customId.startsWith('event_rsvp:')) {
+        if (!moduleEnabled('events')) return interaction.reply({ content: 'The Events module is disabled in this server.', ephemeral: true });
         const [, id, status] = interaction.customId.split(':');
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
