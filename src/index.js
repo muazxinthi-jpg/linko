@@ -2486,7 +2486,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('02/11 · Create/sync roles');
   const roles = {};
-  for (const spec of ROLE_SPECS) roles[spec.key] = await ensureRole(guild, spec);
+  for (const spec of roleSpecsForServer()) roles[spec.key] = await ensureRole(guild, spec);
   for (const rank of RANKS) roles[rank.key] = guild.roles.cache.find((r) => r.name === rank.name);
   for (const [key, label, color] of INTERESTS) {
     roles[`interest_${key}`] = await ensureRole(guild, { name: `${INTEREST_ROLE_PREFIX}${label}`, color, hoist: false, permissions: [] });
@@ -2494,7 +2494,7 @@ async function buildKlineO(guild) {
 
   const me = await guild.members.fetchMe();
   const ceiling = me.roles.highest.position;
-  const orderedNames = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR', 'STUDIO CLIENT', 'VERIFIED FOUNDER', 'PARTNER', 'KREATOR', 'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER', ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`)];
+  const orderedNames = [coreRoleName(), teamRoleName(), 'MODERATOR', ...(moduleEnabled('liquidity_studio') ? ['STUDIO CLIENT'] : []), ...(moduleEnabled('founder_hub') ? ['VERIFIED FOUNDER'] : []), 'PARTNER', ...(moduleEnabled('kreator') ? ['KREATOR'] : []), 'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER', ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`)];
   const movable = orderedNames.map((n) => guild.roles.cache.find((r) => r.name === n)).filter((r) => r && r.position < ceiling);
   const positions = movable.map((r, i) => ({ role: r.id, position: Math.max(1, ceiling - 1 - i) }));
   if (positions.length) await guild.roles.setPositions(positions).catch((e) => console.warn('Role order warning:', e.message));
@@ -2516,13 +2516,15 @@ async function buildKlineO(guild) {
   const categories = {};
   categories.stats = await ensureCategory(guild, CATEGORY_NAMES.stats, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
   categories.start = await ensureCategory(guild, CATEGORY_NAMES.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
-  categories.community = await ensureCategory(guild, CATEGORY_NAMES.community, verifiedBase);
-  categories.kxp = await ensureCategory(guild, CATEGORY_NAMES.kxp, verifiedBase);
-  categories.signal = await ensureCategory(guild, CATEGORY_NAMES.signal, signalPrivate);
-  categories.social = await ensureCategory(guild, CATEGORY_NAMES.social, verifiedBase);
-  categories.creators = await ensureCategory(guild, CATEGORY_NAMES.creators, creatorsPrivate);
-  categories.founders = await ensureCategory(guild, CATEGORY_NAMES.founders, foundersPrivate);
-  categories.studio = await ensureCategory(guild, CATEGORY_NAMES.studio, studioPrivate);
+  categories.community = await ensureCategory(guild, categoryName('community'), verifiedBase);
+  categories.kxp = await ensureCategory(guild, categoryName('kxp'), verifiedBase);
+  if (moduleEnabled('signal_room')) categories.signal = await ensureCategory(guild, CATEGORY_NAMES.signal, signalPrivate);
+  if (moduleEnabled('kreator')) {
+    categories.social = await ensureCategory(guild, categoryName('social'), verifiedBase);
+    categories.creators = await ensureCategory(guild, CATEGORY_NAMES.creators, creatorsPrivate);
+  }
+  if (moduleEnabled('founder_hub')) categories.founders = await ensureCategory(guild, CATEGORY_NAMES.founders, foundersPrivate);
+  if (moduleEnabled('liquidity_studio')) categories.studio = await ensureCategory(guild, CATEGORY_NAMES.studio, studioPrivate);
   categories.high = await ensureCategory(guild, CATEGORY_NAMES.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
   categories.voice = await ensureCategory(guild, CATEGORY_NAMES.voice, verifiedBase);
   categories.languages = await ensureCategory(guild, CATEGORY_NAMES.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
