@@ -2412,7 +2412,7 @@ Voice time only earns ${label} while staff have an **official voice event** acti
 
 **Message ${label} is impact-scored.** LINKO first rejects short/trivial/repeated/duplicate/link-spam messages. Candidate messages are then scored using content quality/relevance plus real community response (meaningful replies or distinct reactions). A moderator can confirm or reverse edge cases. LINKO stores only message IDs + scores/metadata for this system, not the message body.
 
-Use `/rank`, `/points`, `/invite`, `/invites`, and `/leaderboard`.
+Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, and \`/leaderboard\`.
 
 [KLINEO-KXP]`;
 }
