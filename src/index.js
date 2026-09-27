@@ -3645,7 +3645,9 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'leaderboard') {
       const type = interaction.options.getString('type') ?? 'kxp';
-      if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: 'This leaderboard is currently private to KlineO staff.', ephemeral: true });
+      if (type === 'referrals' && !moduleEnabled('referrals')) return interaction.reply({ content: 'The Referrals module is disabled in this server.', ephemeral: true });
+      if ((type === 'creators' || type === 'campaign') && !moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
+      if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: 'This leaderboard is currently private to staff.', ephemeral: true });
       const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
       if (type === 'referrals') return interaction.reply({ embeds: buildReferralLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
       if (type === 'creators') return interaction.reply({ embeds: buildCreatorLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
@@ -3654,7 +3656,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!campaignId) {
           const active = creatorCampaigns('active');
           const text = active.length ? active.map((c) => `**#${c.id}** · ${c.name}`).join('\n') : 'No active creator campaigns.';
-          return interaction.reply({ content: `**Active KlineO Creator Campaigns**\n${text}\n\nUse \`/leaderboard type:Creator Campaign campaign:<ID>\`.`, ephemeral: !leaderboardIsPublic(type) });
+          return interaction.reply({ content: `**Active ${communityName()} Creator Campaigns**\n${text}\n\nUse /leaderboard type:Creator Campaign campaign:<ID>.`, ephemeral: !leaderboardIsPublic(type) });
         }
         return interaction.reply({ embeds: buildCampaignLeaderboardEmbeds(interaction.guild, campaignId, limit), ephemeral: !leaderboardIsPublic(type) });
       }
@@ -3662,7 +3664,12 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n`/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', ephemeral: true });
+      const names = commandsForCurrentProfile()
+        .map((command) => command.name)
+        .filter((commandName) => !['setup-linko','setup-klineo','server-settings','mod-help'].includes(commandName));
+      const memberPreferred = ['rank','points','leaderboard','invite','invites','join-source','wallet','submit-post','social-card','apply-founder','onboarding','interest','language','suggest','events'];
+      const visible = memberPreferred.filter((name) => names.includes(name));
+      return interaction.reply({ content: `**LINKO Member Commands · ${communityName()}**\n${visible.map((name) => `/${name}`).join(' · ')}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
