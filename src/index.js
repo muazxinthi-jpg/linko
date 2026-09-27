@@ -1309,6 +1309,65 @@ const GENERIC_COMMAND_ALIASES = Object.freeze({
   'grant-klineo-role': 'grant-linko-role',
 });
 
+function profileCommandJson(command) {
+  const out = structuredClone(command);
+
+  if (out.name === 'leaderboard') {
+    const option = out.options?.find((o) => o.name === 'type');
+    if (option?.choices) {
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'referrals') return moduleEnabled('referrals');
+        if (choice.value === 'creators' || choice.value === 'campaign') return moduleEnabled('kreator');
+        return true;
+      });
+    }
+  }
+
+  if (out.name === 'social-card') {
+    const option = out.options?.find((o) => o.name === 'type');
+    if (option?.choices) {
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'referral') return moduleEnabled('referrals');
+        if (choice.value === 'founder') return moduleEnabled('founders');
+        return true;
+      });
+    }
+  }
+
+  if (out.name === 'grant-klineo-role') {
+    const option = out.options?.find((o) => o.name === 'role');
+    if (option?.choices) {
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'KREATOR') return moduleEnabled('kreator');
+        if (choice.value === 'VERIFIED FOUNDER') return moduleEnabled('founders');
+        if (choice.value === 'STUDIO CLIENT') return moduleEnabled('studio');
+        return true;
+      });
+    }
+  }
+
+  if (out.name === 'official-links' && !moduleEnabled('studio')) {
+    for (const sub of out.options ?? []) {
+      const option = sub.options?.find((o) => o.name === 'type');
+      if (option?.choices) option.choices = option.choices.filter((choice) => choice.value !== 'liquidity_studio');
+    }
+  }
+
+  if (out.name === 'server-image') {
+    for (const sub of out.options ?? []) {
+      const option = sub.options?.find((o) => o.name === 'slot');
+      if (!option?.choices) continue;
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'social') return moduleEnabled('kreator');
+        if (choice.value === 'founder') return moduleEnabled('founders');
+        return true;
+      });
+    }
+  }
+
+  return out;
+}
+
 function commandsForCurrentProfile() {
   return commands
     .filter((command) => {
@@ -1316,6 +1375,7 @@ function commandsForCurrentProfile() {
       const moduleName = commandModule(command.name);
       return !moduleName || moduleEnabled(moduleName);
     })
+    .map(profileCommandJson)
     .map((command) => {
       if (isKlineoTemplate()) return command;
       const alias = GENERIC_COMMAND_ALIASES[command.name];
