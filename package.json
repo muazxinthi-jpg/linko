@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.6.0",
+  "version": "10.7.0",
   "private": true,
-  "description": "LINKO v10.6.0 — KlineO KREATOR leaderboards, campaign leaderboards and reaction-based KXP",
+  "description": "LINKO v10.7.0 — multi-server isolation, per-server XP labels, KREATOR campaigns and batch channel management",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
