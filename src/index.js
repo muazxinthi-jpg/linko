@@ -2966,7 +2966,11 @@ async function generateSocialCard(guild, member, type) {
   glow.addColorStop(0, 'rgba(184,240,58,0.18)'); glow.addColorStop(1, 'rgba(184,240,58,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#B8F03A'; ctx.fillRect(85, 75, 8, 100);
-  ctx.fillStyle = '#FFFFFF'; ctx.font = '800 42px sans-serif'; ctx.fillText('KLINEO', 125, 125);
+  const brandName = communityName();
+  const brandTitle = brandName.toUpperCase().slice(0, 28);
+  let footerBrand = 'Powered by LINKO';
+  try { const official = getSetting('official_website'); if (official) footerBrand = new URL(official).hostname.replace(/^www\./, ''); } catch {}
+  ctx.fillStyle = '#FFFFFF'; ctx.font = '800 42px sans-serif'; ctx.fillText(brandTitle, 125, 125);
   ctx.fillStyle = '#9CA3AF'; ctx.font = '500 24px monospace'; ctx.fillText('COMMUNITY IDENTITY // LINKO', 125, 162);
 
   const xp = getXp(member.id);
@@ -2991,7 +2995,7 @@ async function generateSocialCard(guild, member, type) {
     ctx.fillStyle = '#FFFFFF'; ctx.font = '800 46px monospace'; ctx.fillText(value, x, y + 58);
   };
   let title = 'PROGRESS CARD';
-  let caption = `I’m ${rank.name} in the KlineO community with ${xp.toLocaleString()} ${label}.`;
+  let caption = `I’m ${rank.name} in the ${brandName} community with ${xp.toLocaleString()} ${label}.`;
   if (type === 'progress') {
     metric(label, xp.toLocaleString(), 145, 475);
     metric(`${label} leaderboard`, kpos ? `#${kpos}` : '—', 560, 475);
@@ -3002,19 +3006,21 @@ async function generateSocialCard(guild, member, type) {
     ctx.fillStyle = '#B8F03A'; drawRoundRect(ctx, 145, 630, Math.max(24, 1180 * pct), 24, 12); ctx.fill();
     ctx.fillStyle = '#9CA3AF'; ctx.font = '500 22px monospace'; ctx.fillText(next ? `${(next.threshold - xp).toLocaleString()} ${label} to ${next.name}` : `PRIME reached · ${label} keeps growing`, 145, 700);
   } else if (type === 'referral') {
+    if (!moduleEnabled('referrals')) throw new Error('Referral cards are disabled because the Referrals module is off.');
     title = 'REFERRAL CARD';
     metric('Valid referrals', referrals.valid.toLocaleString(), 145, 475);
     metric('Total invited', referrals.total.toLocaleString(), 560, 475);
     metric('Referral leaderboard', rpos ? `#${rpos}` : '—', 1000, 475);
-    caption = `I’ve brought ${referrals.valid} verified members into the KlineO community. My referral rank: ${rpos ? `#${rpos}` : 'building'}.`;
+    caption = `I’ve brought ${referrals.valid} verified members into the ${brandName} community. My referral rank: ${rpos ? `#${rpos}` : 'building'}.`;
   } else if (type === 'impact') {
     title = 'COMMUNITY IMPACT';
     metric(label, xp.toLocaleString(), 145, 475);
     metric('Valid referrals', referrals.valid.toLocaleString(), 500, 475);
     metric('Approved posts', socialCount.toLocaleString(), 870, 475);
     metric('Valid bugs', bugs.toLocaleString(), 1230, 475);
-    caption = `My KlineO community impact: ${xp.toLocaleString()} ${label}, ${referrals.valid} valid referrals and ${socialCount} approved social posts.`;
+    caption = `My ${brandName} community impact: ${xp.toLocaleString()} ${label}, ${referrals.valid} valid referrals and ${socialCount} approved social posts.`;
   } else if (type === 'founder') {
+    if (!moduleEnabled('founders')) throw new Error('Founder cards are disabled because the Founder module is off.');
     const isFounder = member.roles.cache.some((r) => ['VERIFIED FOUNDER', 'STUDIO CLIENT'].includes(r.name));
     if (!isFounder) throw new Error('Founder cards are available only to VERIFIED FOUNDER or STUDIO CLIENT roles.');
     const app = db.prepare("SELECT * FROM founder_applications WHERE user_id = ? AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(member.id);
@@ -3022,11 +3028,11 @@ async function generateSocialCard(guild, member, type) {
     metric('Community rank', rank.name, 145, 475);
     metric(label, xp.toLocaleString(), 620, 475);
     metric('Project', app?.project_name ? app.project_name.slice(0, 18) : 'VERIFIED', 1000, 475);
-    caption = `Verified Founder in the KlineO community${app?.project_name ? `, building ${app.project_name}` : ''}.`;
+    caption = `Verified Founder in the ${brandName} community${app?.project_name ? `, building ${app.project_name}` : ''}.`;
   }
 
   ctx.fillStyle = '#9CA3AF'; ctx.font = '600 22px monospace'; ctx.fillText(title, 90, 815);
-  ctx.fillStyle = '#FFFFFF'; ctx.font = '600 22px sans-serif'; ctx.textAlign = 'right'; ctx.fillText('klineo.xyz', 1510, 815); ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF'; ctx.font = '600 22px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(footerBrand, 1510, 815); ctx.textAlign = 'left';
   return { buffer: canvas.toBuffer('image/png'), caption, title };
 }
 async function publishOfficialLinks(guild) {
