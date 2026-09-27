@@ -3512,47 +3512,48 @@ client.on('interactionCreate', async (interaction) => {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
       const channel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'welcome' && c.type === ChannelType.GuildText) ?? interaction.channel;
-      const invite = await channel.createInvite({ maxAge: 0, maxUses: 0, unique: true, reason: `Tracked KlineO invite for ${interaction.user.tag}` });
+      const invite = await channel.createInvite({ maxAge: 0, maxUses: 0, unique: true, reason: `Tracked ${communityName()} invite for ${interaction.user.tag}` });
       db.prepare('INSERT OR REPLACE INTO invite_codes (code, inviter_id, created_at) VALUES (?, ?, ?)').run(invite.code, interaction.user.id, now());
       inviteCacheForGuild(interaction.guildId).set(invite.code, invite.uses ?? 0);
-      return interaction.reply({ content: `Your tracked KlineO invite:\n${invite.url}\n\nA referral becomes valid after **7 days** if the member remains in the server and verifies.`, ephemeral: true });
+      return interaction.reply({ content: `Your tracked ${communityName()} invite:\n${invite.url}\n\nA referral becomes valid after **7 days** if the member remains in the server and verifies.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'invites') {
       const stats = getReferralStats(interaction.user.id);
-      return interaction.reply({ content: `**Your KlineO referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
+      return interaction.reply({ content: `**Your ${communityName()} referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'join-source') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
-      if (hasVerifiedRole(member)) return interaction.reply({ content: 'Your KlineO join source is locked after verification. Ask staff if a correction is required.', ephemeral: true });
+      const name = communityName();
+      if (hasVerifiedRole(member)) return interaction.reply({ content: `Your ${name} join source is locked after verification. Ask staff if a correction is required.`, ephemeral: true });
       const source = interaction.options.getString('source', true);
       const selectedUser = interaction.options.getUser('member');
       const existingAttribution = getJoinAttribution(member.id);
       const joinedAt = member.joinedTimestamp ?? db.prepare('SELECT joined_at FROM users WHERE user_id=?').get(member.id)?.joined_at ?? now();
 
       if (source !== 'member') {
-        if (selectedUser) return interaction.reply({ content: 'Only select a member when your source is **Invited by a KlineO member**.', ephemeral: true });
+        if (selectedUser) return interaction.reply({ content: 'Only select a member when your source is **Invited by a community member**.', ephemeral: true });
         if (existingAttribution?.detected_inviter_id) {
-          return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. If that is correct, choose **Invited by a KlineO member**. If it is genuinely incorrect, ask a moderator to resolve the attribution.`, ephemeral: true });
+          return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. If that is correct, choose **Invited by a community member**. If it is genuinely incorrect, ask a moderator to resolve the attribution.`, ephemeral: true });
         }
         upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: existingAttribution?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
         db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
         scheduleModInboxUpdate(interaction.guild);
-        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can now use the **VERIFY & ENTER KLINEO** button.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can now use the **VERIFY & ENTER ${communityNameUpper().slice(0, 24)}** button.`, ephemeral: true });
       }
 
       let inviterUser = selectedUser;
       if (!inviterUser && existingAttribution?.detected_inviter_id) inviterUser = await client.users.fetch(existingAttribution.detected_inviter_id).catch(() => null);
-      if (!inviterUser) return interaction.reply({ content: 'Select the KlineO member who invited you. If LINKO detected an invite creator, you may leave the member option empty and LINKO will use that detected inviter.', ephemeral: true });
+      if (!inviterUser) return interaction.reply({ content: 'Select the community member who invited you. If LINKO detected an invite creator, you may leave the member option empty and LINKO will use that detected inviter.', ephemeral: true });
       if (inviterUser.id === interaction.user.id) return interaction.reply({ content: 'You cannot select yourself as your inviter.', ephemeral: true });
       if (inviterUser.bot) return interaction.reply({ content: 'Bots cannot receive referral credit.', ephemeral: true });
       if (existingAttribution?.detected_inviter_id && inviterUser.id !== existingAttribution.detected_inviter_id) {
         return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. Staff must resolve that attribution before a different inviter can be selected.`, ephemeral: true });
       }
       const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: 'The inviter must currently be a verified KlineO member.', ephemeral: true });
-      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: 'The selected inviter must have been a KlineO member before you joined.', ephemeral: true });
+      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: `The inviter must currently be a verified ${name} member.`, ephemeral: true });
+      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: `The selected inviter must have been a ${name} member before you joined.`, ephemeral: true });
 
       const existingReferral = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(member.id);
       if (existingReferral && existingReferral.inviter_id !== inviter.id) return interaction.reply({ content: `LINKO already has a different pending inviter: <@${existingReferral.inviter_id}>. Ask staff to resolve the attribution.`, ephemeral: true });
@@ -3567,15 +3568,15 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${detectedMatch ? 'LINKO invite detection already confirms the inviter.' : 'Awaiting inviter confirmation.'}`).catch(() => {});
       if (!detectedMatch) {
-        await inviter.send(`🤝 **KlineO referral confirmation**\n${member.user.username} says you personally invited them to KlineO. If correct, go to the KlineO server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
+        await inviter.send(`🤝 **${name} referral confirmation**\n${member.user.username} says you personally invited them to ${name}. If correct, go to the ${name} server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
       }
       scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter KlineO.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
+      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${name}.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'confirm-invited') {
       const inviter = await interaction.guild.members.fetch(interaction.user.id);
-      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: 'Only verified KlineO members can confirm referrals.', ephemeral: true });
+      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `Only verified ${communityName()} members can confirm referrals.`, ephemeral: true });
       const referredUser = interaction.options.getUser('member', true);
       if (referredUser.id === interaction.user.id) return interaction.reply({ content: 'You cannot confirm yourself as a referral.', ephemeral: true });
       const attribution = getJoinAttribution(referredUser.id);
@@ -3587,14 +3588,14 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🤝 **Inviter confirmed** — ${interaction.user} confirmed they invited ${referredUser}. Referral remains pending until verification + 7 days + activity requirements are met.`).catch(() => {});
       const referred = await interaction.guild.members.fetch(referredUser.id).catch(() => null);
-      if (referred) await referred.send(`✅ ${interaction.user.username} confirmed that they invited you to KlineO. Referral credit is still pending until you are verified, remain for 7 days, and meet activity requirements.`).catch(() => {});
+      if (referred) await referred.send(`✅ ${interaction.user.username} confirmed that they invited you to ${communityName()}. Referral credit is still pending until you are verified, remain for 7 days, and meet activity requirements.`).catch(() => {});
       scheduleModInboxUpdate(interaction.guild);
       return interaction.reply({ content: `✅ Confirmed. ${referredUser}'s referral is now attributed to you and will validate automatically after the remaining qualification rules are met.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'referred-by') {
       const member = interaction.options.getUser('member', true);
-      return interaction.reply({ content: `Please use the new required onboarding command: **/join-source source:Invited by a KlineO member member:${member.username}**. LINKO now requires every new member to select a join source before verification.`, ephemeral: true });
+      return interaction.reply({ content: `Please use the required onboarding command: **/join-source source:Invited by a community member member:${member.username}**. LINKO requires every new member to select a join source before verification.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'wallet') {
