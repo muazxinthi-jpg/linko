@@ -3413,20 +3413,21 @@ client.once('clientReady', async () => {
         console.log('Run /setup-linko confirm:true to sync the active server profile.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
-        if (moduleEnabled('referrals')) setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
-        if (moduleEnabled('events')) setInterval(recurring(processVoiceEventMinute), 60 * 1000);
+        const recurringWhen = (moduleName, fn) => () => runWithGuild(fullGuild.id, () => moduleEnabled(moduleName) ? fn(fullGuild).catch(console.error) : undefined);
+        setInterval(recurringWhen('referrals', checkPendingReferrals), 60 * 60 * 1000);
+        setInterval(recurringWhen('events', processVoiceEventMinute), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateServerStats(fullGuild, false).catch(console.error)), 5 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 5 * 60 * 1000);
         setInterval(recurring(evaluateImpactCandidates), 60 * 1000);
-        if (moduleEnabled('events')) setInterval(recurring(processCommunityEvents), 60 * 1000);
+        setInterval(recurringWhen('events', processCommunityEvents), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 10 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 5 * 60 * 1000);
 
-        if (moduleEnabled('referrals')) setTimeout(recurring(checkPendingReferrals), 15000);
+        setTimeout(recurringWhen('referrals', checkPendingReferrals), 15000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 20000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 25000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 30000);
-        if (moduleEnabled('events')) setTimeout(recurring(processCommunityEvents), 35000);
+        setTimeout(recurringWhen('events', processCommunityEvents), 35000);
       });
     } catch (error) {
       console.error(`Startup failed for guild ${guildId}:`, error);
@@ -4456,6 +4457,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
         const moduleName = interaction.options.getString('module', true);
         const enabled = interaction.options.getBoolean('enabled', true);
         setModuleEnabled(moduleName, enabled);
+        if (moduleName === 'referrals' && enabled) await cacheInvites(interaction.guild).catch(() => {});
         await interaction.guild.commands.set(commandsForCurrentProfile()).catch(() => {});
         return interaction.reply({ content: `✅ **${moduleName}** is now **${moduleEnabled(moduleName) ? 'ENABLED' : 'DISABLED'}**.\nRun \`/setup-linko confirm:true\` to create/sync enabled module spaces. Disabling a module hides its commands but does not automatically delete existing Discord channels or historical data.`, ephemeral: true });
       }
