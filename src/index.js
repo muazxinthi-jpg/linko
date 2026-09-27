@@ -600,6 +600,21 @@ const ROLE_SPECS = [
   ...[...RANKS].reverse().map((rank) => ({ ...rank, hoist: false, permissions: [] })),
 ];
 
+function roleSpecsForServer() {
+  return ROLE_SPECS
+    .filter((spec) => {
+      if (spec.key === 'creator') return moduleEnabled('kreator');
+      if (spec.key === 'founder') return moduleEnabled('founder_hub');
+      if (spec.key === 'studio') return moduleEnabled('liquidity_studio');
+      return true;
+    })
+    .map((spec) => {
+      if (spec.key === 'core') return { ...spec, name: coreRoleName() };
+      if (spec.key === 'team') return { ...spec, name: teamRoleName() };
+      return spec;
+    });
+}
+
 const PUBLIC_NO_LINK_CHANNELS = new Set([
   'general', 'market-chat', 'trade-setups', 'ai-agent-lab', 'product-feedback', 'bug-reports', 'help',
   'introductions', 'wins-and-learnings',
@@ -1170,11 +1185,12 @@ function isAdmin(interaction) {
   return interaction.guild?.ownerId === interaction.user.id || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
 }
 function hasCoreRole(member) {
-  return member?.roles?.cache?.some((r) => r.name === 'KLINEO CORE');
+  const names = new Set([coreRoleName(), 'KLINEO CORE', 'COMMUNITY CORE']);
+  return member?.roles?.cache?.some((r) => names.has(r.name));
 }
 function hasStaffRole(member) {
-  const names = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR'];
-  return member?.roles?.cache?.some((r) => names.includes(r.name));
+  const names = new Set([coreRoleName(), teamRoleName(), 'KLINEO CORE', 'KLINEO TEAM', 'COMMUNITY CORE', 'COMMUNITY TEAM', 'MODERATOR']);
+  return member?.roles?.cache?.some((r) => names.has(r.name));
 }
 function hasVerifiedRole(member) { return member?.roles?.cache?.some((r) => r.name === 'VERIFIED MEMBER'); }
 function hasKreatorRole(member) { return member?.roles?.cache?.some((r) => r.name === 'KREATOR' || r.name === 'CREATOR'); }
