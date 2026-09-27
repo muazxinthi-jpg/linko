@@ -883,7 +883,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('join-source')
     .setDescription('Required before verification: tell LINKO how you joined this community.')
-    .addStringOption((o) => o.setName('source').setDescription('How did you find/join KlineO?').setRequired(true).addChoices(
+    .addStringOption((o) => o.setName('source').setDescription('How did you find/join this community?').setRequired(true).addChoices(
       { name: 'Invited by a community member', value: 'member' },
       { name: 'Found this community myself', value: 'organic' },
       { name: 'X / social media', value: 'x' },
@@ -955,14 +955,14 @@ const commands = [
     .setDescription('Staff: manage verified official links.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View configured official links.'))
     .addSubcommand((sc) => sc.setName('publish').setDescription('Refresh the public Official Links card.'))
-    .addSubcommand((sc) => sc.setName('set').setDescription('Core: set an official KlineO link.')
+    .addSubcommand((sc) => sc.setName('set').setDescription('Core: set an official community link.')
       .addStringOption((o) => o.setName('type').setDescription('Official link type').setRequired(true).addChoices(
         { name: 'Website', value: 'website' }, { name: 'Liquidity Studio', value: 'liquidity_studio' },
         { name: 'X', value: 'x' }, { name: 'Telegram', value: 'telegram' }, { name: 'LinkedIn', value: 'linkedin' },
         { name: 'Docs', value: 'docs' }, { name: 'Support', value: 'support' },
       ))
       .addStringOption((o) => o.setName('url').setDescription('Verified https:// URL').setRequired(true).setMaxLength(300)))
-    .addSubcommand((sc) => sc.setName('remove').setDescription('Core: remove an official KlineO link.')
+    .addSubcommand((sc) => sc.setName('remove').setDescription('Core: remove an official community link.')
       .addStringOption((o) => o.setName('type').setDescription('Official link type').setRequired(true).addChoices(
         { name: 'Website', value: 'website' }, { name: 'Liquidity Studio', value: 'liquidity_studio' },
         { name: 'X', value: 'x' }, { name: 'Telegram', value: 'telegram' }, { name: 'LinkedIn', value: 'linkedin' },
@@ -974,7 +974,7 @@ const commands = [
     .setDescription('Staff: manage official founder/team profiles.')
     .addSubcommand((sc) => sc.setName('list').setDescription('List configured team profiles.'))
     .addSubcommand((sc) => sc.setName('set').setDescription('Core: add or update an official team profile.')
-      .addUserOption((o) => o.setName('member').setDescription('Official KlineO team member').setRequired(true))
+      .addUserOption((o) => o.setName('member').setDescription('Official community team member').setRequired(true))
       .addStringOption((o) => o.setName('role').setDescription('Role/title, e.g. Founder & CEO').setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName('website').setDescription('Website URL').setMaxLength(300))
       .addStringOption((o) => o.setName('x').setDescription('X profile URL').setMaxLength(300))
@@ -1135,7 +1135,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('server-image')
     .setDescription('Staff: manage welcome and section images.')
-    .addSubcommand((sc) => sc.setName('set').setDescription('Upload/set an image for a KlineO section.')
+    .addSubcommand((sc) => sc.setName('set').setDescription('Upload/set an image for a community section.')
       .addStringOption((o) => o.setName('slot').setDescription('Image slot').setRequired(true).addChoices(
         { name: 'Welcome', value: 'welcome' }, { name: 'Verification', value: 'verify' }, { name: 'Official Links', value: 'official' }, { name: 'Social', value: 'social' }, { name: 'Founder Hub', value: 'founder' },
       ))
@@ -1144,7 +1144,7 @@ const commands = [
       .addStringOption((o) => o.setName('slot').setDescription('Image slot').setRequired(true).addChoices(
         { name: 'Welcome', value: 'welcome' }, { name: 'Verification', value: 'verify' }, { name: 'Official Links', value: 'official' }, { name: 'Social', value: 'social' }, { name: 'Founder Hub', value: 'founder' },
       )))
-    .addSubcommand((sc) => sc.setName('status').setDescription('Show which KlineO section images are configured.')),
+    .addSubcommand((sc) => sc.setName('status').setDescription('Show which community section images are configured.')),
 
   new SlashCommandBuilder()
     .setName('grant-klineo-role')
@@ -1188,7 +1188,7 @@ const commands = [
       .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
     .addSubcommand((sc) => sc.setName('remove').setDescription('Leave a language community.')
       .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
-    .addSubcommand((sc) => sc.setName('list').setDescription('List available KlineO languages.')),
+    .addSubcommand((sc) => sc.setName('list').setDescription('List available community languages.')),
 
   new SlashCommandBuilder()
     .setName('suggest')
@@ -1208,7 +1208,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('event')
     .setDescription('Staff: manage community events.')
-    .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a KlineO event.')
+    .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a community event.')
       .addStringOption((o) => o.setName('title').setDescription('Event title').setRequired(true).setMaxLength(100))
       .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
@@ -1486,7 +1486,7 @@ async function recordImpactEngagement(messageId, userId, kind) {
 }
 async function resolveMessageForStaff(guild, raw) {
   const parsed = parseDiscordMessageLink(raw, guild.id);
-  if (!parsed) throw new Error('Use a full Discord message link from this KlineO server.');
+  if (!parsed) throw new Error('Use a full Discord message link from this server.');
   const channel = guild.channels.cache.get(parsed.channelId) ?? await guild.channels.fetch(parsed.channelId).catch(() => null);
   if (!channel?.isTextBased()) throw new Error('Message channel could not be found.');
   const message = await channel.messages.fetch(parsed.messageId).catch(() => null);
@@ -1515,7 +1515,7 @@ function buildSuggestionEmbed(row) {
       { name: 'Status', value: `**${suggestionStatusLabel(row.status)}**`, inline: true },
       { name: 'Submitted by', value: `<@${row.user_id}>`, inline: true },
       ...(row.staff_note ? [{ name: 'Staff note', value: row.staff_note.slice(0, 1024) }] : []),
-    ).setFooter({ text: `KlineO Product Suggestion #${row.id}` }).setTimestamp(new Date(row.updated_at || row.created_at));
+    ).setFooter({ text: `${communityName()} Product Suggestion #${row.id}` }).setTimestamp(new Date(row.updated_at || row.created_at));
 }
 async function updateSuggestionMessages(guild, id) {
   const row = db.prepare('SELECT * FROM product_suggestions WHERE id = ?').get(id);
@@ -1546,7 +1546,7 @@ async function setSuggestionStatus(guild, id, status, actorId, note = '') {
   db.prepare('UPDATE product_suggestions SET status = ?, updated_at = ?, updated_by = ?, staff_note = ? WHERE id = ?').run(status, now(), actorId, note || row.staff_note || '', id);
   await updateSuggestionMessages(guild, id);
   const member = await guild.members.fetch(row.user_id).catch(() => null);
-  if (member) await member.send(`💡 Your KlineO suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
+  if (member) await member.send(`💡 Your ${communityName()} suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
   scheduleModInboxUpdate(guild); scheduleHealthUpdate(guild);
 }
 function parseEventStart(raw) {
@@ -1569,14 +1569,14 @@ function buildEventEmbed(row) {
   const endSec = Math.floor((Number(row.start_at) + Number(row.duration_minutes) * 60000) / 1000);
   const e = new EmbedBuilder().setColor(row.status === 'live' ? BRAND.lime : row.status === 'cancelled' ? BRAND.rose : row.status === 'ended' ? BRAND.gray : BRAND.cyan)
     .setTitle(`${row.status === 'live' ? '🔴 ' : '📅 '}#${row.id} · ${row.title}`)
-    .setDescription(row.description || 'KlineO community event')
+    .setDescription(row.description || `${communityName()} community event`)
     .addFields(
       { name: 'Status', value: `**${eventStatusLabel(row.status)}**`, inline: true },
       { name: 'Starts', value: `<t:${startSec}:F>\n<t:${startSec}:R>`, inline: true },
       { name: 'Ends', value: `<t:${endSec}:t>`, inline: true },
       { name: 'RSVP', value: `✅ Going: **${counts.going}**\n⭐ Interested: **${counts.interested}**`, inline: true },
       ...(row.voice_channel_id ? [{ name: 'Voice room', value: `<#${row.voice_channel_id}>`, inline: true }] : []),
-    ).setFooter({ text: `KlineO Event #${row.id}` });
+    ).setFooter({ text: `${communityName()} Event #${row.id}` });
   return e;
 }
 function eventButtons(id, status) {
@@ -1619,7 +1619,7 @@ async function endCommunityEvent(guild, id, actorId = null, automatic = false) {
     const totalAttendees = Number(db.prepare('SELECT COUNT(*) AS c FROM event_attendance WHERE event_id=?').get(id)?.c ?? 0);
     const rsvp = eventRsvpCounts(id);
     const recap = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`✅ Event Recap · ${row.title}`)
-      .setDescription(`${automatic ? 'LINKO closed this event automatically at the scheduled end time.' : 'This KlineO event has ended.'}`)
+      .setDescription(`${automatic ? 'LINKO closed this event automatically at the scheduled end time.' : `This ${communityName()} event has ended.`}`)
       .addFields(
         { name: 'Attendance', value: `Voice attendees: **${totalAttendees}**\nRSVP Going: **${rsvp.going}**\nInterested: **${rsvp.interested}**`, inline: true },
         ...(attendance.length ? [{ name: 'Top attendance', value: attendance.slice(0,5).map((a) => `<@${a.user_id}> — **${a.minutes} min**`).join('\n') }] : []),
@@ -1673,7 +1673,7 @@ function healthMetrics(guild, days = 7) {
 function buildHealthEmbed(guild, days = 7) {
   const m = healthMetrics(guild, days);
   const ranks = RANKS.map((r) => `${r.name}: **${m.rankCounts[r.name]}**`).join(' · ');
-  return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 KlineO Community Health · ${days}d`)
+  return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 ${communityName()} Community Health · ${days}d`)
     .addFields(
       { name: 'Community', value: `Members: **${m.total}**\nVerified: **${m.verified}**\nOnline now: **${m.online}**`, inline: true },
       { name: `${days}d growth`, value: `New joins: **${m.joins}**\nVerified: **${m.verifications}**\nActivation: **${m.activationRate}%**`, inline: true },
@@ -3541,8 +3541,8 @@ client.on('messageCreate', async (message) => {
     const shouldDelete = (isPublicBlocked && !hasStaffRole(message.member)) || (isSignal && !canShareSignalLinks(message.member)) || (managedBlocked && !hasStaffRole(message.member));
     if (shouldDelete) {
       await message.delete().catch(() => {});
-      const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : 'Links are not permitted in public KlineO community channels.';
-      await message.author.send(`Your message in **#${channelName}** was removed. ${note}\nUse **/submit-post** for KlineO social content.`).catch(() => {});
+      const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : 'Links are not permitted in public community channels.';
+      await message.author.send(`Your message in **#${channelName}** was removed. ${note}\nUse **/submit-post** for approved social content.`).catch(() => {});
       return;
     }
   }
@@ -3796,7 +3796,7 @@ client.on('interactionCreate', async (interaction) => {
         const duplicate = network === 'evm'
           ? db.prepare('SELECT user_id FROM wallets WHERE network = ? AND LOWER(address) = LOWER(?) LIMIT 1').get(network, address)
           : db.prepare('SELECT user_id FROM wallets WHERE network = ? AND address = ? LIMIT 1').get(network, address);
-        if (duplicate && duplicate.user_id !== interaction.user.id) return interaction.reply({ content: 'That public address is already submitted by another KlineO member. Ask a CORE administrator if this is a legitimate shared address.', ephemeral: true });
+        if (duplicate && duplicate.user_id !== interaction.user.id) return interaction.reply({ content: 'That public address is already submitted by another community member. Ask a CORE administrator if this is a legitimate shared address.', ephemeral: true });
         const priorHistory = db.prepare('SELECT id FROM wallet_history WHERE user_id = ? AND network = ? LIMIT 1').get(interaction.user.id, network);
         const changedAt = now();
         const lockHours = Math.max(0, getSettingInt('wallet_change_lock_hours'));
@@ -3874,10 +3874,10 @@ client.on('interactionCreate', async (interaction) => {
       const role = interaction.guild.roles.cache.find((r) => r.name === `${INTEREST_ROLE_PREFIX}${def?.[1]}`);
       if (!def || !role) return interaction.reply({ content: 'Interest role missing. Ask staff to run /setup-klineo.', ephemeral: true });
       if (action === 'add') {
-        await member.roles.add(role, 'KlineO self-selected interest');
+        await member.roles.add(role, 'community self-selected interest');
         db.prepare('INSERT OR IGNORE INTO user_interests (user_id, interest, created_at) VALUES (?, ?, ?)').run(member.id, key, now());
       } else {
-        await member.roles.remove(role, 'KlineO interest removed');
+        await member.roles.remove(role, 'community interest removed');
         db.prepare('DELETE FROM user_interests WHERE user_id=? AND interest=?').run(member.id, key);
       }
       const count = Number(db.prepare('SELECT COUNT(*) AS c FROM user_interests WHERE user_id=?').get(member.id)?.c ?? 0);
@@ -3899,10 +3899,10 @@ client.on('interactionCreate', async (interaction) => {
       const row = db.prepare('SELECT * FROM language_roles WHERE role_id=? AND archived=0').get(role.id);
       if (!row) return interaction.editReply('That is not an active LINKO language role.');
       if (action === 'add') {
-        await member.roles.add(role, 'KlineO language self-selection');
+        await member.roles.add(role, 'community language self-selection');
         db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
       } else {
-        await member.roles.remove(role, 'KlineO language removed');
+        await member.roles.remove(role, 'community language removed');
         db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
       }
       const count = Number(db.prepare('SELECT COUNT(*) AS c FROM member_languages WHERE user_id=?').get(member.id)?.c ?? 0);
