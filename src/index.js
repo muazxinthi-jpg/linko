@@ -3134,31 +3134,62 @@ async function processVoiceEventMinute(guild) {
 async function sendWelcomeDm(member) {
   const verify = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verify');
   const rules = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'rules');
-  const attribution = getJoinAttribution(member.id);
-  const detected = attribution?.detected_inviter_id ? `\n\nLINKO detected <@${attribution.detected_inviter_id}> as the invite creator. Confirm that by running \`/join-source source:Invited by a KlineO member\` (you can leave the member option empty), or choose the correct non-member source.` : '';
-  await member.send(`**Welcome to KlineO.**\n\n1. Read ${rules ? `<#${rules.id}>` : '#rules'}.\n2. Before verification, run **/join-source** and tell LINKO how you joined KlineO.${detected}\n3. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.\n\nIf a member invited you manually, select them in /join-source. They will need to confirm the referral, but you do **not** have to wait for that confirmation to enter KlineO.\n\nKlineO staff will never ask for your seed phrase, private key or funds via unsolicited DM.`).catch(() => {});
+  const name = communityName();
+  const lines = [
+    `**Welcome to ${name}.**`,
+    '',
+    `1. Read ${rules ? `<#${rules.id}>` : '#rules'}.`,
+  ];
+  if (moduleEnabled('referrals')) {
+    const attribution = getJoinAttribution(member.id);
+    const detected = attribution?.detected_inviter_id
+      ? ` LINKO detected <@${attribution.detected_inviter_id}> as the invite creator. If correct, use /join-source and select the member-invite source.`
+      : '';
+    lines.push(`2. Before verification, run **/join-source** and tell LINKO how you joined.${detected}`);
+    lines.push(`3. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.`);
+  } else {
+    lines.push(`2. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.`);
+  }
+  lines.push('', `${name} staff will never ask for your seed phrase, private key or funds via unsolicited DM.`);
+  await member.send(lines.join('\n')).catch(() => {});
 }
 
 async function verifyMember(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (hasVerifiedRole(member)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
-  const attribution = getJoinAttribution(member.id);
-  if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
-    return interaction.reply({ content: 'Before you can enter KlineO, run **/join-source** in this server and select how you joined. If a member invited you, select that member. This keeps referral attribution accurate.', ephemeral: true });
+
+  let attribution = null;
+  if (moduleEnabled('referrals')) {
+    attribution = getJoinAttribution(member.id);
+    if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
+      return interaction.reply({ content: `Before you can enter **${communityName()}**, run **/join-source** and select how you joined. If a member invited you, select that member.`, ephemeral: true });
+    }
   }
+
   const ageHours = (now() - interaction.user.createdTimestamp) / 3600000;
   if (ageHours < MIN_ACCOUNT_AGE_HOURS) return interaction.reply({ content: `This Discord account is too new to verify yet. Please try again after it is ${MIN_ACCOUNT_AGE_HOURS} hours old.`, ephemeral: true });
+
   const verified = interaction.guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
   const l1 = interaction.guild.roles.cache.find((r) => r.name === 'OBSERVER');
-  if (!verified || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-klineo.', ephemeral: true });
-  await member.roles.add([verified, l1], 'KlineO self-verification');
+  if (!verified || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-linko.', ephemeral: true });
+
+  await member.roles.add([verified, l1], `${communityName()} self-verification`);
   ensureUserRow(member.id, member.joinedTimestamp ?? now());
   db.prepare('UPDATE users SET verified_at = ? WHERE user_id = ?').run(now(), member.id);
+
   const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verification-log' && c.isTextBased());
-  if (log) log.send(`✅ ${member} verified and entered KlineO as **OBSERVER**. Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.`).catch(() => {});
+  if (log) {
+    const source = attribution ? ` Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.` : '';
+    log.send(`✅ ${member} verified and entered **${communityName()}** as **OBSERVER**.${source}`).catch(() => {});
+  }
+
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   scheduleHealthUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-  return interaction.reply({ content: `✅ Verified. Welcome to KlineO. You now have **OBSERVER** access. Join source recorded as **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' && !Number(attribution.inviter_confirmed) ? ' Your referral remains pending until the inviter confirms it.' : ''} Run \`/onboarding\` to choose interests/languages and complete your activation checklist.`, ephemeral: true });
+
+  const referralTail = attribution?.source === 'member' && !Number(attribution.inviter_confirmed)
+    ? ' Your referral remains pending until the inviter confirms it.'
+    : '';
+  return interaction.reply({ content: `✅ Verified. Welcome to **${communityName()}**. You now have **OBSERVER** access.${referralTail} Run /onboarding to continue setup.`, ephemeral: true });
 }
 
 async function createFounderApplicationModal(interaction) {
