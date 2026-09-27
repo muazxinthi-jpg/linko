@@ -1774,7 +1774,7 @@ function buildWelcomeEmbed(channels) {
   ].filter(Boolean).join(' ');
   const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`)
     .setDescription(`LINKO powers community access, ranks and participation for **${name}**.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n${referralStep}\n\nEarn **${label}** through the activities enabled by this community. ${optional}\n\n**Security:** ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
-    .setFooter({ text: '[LINKO-WELCOME]' });
+    .setFooter({ text: '[KLINEO-WELCOME]' });
   return withImageOrPlaceholder(e, 'welcome', 'Welcome');
 }
 
@@ -1783,7 +1783,7 @@ function buildVerifyEmbed() {
   const referralText = moduleEnabled('referrals') ? 'Before verification, run **/join-source** and tell LINKO how you joined. Then ' : '';
   const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Verify & enter ${name}`)
     .setDescription(`${referralText}complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
-    .setFooter({ text: '[LINKO-VERIFY]' });
+    .setFooter({ text: '[KLINEO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
 function buildSocialEmbed() {
@@ -1791,7 +1791,7 @@ function buildSocialEmbed() {
   const name = communityName();
   const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Social & KREATORs`)
     .setDescription(`**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a ${name} post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a shareable progress, referral, impact or Founder card. Public chat links remain blocked.`)
-    .setFooter({ text: '[LINKO-SOCIAL]' });
+    .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
 const OFFICIAL_LINKS = {
@@ -1822,7 +1822,7 @@ function buildOfficialLinksEmbed() {
       return `<@${p.user_id}> — **${p.role_title}**${links ? `\n${links}` : ''}`;
     }).join('\n\n') });
   }
-  e.setFooter({ text: '[LINKO-OFFICIAL-LINKS]' });
+  e.setFooter({ text: '[KLINEO-OFFICIAL-LINKS]' });
   return withImageOrPlaceholder(e, 'official', 'Official Links');
 }
 function buildFounderHubEmbed() {
@@ -1830,7 +1830,7 @@ function buildFounderHubEmbed() {
   const studioLine = moduleEnabled('studio') ? ` and active Studio clients` : '';
   const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`${name} Founder Hub`)
     .setDescription(`Verified founders${studioLine} can discuss market structure, operations and community growth here.\n\nUse \`/apply-founder\` to submit your project website, project socials, founder socials and role/title. Approved profiles are added to the private Founder Directory.${moduleEnabled('studio') ? ' Sensitive client-specific Studio work belongs in a private client workspace.' : ''}`)
-    .setFooter({ text: '[LINKO-FOUNDERS]' });
+    .setFooter({ text: '[KLINEO-FOUNDERS]' });
   return withImageOrPlaceholder(e, 'founder', 'Founder Hub');
 }
 async function refreshBrandMessages(guild) {
