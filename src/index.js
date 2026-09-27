@@ -2487,15 +2487,15 @@ async function ensureRole(guild, spec) {
   try {
     let role = guild.roles.cache.find((r) => r.name === spec.name && !r.managed);
     const data = { name: spec.name, color: spec.color, hoist: spec.hoist, mentionable: false, permissions: spec.permissions ?? [] };
-    if (!role) role = await guild.roles.create({ ...data, reason: 'LINKO KlineO setup' });
-    else await role.edit({ ...data, reason: 'LINKO KlineO setup sync' });
+    if (!role) role = await guild.roles.create({ ...data, reason: 'LINKO setup' });
+    else await role.edit({ ...data, reason: 'LINKO setup sync' });
     return role;
   } catch (error) { throw contextualError(`Role ${spec.name}`, error); }
 }
 async function ensureCategory(guild, name, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildCategory && x.name === name);
-    if (!c) c = await guild.channels.create({ name, type: ChannelType.GuildCategory, permissionOverwrites, reason: 'LINKO KlineO setup' });
+    if (!c) c = await guild.channels.create({ name, type: ChannelType.GuildCategory, permissionOverwrites, reason: 'LINKO setup' });
     else await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
     return c;
   } catch (error) { throw contextualError(`Category ${name}`, error); }
@@ -2504,7 +2504,7 @@ async function ensureTextChannel(guild, category, spec, permissionOverwrites = [
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === category.id && x.name === spec.name);
     if (!c && spec.reuseDefaultGeneral) c = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && !x.parentId && x.name === 'general');
-    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildText, parent: category.id, topic: spec.topic, rateLimitPerUser: spec.slowmode ?? 0, permissionOverwrites, reason: 'LINKO KlineO setup' });
+    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildText, parent: category.id, topic: spec.topic, rateLimitPerUser: spec.slowmode ?? 0, permissionOverwrites, reason: 'LINKO setup' });
     else {
       await c.edit({ name: spec.name, parent: category.id, topic: spec.topic, rateLimitPerUser: spec.slowmode ?? 0, reason: 'LINKO setup sync' });
       await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
@@ -2516,7 +2516,7 @@ async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = 
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
     if (!c && spec.reuseDefaultVoice) c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && !x.parentId && x.name === 'General');
-    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildVoice, parent: category.id, userLimit: spec.userLimit ?? 0, permissionOverwrites, reason: 'LINKO KlineO setup' });
+    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildVoice, parent: category.id, userLimit: spec.userLimit ?? 0, permissionOverwrites, reason: 'LINKO setup' });
     else {
       await c.edit({ name: spec.name, parent: category.id, userLimit: spec.userLimit ?? 0, reason: 'LINKO setup sync' });
       await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
