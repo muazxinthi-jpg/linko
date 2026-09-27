@@ -3388,25 +3388,25 @@ client.once('clientReady', async () => {
         await fullGuild.commands.set(commandsForCurrentProfile());
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
-        await cacheInvites(fullGuild);
-        console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.7 multi-server features.');
+        if (moduleEnabled('referrals')) await cacheInvites(fullGuild);
+        console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · profile: ${serverTemplate()} · XP: ${xpLabel()} · modules: ${enabledModuleNames().join(', ') || 'core'}`);
+        console.log('Run /setup-linko confirm:true to sync the active server profile.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
-        setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
-        setInterval(recurring(processVoiceEventMinute), 60 * 1000);
+        if (moduleEnabled('referrals')) setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
+        if (moduleEnabled('events')) setInterval(recurring(processVoiceEventMinute), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateServerStats(fullGuild, false).catch(console.error)), 5 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 5 * 60 * 1000);
         setInterval(recurring(evaluateImpactCandidates), 60 * 1000);
-        setInterval(recurring(processCommunityEvents), 60 * 1000);
+        if (moduleEnabled('events')) setInterval(recurring(processCommunityEvents), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 10 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 5 * 60 * 1000);
 
-        setTimeout(recurring(checkPendingReferrals), 15000);
+        if (moduleEnabled('referrals')) setTimeout(recurring(checkPendingReferrals), 15000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 20000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 25000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 30000);
-        setTimeout(recurring(processCommunityEvents), 35000);
+        if (moduleEnabled('events')) setTimeout(recurring(processCommunityEvents), 35000);
       });
     } catch (error) {
       console.error(`Startup failed for guild ${guildId}:`, error);
@@ -3417,36 +3417,40 @@ client.once('clientReady', async () => {
 client.on('guildMemberAdd', async (member) => {
   if (!isAllowedGuild(member.guild.id) || member.user.bot) return;
   return runWithGuild(member.guild.id, async () => {
-  ensureUserRow(member.id, member.joinedTimestamp ?? now());
-  const used = await detectUsedInvite(member.guild);
-  let attributed = false;
-  if (used) {
-    const mapped = db.prepare('SELECT inviter_id FROM invite_codes WHERE code = ?').get(used.code);
-    const inviterId = mapped?.inviter_id ?? used.inviterId;
-    if (inviterId && inviterId !== member.id) {
-      db.prepare('INSERT OR REPLACE INTO referrals (member_id, inviter_id, invite_code, joined_at) VALUES (?, ?, ?, ?)').run(member.id, inviterId, used.code, now());
-      upsertJoinAttribution(member.id, { source: null, inviterId, detectedInviterId: inviterId, sourceConfirmed: 0, inviterConfirmed: 1 });
-      attributed = true;
-      const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-      if (log) await log.send(`🧭 **Pending referral detected** — <@${inviterId}> → ${member}. Source: ${mapped ? 'LINKO tracked invite' : 'standard Discord invite'}. It becomes valid only after verification + 7 days + community activity.`).catch(() => {});
-      const inviterMember = await member.guild.members.fetch(inviterId).catch(() => null);
-      if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending KlineO referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet. It becomes valid after they verify, remain in the server for 7 days, and show community activity.`).catch(() => {});
+    ensureUserRow(member.id, member.joinedTimestamp ?? now());
+
+    if (moduleEnabled('referrals')) {
+      const used = await detectUsedInvite(member.guild);
+      let attributed = false;
+      if (used) {
+        const mapped = db.prepare('SELECT inviter_id FROM invite_codes WHERE code = ?').get(used.code);
+        const inviterId = mapped?.inviter_id ?? used.inviterId;
+        if (inviterId && inviterId !== member.id) {
+          db.prepare('INSERT OR REPLACE INTO referrals (member_id, inviter_id, invite_code, joined_at) VALUES (?, ?, ?, ?)').run(member.id, inviterId, used.code, now());
+          upsertJoinAttribution(member.id, { source: null, inviterId, detectedInviterId: inviterId, sourceConfirmed: 0, inviterConfirmed: 1 });
+          attributed = true;
+          const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+          if (log) await log.send(`🧭 **Pending referral detected** — <@${inviterId}> → ${member}. It becomes valid only after verification + 7 days + community activity.`).catch(() => {});
+          const inviterMember = await member.guild.members.fetch(inviterId).catch(() => null);
+          if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending ${communityName()} referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet.`).catch(() => {});
+        }
+      }
+      if (!attributed) {
+        db.prepare('INSERT OR REPLACE INTO unattributed_joins (user_id, joined_at, resolved) VALUES (?, ?, 0)').run(member.id, member.joinedTimestamp ?? now());
+        upsertJoinAttribution(member.id, { source: null, inviterId: null, detectedInviterId: null, sourceConfirmed: 0, inviterConfirmed: 0 });
+        const inbox = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-inbox' && c.isTextBased());
+        const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+        const note = `🧭 **Unattributed join** — ${member}. LINKO could not safely identify an inviter. The member must run /join-source before verification.`;
+        if (inbox) await inbox.send(note).catch(() => {});
+        else if (log) await log.send(note).catch(() => {});
+      }
     }
-  }
-  if (!attributed) {
-    db.prepare('INSERT OR REPLACE INTO unattributed_joins (user_id, joined_at, resolved) VALUES (?, ?, 0)').run(member.id, member.joinedTimestamp ?? now());
-    upsertJoinAttribution(member.id, { source: null, inviterId: null, detectedInviterId: null, sourceConfirmed: 0, inviterConfirmed: 0 });
-    const inbox = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-inbox' && c.isTextBased());
-    const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-    const note = `🧭 **Unattributed join** — ${member}. Discord did not expose a unique inviter. LINKO cannot safely guess who invited them. The member must run \`/join-source\` before verification. If a member invited them, they select that member; staff can still use \`/confirm-referral\` for genuine exceptions.`;
-    if (inbox) await inbox.send(note).catch(() => {});
-    else if (log) await log.send(note).catch(() => {});
-    await member.send(`LINKO could not automatically identify your join source. Before you can verify, run **/join-source** in the KlineO server. If a KlineO member invited you, select them there. Referral credit becomes valid only after the inviter confirms, you verify, remain in the server for 7 days, and stay active across the qualification period.`).catch(() => {});
-  }
-  await sendWelcomeDm(member);
-  scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
+
+    await sendWelcomeDm(member);
+    scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
   });
 });
+
 client.on('guildMemberRemove', (member) => {
   if (!isAllowedGuild(member.guild.id)) return;
   return runWithGuild(member.guild.id, () => {
