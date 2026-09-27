@@ -1,0 +1,19 @@
+{
+  "name": "linko-klineo-community-bot",
+  "version": "10.5.1",
+  "private": true,
+  "description": "LINKO v10.5.1 FINAL \u2014 KlineO community operations bot (Discord message-length hotfix)",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "discord.js": "^14.22.1",
+    "dotenv": "^16.6.1",
+    "@napi-rs/canvas": "^0.1.80"
+  }
+}
