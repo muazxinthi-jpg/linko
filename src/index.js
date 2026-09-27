@@ -1286,6 +1286,30 @@ const commands = [
     .addSubcommand((sc) => sc.setName('list').setDescription('List LINKO-managed extra channels.')),
 ].map((c) => c.toJSON());
 
+const MODULE_COMMANDS = Object.freeze({
+  referrals: new Set(['invite','invites','join-source','confirm-invited','confirm-referral','referral-stats']),
+  events: new Set(['events','event','voice-event']),
+  kreator: new Set(['submit-post','creator-campaign']),
+  founders: new Set(['apply-founder']),
+  studio: new Set(['create-client-space']),
+  wallets: new Set(['wallet','wallet-admin','export-wallets']),
+  languages: new Set(['language','language-manager']),
+  product: new Set(['suggest','suggestion','approve-bug']),
+});
+
+function commandModule(commandName) {
+  for (const [moduleName, names] of Object.entries(MODULE_COMMANDS)) if (names.has(commandName)) return moduleName;
+  return null;
+}
+
+function commandsForCurrentProfile() {
+  return commands.filter((command) => {
+    if (command.name === 'setup-klineo' && !isKlineoTemplate()) return false;
+    const moduleName = commandModule(command.name);
+    return !moduleName || moduleEnabled(moduleName);
+  });
+}
+
 function now() { return Date.now(); }
 function dayKey(ts = Date.now()) { return new Date(ts).toISOString().slice(0, 10); }
 function overwrite(id, allow = [], deny = []) { return { id, allow, deny }; }
