@@ -2314,6 +2314,16 @@ async function ensureCategory(guild, name, permissionOverwrites = []) {
     return c;
   } catch (error) { throw contextualError(`Category ${name}`, error); }
 }
+async function hideDisabledCategory(guild, name, staffRoles) {
+  const category = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === name);
+  if (!category) return;
+  const overwrites = [
+    overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+    ...staffRoles.filter(Boolean).map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory])),
+  ];
+  await category.permissionOverwrites.set(overwrites, 'LINKO module disabled').catch(() => {});
+}
+
 async function ensureTextChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === category.id && x.name === spec.name);
@@ -2535,6 +2545,14 @@ async function buildKlineO(guild) {
   const l7plus = [roles.l7, ...staff];
 
   const categories = {};
+  if (!moduleEnabled('signal_room')) await hideDisabledCategory(guild, CATEGORY_NAMES.signal, staff);
+  if (!moduleEnabled('kreator')) {
+    await hideDisabledCategory(guild, categoryName('social'), staff);
+    await hideDisabledCategory(guild, CATEGORY_NAMES.creators, staff);
+  }
+  if (!moduleEnabled('founder_hub')) await hideDisabledCategory(guild, CATEGORY_NAMES.founders, staff);
+  if (!moduleEnabled('liquidity_studio')) await hideDisabledCategory(guild, CATEGORY_NAMES.studio, staff);
+
   categories.stats = await ensureCategory(guild, CATEGORY_NAMES.stats, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
   categories.start = await ensureCategory(guild, CATEGORY_NAMES.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
   categories.community = await ensureCategory(guild, categoryName('community'), verifiedBase);
