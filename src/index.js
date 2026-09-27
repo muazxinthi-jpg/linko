@@ -4412,10 +4412,12 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first in #verify.', ephemeral: true });
       const type = interaction.options.getString('type', true);
+      if (type === 'founder' && !moduleEnabled('founder_hub')) return interaction.reply({ content: 'Founder cards are disabled because the Founder Hub module is off.', ephemeral: true });
       await interaction.deferReply({ ephemeral: true });
       const card = await generateSocialCard(interaction.guild, member, type);
-      const file = new AttachmentBuilder(card.buffer, { name: `klineo-${type}-${interaction.user.id}.png` });
-      return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials. If the post is about KlineO, submit the post URL with \`/submit-post\` for review.`, files: [file] });
+      const file = new AttachmentBuilder(card.buffer, { name: `linko-${type}-${interaction.user.id}.png` });
+      const submitLine = moduleEnabled('kreator') ? `\n\nIf the post is about ${communityName()}, submit its URL with \`/submit-post\` for review.` : '';
+      return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials.${submitLine}`, files: [file] });
     }
 
     if (interaction.commandName === 'official-links') {
@@ -4428,7 +4430,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
         await publishOfficialLinks(interaction.guild);
         return interaction.reply({ content: '✅ Official Links card refreshed.', ephemeral: true });
       }
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only KLINEO CORE / server administrators can change official links.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: `Only **${coreRoleName()}** / server administrators can change official links.`, ephemeral: true });
       const type = interaction.options.getString('type', true);
       const key = officialLinkKey(type);
       if (!key) return interaction.reply({ content: 'Unknown official link type.', ephemeral: true });
@@ -4452,7 +4454,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
         const text = rows.length ? rows.map((r) => `<@${r.user_id}> — **${r.role_title}**`).join('\n') : 'No official founder/team profiles configured yet.';
         return interaction.reply({ content: text, ephemeral: true });
       }
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only KLINEO CORE / server administrators can change official team profiles.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: `Only **${coreRoleName()}** / server administrators can change official team profiles.`, ephemeral: true });
       const user = interaction.options.getUser('member', true);
       if (action === 'remove') {
         db.prepare('DELETE FROM team_profiles WHERE user_id = ?').run(user.id);
@@ -4489,8 +4491,11 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       const roleName = interaction.options.getString('role', true);
+      if (roleName === 'KREATOR' && !moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
+      if (roleName === 'VERIFIED FOUNDER' && !moduleEnabled('founder_hub')) return interaction.reply({ content: 'The Founder Hub module is disabled in this server.', ephemeral: true });
+      if (roleName === 'STUDIO CLIENT' && !moduleEnabled('liquidity_studio')) return interaction.reply({ content: 'The Liquidity Studio module is disabled in this server.', ephemeral: true });
       const role = interaction.guild.roles.cache.find((r) => r.name === roleName);
-      if (!role) return interaction.reply({ content: `Role ${roleName} is missing. Run /setup-klineo.`, ephemeral: true });
+      if (!role) return interaction.reply({ content: `Role ${roleName} is missing. Run /setup-linko.`, ephemeral: true });
       const member = await interaction.guild.members.fetch(user.id);
       await member.roles.add(role, `Granted by ${interaction.user.tag}`);
       await maybeAwardReferralRoleBonus(interaction.guild, member.id, roleName);
