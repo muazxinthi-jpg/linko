@@ -3102,7 +3102,7 @@ async function checkPendingReferrals(guild) {
     const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
     if (log) await log.send(`🤝 **Referral validated** — <@${ref.inviter_id}> → <@${ref.member_id}> · source selected + inviter confirmed + verified + 7 days + active on **${activeDays} day(s)** (${activity} tracked activity event${activity === 1 ? '' : 's'}).`).catch(() => {});
     const inviterMember = await guild.members.fetch(ref.inviter_id).catch(() => null);
-    if (inviterMember) await inviterMember.send(`✅ Your KlineO referral <@${ref.member_id}> is now valid. **+${award} ${xpLabel()}** has been added to your account.`).catch(() => {});
+    if (inviterMember) await inviterMember.send(`✅ Your ${communityName()} referral <@${ref.member_id}> is now valid. **+${award} ${xpLabel()}** has been added to your account.`).catch(() => {});
   }
   scheduleLeaderboardUpdate(guild);
 }
@@ -3683,20 +3683,20 @@ client.on('interactionCreate', async (interaction) => {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
       const channel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'welcome' && c.type === ChannelType.GuildText) ?? interaction.channel;
-      const invite = await channel.createInvite({ maxAge: 0, maxUses: 0, unique: true, reason: `Tracked KlineO invite for ${interaction.user.tag}` });
+      const invite = await channel.createInvite({ maxAge: 0, maxUses: 0, unique: true, reason: `Tracked ${communityName()} invite for ${interaction.user.tag}` });
       db.prepare('INSERT OR REPLACE INTO invite_codes (code, inviter_id, created_at) VALUES (?, ?, ?)').run(invite.code, interaction.user.id, now());
       inviteCacheForGuild(interaction.guildId).set(invite.code, invite.uses ?? 0);
-      return interaction.reply({ content: `Your tracked KlineO invite:\n${invite.url}\n\nA referral becomes valid after **7 days** if the member remains in the server and verifies.`, ephemeral: true });
+      return interaction.reply({ content: `Your tracked ${communityName()} invite:\n${invite.url}\n\nA referral becomes valid after **7 days** if the member remains in the server and verifies.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'invites') {
       const stats = getReferralStats(interaction.user.id);
-      return interaction.reply({ content: `**Your KlineO referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
+      return interaction.reply({ content: `**Your ${communityName()} referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'join-source') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
-      if (hasVerifiedRole(member)) return interaction.reply({ content: 'Your KlineO join source is locked after verification. Ask staff if a correction is required.', ephemeral: true });
+      if (hasVerifiedRole(member)) return interaction.reply({ content: `Your ${communityName()} join source is locked after verification. Ask staff if a correction is required.`, ephemeral: true });
       const source = interaction.options.getString('source', true);
       const selectedUser = interaction.options.getUser('member');
       const existingAttribution = getJoinAttribution(member.id);
@@ -3715,15 +3715,15 @@ client.on('interactionCreate', async (interaction) => {
 
       let inviterUser = selectedUser;
       if (!inviterUser && existingAttribution?.detected_inviter_id) inviterUser = await client.users.fetch(existingAttribution.detected_inviter_id).catch(() => null);
-      if (!inviterUser) return interaction.reply({ content: 'Select the KlineO member who invited you. If LINKO detected an invite creator, you may leave the member option empty and LINKO will use that detected inviter.', ephemeral: true });
+      if (!inviterUser) return interaction.reply({ content: `Select the ${communityName()} member who invited you. If LINKO detected an invite creator, you may leave the member option empty and LINKO will use that detected inviter.`, ephemeral: true });
       if (inviterUser.id === interaction.user.id) return interaction.reply({ content: 'You cannot select yourself as your inviter.', ephemeral: true });
       if (inviterUser.bot) return interaction.reply({ content: 'Bots cannot receive referral credit.', ephemeral: true });
       if (existingAttribution?.detected_inviter_id && inviterUser.id !== existingAttribution.detected_inviter_id) {
         return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. Staff must resolve that attribution before a different inviter can be selected.`, ephemeral: true });
       }
       const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: 'The inviter must currently be a verified KlineO member.', ephemeral: true });
-      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: 'The selected inviter must have been a KlineO member before you joined.', ephemeral: true });
+      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: `The inviter must currently be a verified ${communityName()} member.`, ephemeral: true });
+      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: `The selected inviter must have been a ${communityName()} member before you joined.`, ephemeral: true });
 
       const existingReferral = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(member.id);
       if (existingReferral && existingReferral.inviter_id !== inviter.id) return interaction.reply({ content: `LINKO already has a different pending inviter: <@${existingReferral.inviter_id}>. Ask staff to resolve the attribution.`, ephemeral: true });
@@ -3738,15 +3738,15 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${detectedMatch ? 'LINKO invite detection already confirms the inviter.' : 'Awaiting inviter confirmation.'}`).catch(() => {});
       if (!detectedMatch) {
-        await inviter.send(`🤝 **KlineO referral confirmation**\n${member.user.username} says you personally invited them to KlineO. If correct, go to the KlineO server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
+        await inviter.send(`🤝 **${communityName()} referral confirmation**\n${member.user.username} says you personally invited them to ${communityName()}. If correct, return to the server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
       }
       scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter KlineO.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
+      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${communityName()}.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'confirm-invited') {
       const inviter = await interaction.guild.members.fetch(interaction.user.id);
-      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: 'Only verified KlineO members can confirm referrals.', ephemeral: true });
+      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `Only verified ${communityName()} members can confirm referrals.`, ephemeral: true });
       const referredUser = interaction.options.getUser('member', true);
       if (referredUser.id === interaction.user.id) return interaction.reply({ content: 'You cannot confirm yourself as a referral.', ephemeral: true });
       const attribution = getJoinAttribution(referredUser.id);
@@ -3758,7 +3758,7 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🤝 **Inviter confirmed** — ${interaction.user} confirmed they invited ${referredUser}. Referral remains pending until verification + 7 days + activity requirements are met.`).catch(() => {});
       const referred = await interaction.guild.members.fetch(referredUser.id).catch(() => null);
-      if (referred) await referred.send(`✅ ${interaction.user.username} confirmed that they invited you to KlineO. Referral credit is still pending until you are verified, remain for 7 days, and meet activity requirements.`).catch(() => {});
+      if (referred) await referred.send(`✅ ${interaction.user.username} confirmed that they invited you to ${communityName()}. Referral credit is still pending until you are verified, remain for 7 days, and meet activity requirements.`).catch(() => {});
       scheduleModInboxUpdate(interaction.guild);
       return interaction.reply({ content: `✅ Confirmed. ${referredUser}'s referral is now attributed to you and will validate automatically after the remaining qualification rules are met.`, ephemeral: true });
     }
@@ -3857,7 +3857,7 @@ client.on('interactionCreate', async (interaction) => {
         ['Introduce yourself', !!a.introduced_at], ['First qualified contribution', !!a.first_impact_at],
       ];
       const done = steps.filter((x) => x[1]).length;
-      return interaction.reply({ content: `**KlineO Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse \`/interest add\`, \`/language list\`, and introduce yourself in #introductions.`, ephemeral: true });
+      return interaction.reply({ content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse \`/interest add\`, \`/language list\`, and introduce yourself in #introductions.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'interest') {
@@ -3892,7 +3892,7 @@ client.on('interactionCreate', async (interaction) => {
       const action = interaction.options.getSubcommand();
       if (action === 'list') {
         const rows = languageRows();
-        return interaction.reply({ content: rows.length ? `**Available KlineO languages**\n${rows.map((r) => `${r.emoji || '🌐'} <@&${r.role_id}>${r.channel_id ? ` → <#${r.channel_id}>` : ''}`).join('\n')}\n\nUse \`/language add role:@LANG...\`.` : 'No language communities have been created yet.', ephemeral: true });
+        return interaction.reply({ content: rows.length ? `**Available ${communityName()} languages**\n${rows.map((r) => `${r.emoji || '🌐'} <@&${r.role_id}>${r.channel_id ? ` → <#${r.channel_id}>` : ''}`).join('\n')}\n\nUse \`/language add role:@LANG...\`.` : 'No language communities have been created yet.', ephemeral: true });
       }
       await interaction.deferReply({ ephemeral: true });
       const role = interaction.options.getRole('role', true);
@@ -3936,7 +3936,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'events') {
       const rows = db.prepare("SELECT * FROM community_events WHERE status IN ('planned','live') ORDER BY start_at ASC LIMIT 10").all();
-      return interaction.reply({ content: rows.length ? `**Upcoming KlineO Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : 'No upcoming KlineO events are scheduled.', ephemeral: true });
+      return interaction.reply({ content: rows.length ? `**Upcoming ${communityName()} Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : `No upcoming ${communityName()} events are scheduled.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'community-health' || interaction.commandName === 'refresh-health') {
@@ -4100,7 +4100,7 @@ client.on('interactionCreate', async (interaction) => {
         const perms = privateFor(interaction.guild.roles.everyone, [role, ...staff]);
         const chName = `${emoji}・${slug}`;
         let channel = interaction.guild.channels.cache.find((c) => c.parentId===category.id && c.name===chName && c.type===ChannelType.GuildText);
-        if (!channel) channel = await interaction.guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${name}-speaking KlineO community.`, permissionOverwrites: perms, reason: 'LINKO language manager' });
+        if (!channel) channel = await interaction.guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${name}-speaking ${communityName()} community.`, permissionOverwrites: perms, reason: 'LINKO language manager' });
         db.prepare(`INSERT INTO language_roles (role_id,name,emoji,channel_id,created_by,created_at,archived) VALUES (?,?,?,?,?,?,0) ON CONFLICT(role_id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, channel_id=excluded.channel_id, archived=0`).run(role.id, name, emoji, channel.id, interaction.user.id, now());
         db.prepare(`INSERT INTO managed_channels (channel_id,category_name,access,links_allowed,kxp_enabled,created_by,created_at,archived) VALUES (?,?,?,?,?,?,?,0)
           ON CONFLICT(channel_id) DO UPDATE SET links_allowed=0, kxp_enabled=0, archived=0`).run(channel.id, CATEGORY_NAMES.languages, 'language', 0, 0, interaction.user.id, now());
@@ -4249,20 +4249,20 @@ client.on('interactionCreate', async (interaction) => {
       if (referredUser.bot || inviterUser.bot) return interaction.reply({ content: 'Bot accounts cannot be used for referral credit.', ephemeral: true });
       const referred = await interaction.guild.members.fetch(referredUser.id).catch(() => null);
       const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!referred || !inviter) return interaction.reply({ content: 'Both members must still be in the KlineO server.', ephemeral: true });
+      if (!referred || !inviter) return interaction.reply({ content: `Both members must still be in the ${communityName()} server.`, ephemeral: true });
       if (!hasVerifiedRole(referred)) return interaction.reply({ content: `${referredUser} must be verified before a manual referral can be confirmed.`, ephemeral: true });
-      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `${inviterUser} must be a verified KlineO member.`, ephemeral: true });
+      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `${inviterUser} must be a verified ${communityName()} member.`, ephemeral: true });
       const joinedAt = referred.joinedTimestamp ?? db.prepare('SELECT joined_at FROM users WHERE user_id = ?').get(referred.id)?.joined_at ?? now();
       const ageMs = now() - Number(joinedAt);
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
       if (ageMs < sevenDays) {
         const remainingDays = Math.ceil((sevenDays - ageMs) / (24 * 60 * 60 * 1000));
-        return interaction.reply({ content: `${referredUser} has not been in KlineO for 7 days yet. About **${remainingDays} day(s)** remain.`, ephemeral: true });
+        return interaction.reply({ content: `${referredUser} has not been in ${communityName()} for 7 days yet. About **${remainingDays} day(s)** remain.`, ephemeral: true });
       }
       const activity = referralActivityCount(referred.id, joinedAt);
       const activeDays = referralActivityDays(referred.id, joinedAt);
       if (activity < Math.max(1, getSettingInt('referral_activity_min_events')) || activeDays < Math.max(1, getSettingInt('referral_activity_min_days'))) {
-        return interaction.reply({ content: `${referredUser} has been in KlineO for 7 days and is verified, but LINKO still requires activity on at least **${Math.max(1, getSettingInt('referral_activity_min_days'))} different day(s)** before referral validation. Current active days: **${activeDays}**.`, ephemeral: true });
+        return interaction.reply({ content: `${referredUser} has been in ${communityName()} for 7 days and is verified, but LINKO still requires activity on at least **${Math.max(1, getSettingInt('referral_activity_min_days'))} different day(s)** before referral validation. Current active days: **${activeDays}**.`, ephemeral: true });
       }
       const existing = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(referred.id);
       if (existing?.valid_awarded) return interaction.reply({ content: `${referredUser} already has valid referral credit assigned to <@${existing.inviter_id}>. LINKO will not double-credit referrals.`, ephemeral: true });
@@ -4560,7 +4560,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       if (attachment.contentType && !attachment.contentType.startsWith('image/')) return interaction.reply({ content: 'Please upload an image file (PNG/JPG/WEBP).', ephemeral: true });
       setSetting(IMAGE_SLOTS[slot], attachment.url);
       await refreshBrandMessages(interaction.guild);
-      return interaction.reply({ content: `✅ Updated the **${slot}** image and refreshed the live KlineO message.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Updated the **${slot}** image and refreshed the live ${communityName()} message.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'social-card') {
@@ -4570,7 +4570,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       await interaction.deferReply({ ephemeral: true });
       const card = await generateSocialCard(interaction.guild, member, type);
       const file = new AttachmentBuilder(card.buffer, { name: `klineo-${type}-${interaction.user.id}.png` });
-      return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials. If the post is about KlineO, submit the post URL with \`/submit-post\` for review.`, files: [file] });
+      return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials.${moduleEnabled('kreator') ? ` If the post is about ${communityName()}, submit the post URL with /submit-post for review.` : ''}`, files: [file] });
     }
 
     if (interaction.commandName === 'official-links') {
