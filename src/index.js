@@ -1767,24 +1767,26 @@ function creatorReactionCount(submissionId) {
 }
 
 function buildCreatorLeaderboardEmbeds(guild, limit = 50) {
+  const label = xpLabel();
   const rows = creatorLeaderboardRows(guild, limit);
   const chunks = leaderboardChunks(rows, 25);
   return chunks.map((chunk, chunkIndex) => {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.creator_kxp).toLocaleString()} Creator KXP** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction KXP`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.creator_kxp).toLocaleString()} Creator ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction ${label}`;
     }).join('\n') : 'No KREATOR activity yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
-      .setTitle(chunkIndex === 0 ? '🏅 KlineO KREATOR Leaderboard · Top 50' : '🏅 KlineO KREATOR Leaderboard · 26–50')
+      .setTitle(chunkIndex === 0 ? `🏅 ${guild.name} KREATOR Leaderboard · Top 50` : `🏅 ${guild.name} KREATOR Leaderboard · 26–50`)
       .setDescription(lines)
-      .setFooter({ text: '[KLINEO-KREATOR-LEADERBOARD] · Creator KXP is included in total KXP · Auto-updated by LINKO' })
+      .setFooter({ text: `[KLINEO-KREATOR-LEADERBOARD] · Creator ${label} is included in total ${label} · Auto-updated by LINKO` })
       .setTimestamp();
   });
 }
 
 function buildCampaignLeaderboardEmbeds(guild, campaignId, limit = 50) {
+  const label = xpLabel();
   const campaign = creatorCampaignById(campaignId);
   if (!campaign) return [new EmbedBuilder().setColor(BRAND.rose).setTitle('Creator Campaign').setDescription(`Campaign #${campaignId} was not found.`)];
   const rows = campaignLeaderboardRows(guild, campaignId, limit);
@@ -1793,13 +1795,13 @@ function buildCampaignLeaderboardEmbeds(guild, campaignId, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.campaign_kxp).toLocaleString()} KXP** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction KXP`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.campaign_kxp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction ${label}`;
     }).join('\n') : 'No approved KREATOR posts in this campaign yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
       .setTitle(chunkIndex === 0 ? `🏁 #${campaign.id} · ${campaign.name}` : `🏁 #${campaign.id} · ${campaign.name} · 26–50`)
       .setDescription(`${campaign.description ? `${campaign.description}\n\n` : ''}${lines}`)
-      .setFooter({ text: `[KLINEO-CAMPAIGN-LEADERBOARD:${campaign.id}] · ${String(campaign.status).toUpperCase()} · Points also count toward KREATOR + overall KXP` })
+      .setFooter({ text: `[KLINEO-CAMPAIGN-LEADERBOARD:${campaign.id}] · ${String(campaign.status).toUpperCase()} · Points also count toward KREATOR + overall ${label}` })
       .setTimestamp();
   });
 }
@@ -1811,6 +1813,7 @@ function leaderboardChunks(rows, size = 25) {
 }
 
 function buildLeaderboardEmbeds(guild, limit = 50) {
+  const label = xpLabel();
   const rows = leaderboardRows(guild, limit);
   const chunks = leaderboardChunks(rows, 25);
   return chunks.map((chunk, chunkIndex) => {
@@ -1819,15 +1822,16 @@ function buildLeaderboardEmbeds(guild, limit = 50) {
       const xp = Number(r.xp ?? 0);
       const rank = rankForXp(xp);
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${xp.toLocaleString()} KXP** · ${rank.name}`;
-    }).join('\n') : 'No KXP activity yet.';
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${xp.toLocaleString()} ${label}** · ${rank.name}`;
+    }).join('\n') : `No ${label} activity yet.`;
     return new EmbedBuilder()
       .setColor(BRAND.lime)
-      .setTitle(chunkIndex === 0 ? '🏆 KlineO KXP Leaderboard · Top 50' : '🏆 KlineO KXP Leaderboard · 26–50')
+      .setTitle(chunkIndex === 0 ? `🏆 ${guild.name} ${label} Leaderboard · Top 50` : `🏆 ${guild.name} ${label} Leaderboard · 26–50`)
       .setDescription(lines)
       .setFooter({ text: `[KLINEO-KXP-LEADERBOARD] · ${rows.length} ranked shown · Auto-updated by LINKO` })
       .setTimestamp();
-  });}
+  });
+}
 
 function buildReferralLeaderboardEmbeds(guild, limit = 50) {
   const rows = referralLeaderboardRows(guild, limit);
@@ -1840,7 +1844,7 @@ function buildReferralLeaderboardEmbeds(guild, limit = 50) {
     }).join('\n') : 'No valid referrals yet.';
     return new EmbedBuilder()
       .setColor(BRAND.cyan)
-      .setTitle(chunkIndex === 0 ? '🤝 KlineO Referral Leaderboard · Top 50' : '🤝 KlineO Referral Leaderboard · 26–50')
+      .setTitle(chunkIndex === 0 ? `🤝 ${guild.name} Referral Leaderboard · Top 50` : `🤝 ${guild.name} Referral Leaderboard · 26–50`)
       .setDescription(lines)
       .setFooter({ text: `[KLINEO-REFERRAL-LEADERBOARD] · Ranked by valid referrals · Auto-updated by LINKO` })
       .setTimestamp();
@@ -2255,36 +2259,37 @@ async function seedMessage(channel, marker, payload) {
 }
 
 function kxpRulesContent() {
-  return `**KXP — KlineO Experience Points**
+  const label = xpLabel();
+  return `**${label} — Experience Points**
 
 Ranks:
-• OBSERVER — 0 KXP
-• SCOUT — 150 KXP
-• ANALYST — 500 KXP
-• OPERATOR — 1,200 KXP
-• STRATEGIST — 2,500 KXP
-• VANGUARD — 5,000 KXP
-• PRIME — 10,000+ KXP (highest rank; KXP continues with no maximum)
+• OBSERVER — 0 ${label}
+• SCOUT — 150 ${label}
+• ANALYST — 500 ${label}
+• OPERATOR — 1,200 ${label}
+• STRATEGIST — 2,500 ${label}
+• VANGUARD — 5,000 ${label}
+• PRIME — 10,000+ ${label} (highest rank; ${label} continues with no maximum)
 
 **Current earning rules**
-• Qualifying message: **+${getSettingInt('kxp_message')} KXP**
-• Official voice event: **+${getSettingInt('kxp_voice_interval')} KXP per ${getSettingInt('voice_interval_minutes')} qualifying minutes**
-• Valid referral: **+${getSettingInt('kxp_valid_referral')} KXP** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
-• Approved KlineO social post: **+${getSettingInt('kxp_social_post')} KXP**
-• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} KXP per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
-• Valid bug report: **+${getSettingInt('kxp_bug_report')} KXP**
-• First-time X submission: **+${getSettingInt('kxp_profile_submission')} KXP**
-• First-time Telegram submission: **+${getSettingInt('kxp_profile_submission')} KXP**
-• First-time EVM wallet submission: **+${getSettingInt('kxp_profile_submission')} KXP**
-• First-time Solana wallet submission: **+${getSettingInt('kxp_profile_submission')} KXP**
+• Qualifying message: **+${getSettingInt('kxp_message')} ${label}**
+• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**
+• Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
+• Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
+• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
+• Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**
+• First-time X submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
+• First-time Telegram submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
+• First-time EVM wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
+• First-time Solana wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
 
-**KXP never caps.** PRIME unlocks at 10,000 KXP, but members can keep earning lifetime KXP indefinitely. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
+**${label} never caps.** PRIME unlocks at 10,000 ${label}, but members can keep earning lifetime ${label} indefinitely. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
 
-Voice time only earns KXP while staff have an **official voice event** active.
+Voice time only earns ${label} while staff have an **official voice event** active.
 
-**Message KXP is impact-scored.** LINKO first rejects short/trivial/repeated/duplicate/link-spam messages. Candidate messages are then scored using content quality/relevance plus real community response (meaningful replies or distinct reactions). A moderator can confirm or reverse edge cases. LINKO stores only message IDs + scores/metadata for this system, not the message body.
+**Message ${label} is impact-scored.** LINKO first rejects short/trivial/repeated/duplicate/link-spam messages. Candidate messages are then scored using content quality/relevance plus real community response (meaningful replies or distinct reactions). A moderator can confirm or reverse edge cases. LINKO stores only message IDs + scores/metadata for this system, not the message body.
 
-Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, and \`/leaderboard\`.
+Use `/rank`, `/points`, `/invite`, `/invites`, and `/leaderboard`.
 
 [KLINEO-KXP]`;
 }
