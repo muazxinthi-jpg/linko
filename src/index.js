@@ -654,92 +654,6 @@ function migrateLegacyKlineoDatabase(guildId, guildName) {
   }
 }
 
-function auditLegacyXpMigration(guildId, guildName) {
-  const id = String(guildId);
-  if (String(guildName ?? '').trim().toLowerCase() !== 'klineo') return null;
-  const legacyPath = 'data/linko.sqlite';
-  if (!existsSync(legacyPath)) return null;
-
-  const target = getGuildDb(id);
-  const legacy = new DatabaseSync(legacyPath, { readOnly: true });
-  try {
-    const metrics = (database) => ({
-      users: tableExists(database, 'users')
-        ? database.prepare('SELECT COUNT(*) AS rows, COALESCE(SUM(xp),0) AS xp FROM users').get()
-        : { rows: 0, xp: 0 },
-      xpLog: tableExists(database, 'xp_log')
-        ? database.prepare('SELECT COUNT(*) AS rows, COALESCE(SUM(amount),0) AS amount FROM xp_log').get()
-        : { rows: 0, amount: 0 },
-      daily: tableExists(database, 'daily_xp')
-        ? database.prepare('SELECT COUNT(*) AS rows, COALESCE(SUM(message_xp),0) AS message_xp, COALESCE(SUM(voice_xp),0) AS voice_xp, COALESCE(SUM(social_count),0) AS social_count FROM daily_xp').get()
-        : { rows: 0, message_xp: 0, voice_xp: 0, social_count: 0 },
-    });
-
-    const legacyMetrics = metrics(legacy);
-    const targetMetrics = metrics(target);
-    const marker = target.prepare('SELECT value FROM settings WHERE key=?').get('legacy_v1051_migrated_at')?.value ?? null;
-
-    const missingUsers = [];
-    if (tableExists(legacy, 'users') && tableExists(target, 'users')) {
-      const targetXp = target.prepare('SELECT xp FROM users WHERE user_id=?');
-      for (const row of legacy.prepare('SELECT user_id,xp FROM users WHERE xp > 0 ORDER BY xp DESC').all()) {
-        const current = Number(targetXp.get(row.user_id)?.xp ?? 0);
-        const expected = Number(row.xp ?? 0);
-        if (current < expected) missingUsers.push({ user_id: row.user_id, legacy_xp: expected, target_xp: current });
-      }
-    }
-
-    let missingXpLogRows = 0;
-    let missingXpLogAmount = 0;
-    if (tableExists(legacy, 'xp_log') && tableExists(target, 'xp_log')) {
-      const existsLog = target.prepare("SELECT 1 FROM xp_log WHERE user_id=? AND amount=? AND reason=? AND created_at=? AND COALESCE(actor_id,'')=COALESCE(?,'') LIMIT 1");
-      for (const row of legacy.prepare('SELECT user_id,amount,reason,created_at,actor_id FROM xp_log').all()) {
-        if (!existsLog.get(row.user_id,row.amount,row.reason,row.created_at,row.actor_id)) {
-          missingXpLogRows++;
-          missingXpLogAmount += Number(row.amount ?? 0);
-        }
-      }
-    }
-
-    let missingDailyRows = 0;
-    if (tableExists(legacy, 'daily_xp') && tableExists(target, 'daily_xp')) {
-      const getDaily = target.prepare('SELECT message_xp,voice_xp,social_count FROM daily_xp WHERE user_id=? AND day=?');
-      for (const row of legacy.prepare('SELECT user_id,day,message_xp,voice_xp,social_count FROM daily_xp').all()) {
-        const cur = getDaily.get(row.user_id,row.day);
-        if (!cur ||
-            Number(cur.message_xp ?? 0) < Number(row.message_xp ?? 0) ||
-            Number(cur.voice_xp ?? 0) < Number(row.voice_xp ?? 0) ||
-            Number(cur.social_count ?? 0) < Number(row.social_count ?? 0)) {
-          missingDailyRows++;
-        }
-      }
-    }
-
-    const topLegacy = tableExists(legacy, 'users')
-      ? legacy.prepare('SELECT user_id,xp FROM users ORDER BY xp DESC,user_id LIMIT 20').all()
-      : [];
-    const topTarget = tableExists(target, 'users')
-      ? target.prepare('SELECT user_id,xp FROM users ORDER BY xp DESC,user_id LIMIT 20').all()
-      : [];
-
-    console.log('[XP AUDIT]', JSON.stringify({
-      guildId: id,
-      marker,
-      legacy: legacyMetrics,
-      target: targetMetrics,
-      missingUsers,
-      missingXpLogRows,
-      missingXpLogAmount,
-      missingDailyRows,
-      topLegacy,
-      topTarget,
-    }));
-    return { legacy: legacyMetrics, target: targetMetrics, missingUsers, missingXpLogRows, missingXpLogAmount, missingDailyRows };
-  } finally {
-    legacy.close();
-  }
-}
-
 function getGuildDb(guildId) {
   const id = String(guildId);
   let database = guildDbs.get(id);
@@ -3560,7 +3474,6 @@ client.once('clientReady', async () => {
           }
         }
         migrateLegacyKlineoDatabase(fullGuild.id, fullGuild.name);
-        auditLegacyXpMigration(fullGuild.id, fullGuild.name);
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
