@@ -2,7 +2,7 @@
   "name": "linko-klineo-community-bot",
   "version": "10.7.0",
   "private": true,
-  "description": "LINKO v10.7.0 — multi-server isolation, per-server XP labels, KREATOR campaigns and batch channel management",
+  "description": "LINKO v10.7.0 — multi-server community profiles, per-server XP labels, KREATOR campaigns and batch channel management",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
