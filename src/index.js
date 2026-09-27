@@ -4134,10 +4134,23 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
       const action = interaction.options.getSubcommand();
       if (action === 'view') {
+        const modules = [
+          ['Signal Room', 'signal_room'],
+          ['KREATOR', 'kreator'],
+          ['Founder Hub', 'founder_hub'],
+          ['Liquidity Studio', 'liquidity_studio'],
+        ].map(([label, key]) => `${moduleEnabled(key) ? '✅' : '⛔'} ${label}`).join('\n');
         return interaction.reply({
-          content: `**LINKO SERVER SETTINGS**\nServer: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\nAllowed-server mode: **ON**`,
+          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
           ephemeral: true,
         });
+      }
+      if (action === 'community-name') {
+        const name = interaction.options.getString('name', true).trim().replace(/\s+/g, ' ');
+        if (name.length < 2 || name.length > 40) return interaction.reply({ content: 'Community name must be 2–40 characters.', ephemeral: true });
+        setSetting('community_name', name);
+        setSetting('profile_preset', 'custom');
+        return interaction.reply({ content: `✅ Community display name set to **${name}**. Run \`/setup-linko confirm:true\` to sync branded categories, roles and content.`, ephemeral: true });
       }
       if (action === 'xp-name') {
         const requested = interaction.options.getString('name', true);
@@ -4146,9 +4159,29 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
         setSetting('xp_label', label);
         await updatePublicKxpDocs(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
-        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged; only the display name changed.`, ephemeral: true });
+        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged. Run \`/setup-linko confirm:true\` if you also want the XP category name synced.`, ephemeral: true });
+      }
+      if (action === 'preset') {
+        const preset = interaction.options.getString('type', true);
+        applyServerPreset(preset);
+        if (!getSetting('community_name')) setSetting('community_name', interaction.guild.name);
+        return interaction.reply({ content: preset === 'klineo'
+          ? '✅ Applied **KlineO Full** preset: Signal Room, KREATOR, Founder Hub and Liquidity Studio enabled. Run `/setup-linko confirm:true` to sync.'
+          : '✅ Applied **Core Community** preset: core XP/referrals/events + Signal Room enabled; KREATOR, Founder Hub and Liquidity Studio disabled by default. Use `/server-settings module` to add what you need, then run `/setup-linko confirm:true`.', ephemeral: true });
+      }
+      if (action === 'module') {
+        const key = interaction.options.getString('name', true);
+        const enabled = interaction.options.getBoolean('enabled', true);
+        const allowed = new Set(['signal_room', 'kreator', 'founder_hub', 'liquidity_studio']);
+        if (!allowed.has(key)) return interaction.reply({ content: 'Unknown module.', ephemeral: true });
+        setSetting(`module_${key}`, enabled ? 1 : 0);
+        if (key === 'liquidity_studio' && enabled) setSetting('module_founder_hub', 1);
+        if (key === 'founder_hub' && !enabled) setSetting('module_liquidity_studio', 0);
+        setSetting('profile_preset', 'custom');
+        return interaction.reply({ content: `✅ Module **${key.replaceAll('_', ' ')}** is now **${enabled ? 'ENABLED' : 'DISABLED'}**.${key === 'liquidity_studio' && enabled ? ' Founder Hub was enabled automatically.' : ''}${key === 'founder_hub' && !enabled ? ' Liquidity Studio was disabled automatically.' : ''} Run \`/setup-linko confirm:true\` to sync the server structure.`, ephemeral: true });
       }
     }
+
     if (interaction.commandName === 'kxp-settings') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const active = getActiveVoiceEvent();
