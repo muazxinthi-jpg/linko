@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdirSync, appendFileSync, existsSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
@@ -426,6 +426,7 @@ const DEFAULT_SETTINGS = {
   official_linkedin: '',
   official_docs: '',
   official_support: '',
+  brand_accent: '',
   health_window_days: '7',
   event_reminder_30: '1',
   event_reminder_5: '1',
@@ -690,6 +691,24 @@ function communityName() {
 
 function communityNameUpper() {
   return communityName().toUpperCase().slice(0, 40);
+}
+
+function normalizeBrandAccent(raw) {
+  const match = String(raw ?? '').trim().match(/^#?([0-9a-f]{6})$/i);
+  return match ? `#${match[1].toUpperCase()}` : null;
+}
+
+function brandAccent() {
+  return normalizeBrandAccent(getSetting('brand_accent')) ?? '#FF5A1F';
+}
+
+function accentRgba(hex, alpha) {
+  const normalized = normalizeBrandAccent(hex) ?? '#FF5A1F';
+  const value = Number.parseInt(normalized.slice(1), 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function moduleEnabled(key) {
@@ -1171,6 +1190,8 @@ const commands = [
       .addStringOption((o) => o.setName('name').setDescription('Example: community, Polkadot').setRequired(true).setMinLength(2).setMaxLength(40)))
     .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
       .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6)))
+    .addSubcommand((sc) => sc.setName('brand-color').setDescription('Set the accent color used on LINKO shareable cards.')
+      .addStringOption((o) => o.setName('hex').setDescription('6-digit hex, e.g. #FF5A1F').setRequired(true).setMinLength(6).setMaxLength(7)))
     .addSubcommand((sc) => sc.setName('preset').setDescription('Apply a safe module preset before setup.')
       .addStringOption((o) => o.setName('type').setDescription('Server profile preset').setRequired(true).addChoices(
         { name: 'KlineO Full', value: 'klineo' },
@@ -1308,6 +1329,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('community-health')
     .setDescription('Staff: show community community health metrics.')
+    .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
+  new SlashCommandBuilder()
+    .setName('health-card')
+    .setDescription('Staff: generate a shareable community health image.')
     .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
   new SlashCommandBuilder().setName('refresh-health').setDescription('Staff: refresh the persistent community-health dashboard.'),
   new SlashCommandBuilder().setName('mod-inbox').setDescription('Staff: show the consolidated LINKO moderation inbox.'),
@@ -3051,6 +3076,441 @@ function fitText(ctx, text, maxWidth, startSize = 72, minSize = 34, family = 'sa
   }
   return size;
 }
+function compactMetric(value) {
+  return Number(value ?? 0).toLocaleString('en-US');
+}
+
+async function drawGuildIdentity(ctx, guild, x, y, size, accent) {
+  ctx.save();
+  drawRoundRect(ctx, x, y, size, size, Math.round(size * 0.28));
+  ctx.clip();
+
+  let drawn = false;
+  const iconUrl = guild.iconURL({ extension: 'png', size: 256 });
+  if (iconUrl) {
+    try {
+      const response = await fetch(iconUrl);
+      if (response.ok) {
+        const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+        ctx.drawImage(image, x, y, size, size);
+        drawn = true;
+      }
+    } catch {}
+  }
+
+  if (!drawn) {
+    ctx.fillStyle = accent;
+    ctx.fillRect(x, y, size, size);
+    const initial = communityName().trim().slice(0, 1).toUpperCase() || 'L';
+    ctx.fillStyle = '#071008';
+    ctx.font = `900 ${Math.round(size * 0.52)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initial, x + size / 2, y + size / 2 + 2);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = accentRgba(accent, 0.7);
+  ctx.lineWidth = 3;
+  drawRoundRect(ctx, x, y, size, size, Math.round(size * 0.28));
+  ctx.stroke();
+}
+
+function healthPeriodMetrics(days, offsetPeriods = 0) {
+  const duration = days * 86400000;
+  const end = now() - (offsetPeriods * duration);
+  const start = end - duration;
+  const between = (column) => `${column} >= ? AND ${column} < ?`;
+
+  const joins = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('joined_at')}`).get(start, end)?.c ?? 0);
+  const verifications = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('verified_at')}`).get(start, end)?.c ?? 0);
+  const contributors = Number(db.prepare(`SELECT COUNT(DISTINCT user_id) AS c FROM xp_log WHERE ${between('created_at')} AND amount > 0`).get(start, end)?.c ?? 0);
+  const qualifiedMessages = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND reason LIKE 'Qualified community message:%' AND amount > 0`).get(start, end)?.c ?? 0);
+  const validReferrals = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0`).get(start, end)?.c ?? 0);
+  const social = Number(db.prepare(`SELECT COUNT(*) AS c FROM social_submissions WHERE status='approved' AND ${between('reviewed_at')}`).get(start, end)?.c ?? 0);
+  const suggestions = Number(db.prepare(`SELECT COUNT(*) AS c FROM product_suggestions WHERE ${between('created_at')}`).get(start, end)?.c ?? 0);
+  const eventAttendees = Number(db.prepare(`SELECT COUNT(DISTINCT ea.user_id) AS c FROM event_attendance ea JOIN community_events ce ON ce.id=ea.event_id WHERE ${between('COALESCE(ce.ended_at, ce.start_at)')}`).get(start, end)?.c ?? 0);
+
+  return { start, end, joins, verifications, contributors, qualifiedMessages, validReferrals, social, suggestions, eventAttendees };
+}
+
+function metricTrend(current, previous) {
+  const c = Number(current ?? 0);
+  const p = Number(previous ?? 0);
+  if (c === 0 && p === 0) return { label: 'No change', direction: 'flat' };
+  if (p === 0) return { label: c > 0 ? 'New vs prior' : 'No change', direction: c > 0 ? 'up' : 'flat' };
+  const pct = Math.round(((c - p) / p) * 100);
+  if (pct === 0) return { label: '0% vs prior', direction: 'flat' };
+  return { label: `${pct > 0 ? '+' : ''}${pct}% vs prior`, direction: pct > 0 ? 'up' : 'down' };
+}
+
+function healthCardStatus(metrics, previous) {
+  if (metrics.joins > 0 && metrics.verifications === 0) return { label: 'NEEDS ACTIVATION', tone: 'warn' };
+  if (metrics.contributors === 0 && metrics.qualifiedMessages === 0) return { label: 'LOW ACTIVITY', tone: 'muted' };
+  const momentum =
+    metrics.contributors > previous.contributors ||
+    metrics.qualifiedMessages > previous.qualifiedMessages ||
+    metrics.joins > previous.joins;
+  if (metrics.activationRate != null && metrics.activationRate >= 60 && metrics.contributors > 0) return { label: 'HEALTHY CORE', tone: 'good' };
+  if (momentum) return { label: 'MOMENTUM UP', tone: 'good' };
+  return { label: 'STABLE CORE', tone: 'neutral' };
+}
+
+function healthCardInsight(metrics, previous, days) {
+  if (metrics.joins > 0 && metrics.verifications === 0) {
+    return `${metrics.joins} new ${metrics.joins === 1 ? 'member joined' : 'members joined'}, but none verified yet. The clearest opportunity is improving onboarding and verification.`;
+  }
+  if (metrics.contributors > 0 && metrics.qualifiedMessages === 0) {
+    return `${metrics.contributors} active ${metrics.contributors === 1 ? 'contributor is' : 'contributors are'} showing up, but no qualified messages were recorded in this ${days}-day window.`;
+  }
+  if (metrics.contributors > previous.contributors) {
+    return `Active contributors increased from ${previous.contributors} to ${metrics.contributors} versus the previous ${days} days, while ${metrics.qualifiedMessages} qualified messages were recorded.`;
+  }
+  if (metrics.activationRate != null && metrics.activationRate >= 60) {
+    return `${metrics.activationRate}% of newly verified members completed at least one activation step. Participation is converting into deeper community activity.`;
+  }
+  if (metrics.joins === 0 && metrics.contributors > 0) {
+    return `The current community core remains active, with ${metrics.contributors} ${metrics.contributors === 1 ? 'contributor' : 'contributors'}, but no new joins were recorded in this window.`;
+  }
+  return `Community activity is steady: ${metrics.contributors} active ${metrics.contributors === 1 ? 'contributor' : 'contributors'}, ${metrics.qualifiedMessages} qualified messages and ${metrics.joins} new ${metrics.joins === 1 ? 'join' : 'joins'} in the last ${days} days.`;
+}
+
+function wrapCanvasText(ctx, text, maxWidth, maxLines = 2) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth || !line) {
+      line = candidate;
+      continue;
+    }
+    lines.push(line);
+    line = word;
+    if (lines.length >= maxLines - 1) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+    let last = lines[maxLines - 1];
+    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
+    lines[maxLines - 1] = `${last.replace(/[\s,.]+$/, '')}…`;
+  }
+  return lines;
+}
+
+async function generateHealthCard(guild, days = 7) {
+  const W = 1600, H = 900;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  const accent = brandAccent();
+  const m = healthMetrics(guild, days);
+  const current = healthPeriodMetrics(days, 0);
+  const previous = healthPeriodMetrics(days, 1);
+  const insight = healthCardInsight(m, previous, days);
+  const verifiedRate = m.total ? Math.round((m.verified / m.total) * 100) : 0;
+  const startDate = new Date(current.start);
+  const endDate = new Date(current.end);
+  const dateLabel = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()} - ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}`;
+
+  const generatedAt = new Date();
+  const generatedDate = generatedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
+  const generatedTime = `${String(generatedAt.getUTCHours()).padStart(2, '0')}:${String(generatedAt.getUTCMinutes()).padStart(2, '0')} UTC`;
+
+  const previousActivated = Number(db.prepare(`SELECT COUNT(*) AS c
+    FROM users u
+    LEFT JOIN member_activation a ON a.user_id=u.user_id
+    WHERE u.verified_at >= ? AND u.verified_at < ?
+      AND (a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL)`).get(previous.start, previous.end)?.c ?? 0);
+  const previousActivationRate = previous.verifications
+    ? Math.min(100, Math.round((previousActivated / previous.verifications) * 100))
+    : null;
+
+  const hex = normalizeBrandAccent(accent) ?? '#FF5A1F';
+  const rgb = Number.parseInt(hex.slice(1), 16);
+  const r = (rgb >> 16) & 255;
+  const g = (rgb >> 8) & 255;
+  const b = rgb & 255;
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const useDarkInk = luminance > 0.34;
+  const ink = useDarkInk ? '#070707' : '#FFFFFF';
+  const softInk = useDarkInk ? 'rgba(7,7,7,0.72)' : 'rgba(255,255,255,0.75)';
+  const divider = useDarkInk ? 'rgba(7,7,7,0.82)' : 'rgba(255,255,255,0.72)';
+  const tileFill = useDarkInk ? 'rgba(255,246,238,0.82)' : 'rgba(255,255,255,0.16)';
+  const tileInk = useDarkInk ? '#090909' : '#FFFFFF';
+  const pillFill = useDarkInk ? 'rgba(255,246,238,0.54)' : 'rgba(255,255,255,0.12)';
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, W, H);
+
+  // Server banner becomes a subtle branded texture. If absent, LINKO's chain motif is used.
+  const bannerUrl = guild.bannerURL({ extension: 'png', size: 2048 });
+  let bannerDrawn = false;
+  if (bannerUrl) {
+    try {
+      const response = await fetch(bannerUrl);
+      if (response.ok) {
+        const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+        const boxX = 1100, boxY = 0, boxW = 500, boxH = 390;
+        const sourceRatio = image.width / image.height;
+        const boxRatio = boxW / boxH;
+        let sx = 0, sy = 0, sw = image.width, sh = image.height;
+        if (sourceRatio > boxRatio) {
+          sw = image.height * boxRatio;
+          sx = (image.width - sw) / 2;
+        } else {
+          sh = image.width / boxRatio;
+          sy = (image.height - sh) / 2;
+        }
+        ctx.save();
+        ctx.globalAlpha = 0.17;
+        ctx.drawImage(image, sx, sy, sw, sh, boxX, boxY, boxW, boxH);
+        ctx.restore();
+        const wash = ctx.createLinearGradient(1040, 0, 1600, 0);
+        wash.addColorStop(0, accentRgba(accent, 0.98));
+        wash.addColorStop(0.5, accentRgba(accent, 0.58));
+        wash.addColorStop(1, accentRgba(accent, 0.18));
+        ctx.fillStyle = wash;
+        ctx.fillRect(1010, 0, 590, 410);
+        bannerDrawn = true;
+      }
+    } catch {}
+  }
+
+  if (!bannerDrawn) {
+    ctx.save();
+    ctx.translate(1400, 212);
+    ctx.rotate(-0.62);
+    ctx.strokeStyle = useDarkInk ? 'rgba(7,7,7,0.23)' : 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 35;
+    drawRoundRect(ctx, -175, -62, 230, 124, 62);
+    ctx.stroke();
+    drawRoundRect(ctx, -20, -62, 230, 124, 62);
+    ctx.stroke();
+    ctx.restore();
+    for (let y = 42; y < 348; y += 15) {
+      for (let x = 1210; x < 1570; x += 15) {
+        const dx = x - 1400, dy = y - 195;
+        if ((dx * dx) / 51000 + (dy * dy) / 22000 < 1) {
+          ctx.fillStyle = useDarkInk ? 'rgba(7,7,7,0.18)' : 'rgba(255,255,255,0.15)';
+          ctx.fillRect(x, y, 5, 5);
+        }
+      }
+    }
+  }
+
+  const drawIconTile = (x, y, kind, size = 70) => {
+    drawRoundRect(ctx, x, y, size, size, Math.round(size * 0.19));
+    ctx.fillStyle = tileFill;
+    ctx.fill();
+    ctx.strokeStyle = useDarkInk ? 'rgba(7,7,7,0.05)' : 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = tileInk;
+    ctx.fillStyle = tileInk;
+    ctx.lineWidth = Math.max(3, Math.round(size * 0.055));
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (kind === 'people') {
+      ctx.beginPath(); ctx.arc(size * 0.42, size * 0.34, size * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.61, size * 0.38, size * 0.09, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.42, size * 0.72, size * 0.23, Math.PI, 0); ctx.stroke();
+      ctx.beginPath(); ctx.arc(size * 0.64, size * 0.71, size * 0.17, Math.PI, 0); ctx.stroke();
+    } else if (kind === 'message') {
+      drawRoundRect(ctx, size * 0.24, size * 0.25, size * 0.52, size * 0.40, size * 0.08);
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size * 0.38, size * 0.64); ctx.lineTo(size * 0.29, size * 0.76); ctx.lineTo(size * 0.48, size * 0.65); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size * 0.34, size * 0.39); ctx.lineTo(size * 0.66, size * 0.39); ctx.moveTo(size * 0.34, size * 0.50); ctx.lineTo(size * 0.57, size * 0.50); ctx.stroke();
+    } else if (kind === 'join') {
+      ctx.beginPath(); ctx.arc(size * 0.38, size * 0.34, size * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.38, size * 0.73, size * 0.23, Math.PI, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size * 0.69, size * 0.34); ctx.lineTo(size * 0.69, size * 0.58); ctx.moveTo(size * 0.57, size * 0.46); ctx.lineTo(size * 0.81, size * 0.46); ctx.stroke();
+    } else if (kind === 'bars') {
+      const bars = [[0.27,0.58,0.10,0.20],[0.45,0.43,0.10,0.35],[0.63,0.28,0.10,0.50]];
+      for (const [bx,by,bw,bh] of bars) { drawRoundRect(ctx, size*bx, size*by, size*bw, size*bh, 3); ctx.fill(); }
+    } else if (kind === 'shield') {
+      ctx.beginPath();
+      ctx.moveTo(size*0.50,size*0.20); ctx.lineTo(size*0.72,size*0.29); ctx.lineTo(size*0.69,size*0.58);
+      ctx.quadraticCurveTo(size*0.64,size*0.75,size*0.50,size*0.82);
+      ctx.quadraticCurveTo(size*0.36,size*0.75,size*0.31,size*0.58); ctx.lineTo(size*0.28,size*0.29); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.39,size*0.50); ctx.lineTo(size*0.47,size*0.58); ctx.lineTo(size*0.63,size*0.40); ctx.stroke();
+    } else if (kind === 'social') {
+      ctx.beginPath(); ctx.moveTo(size*0.25,size*0.47); ctx.lineTo(size*0.58,size*0.33); ctx.lineTo(size*0.58,size*0.67); ctx.closePath(); ctx.stroke();
+      ctx.strokeRect(size*0.20,size*0.43,size*0.08,size*0.16);
+      ctx.beginPath(); ctx.moveTo(size*0.31,size*0.60); ctx.lineTo(size*0.36,size*0.76); ctx.stroke();
+      ctx.beginPath(); ctx.arc(size*0.63,size*0.50,size*0.18,-0.8,0.8); ctx.stroke();
+    } else if (kind === 'calendar') {
+      drawRoundRect(ctx,size*0.24,size*0.28,size*0.52,size*0.48,size*0.05); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.24,size*0.41); ctx.lineTo(size*0.76,size*0.41); ctx.moveTo(size*0.37,size*0.22); ctx.lineTo(size*0.37,size*0.34); ctx.moveTo(size*0.63,size*0.22); ctx.lineTo(size*0.63,size*0.34); ctx.stroke();
+      ctx.fillRect(size*0.34,size*0.50,size*0.07,size*0.07); ctx.fillRect(size*0.47,size*0.50,size*0.07,size*0.07); ctx.fillRect(size*0.60,size*0.50,size*0.07,size*0.07);
+    } else if (kind === 'link') {
+      ctx.save(); ctx.translate(size*0.50,size*0.50); ctx.rotate(-0.65);
+      drawRoundRect(ctx,-size*0.29,-size*0.11,size*0.34,size*0.22,size*0.11); ctx.stroke();
+      drawRoundRect(ctx,-size*0.05,-size*0.11,size*0.34,size*0.22,size*0.11); ctx.stroke();
+      ctx.restore();
+    } else if (kind === 'bulb') {
+      ctx.beginPath(); ctx.arc(size*0.50,size*0.42,size*0.18,Math.PI*0.82,Math.PI*2.18); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.41,size*0.57); ctx.lineTo(size*0.44,size*0.67); ctx.lineTo(size*0.56,size*0.67); ctx.lineTo(size*0.59,size*0.57); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.44,size*0.73); ctx.lineTo(size*0.56,size*0.73); ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  // Community-first identity, LINKO as the infrastructure brand.
+  await drawGuildIdentity(ctx, guild, 58, 44, 92, ink);
+  ctx.fillStyle = ink;
+  const serverName = communityNameUpper();
+  const serverNameSize = fitText(ctx, serverName, 430, 46, 28);
+  ctx.font = `900 ${serverNameSize}px sans-serif`;
+  ctx.fillText(serverName, 176, 91);
+  ctx.font = '800 17px monospace';
+  ctx.fillText('POWERED BY LINKO', 178, 120);
+
+  ctx.textAlign = 'center';
+  ctx.font = '800 18px monospace';
+  ctx.fillText(`LAST ${days} DAYS`, 800, 78);
+  ctx.fillStyle = softInk;
+  ctx.font = '700 14px monospace';
+  ctx.fillText(dateLabel, 800, 106);
+  ctx.textAlign = 'left';
+
+  // Main editorial headline.
+  ctx.fillStyle = ink;
+  const headlineSize = fitText(ctx, 'COMMUNITY HEALTH.', 1100, 86, 68);
+  ctx.font = `900 ${headlineSize}px sans-serif`;
+  ctx.fillText('COMMUNITY HEALTH.', 58, 270);
+
+  // Insight always fits in two lines. Reduce type before truncating.
+  let insightSize = 22;
+  let insightLines = [];
+  const wrapFull = (text, maxWidth) => {
+    const words = String(text).split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (!line || ctx.measureText(test).width <= maxWidth) line = test;
+      else { lines.push(line); line = word; }
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  while (insightSize >= 16) {
+    ctx.font = `700 ${insightSize}px sans-serif`;
+    insightLines = wrapFull(insight, 1080);
+    if (insightLines.length <= 2) break;
+    insightSize -= 1;
+  }
+  ctx.fillStyle = softInk;
+  insightLines.slice(0,2).forEach((line, index) => ctx.fillText(line, 60, 326 + index * (insightSize + 8)));
+
+  ctx.fillStyle = divider;
+  ctx.fillRect(58, 418, 1484, 3);
+
+  const trendLabel = (trend) => {
+    if (!trend) return 'NO CHANGE';
+    if (trend.label === 'New vs prior') return 'NEW';
+    if (trend.direction === 'flat') return 'NO CHANGE';
+    return trend.label.toUpperCase();
+  };
+  const primary = [
+    { label: ['Active','Contributors'], value: compactMetric(m.contributors), icon: 'people', trend: metricTrend(current.contributors, previous.contributors) },
+    { label: ['Qualified','Messages'], value: compactMetric(m.qualifiedMessages), icon: 'message', trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages) },
+    { label: ['New','Joins'], value: compactMetric(m.joins), icon: 'join', trend: metricTrend(current.joins, previous.joins) },
+    { label: ['Activation'], value: m.activationRate == null ? 'N/A' : `${m.activationRate}%`, icon: 'bars', trend: m.activationRate == null || previousActivationRate == null ? null : metricTrend(m.activationRate, previousActivationRate), note: m.activationRate == null ? 'No verified joins yet' : `${m.activated} of ${m.verifications} activated` },
+  ];
+
+  const columnX = [58, 428, 798, 1168];
+  const columnW = 340;
+  const drawPill = (x, y, label, direction) => {
+    ctx.font = '800 13px monospace';
+    const w = Math.max(128, ctx.measureText(label).width + 48);
+    drawRoundRect(ctx, x, y, w, 34, 17);
+    ctx.fillStyle = pillFill; ctx.fill();
+    ctx.fillStyle = direction === 'down' ? (useDarkInk ? '#7A1D16' : '#FFD0CA') : softInk;
+    ctx.beginPath(); ctx.arc(x + 18, y + 17, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.fillText(label, x + 36, y + 22);
+  };
+
+  primary.forEach((item, index) => {
+    const x = columnX[index];
+    if (index > 0) {
+      ctx.fillStyle = divider;
+      ctx.globalAlpha = 0.72;
+      ctx.fillRect(x - 28, 450, 2, 168);
+      ctx.globalAlpha = 1;
+    }
+    drawIconTile(x, 448, item.icon, 70);
+    ctx.fillStyle = ink;
+    ctx.font = '800 20px sans-serif';
+    item.label.forEach((line, li) => ctx.fillText(line, x + 94, 474 + li * 24));
+    ctx.font = `900 ${item.value === 'N/A' ? 58 : 72}px monospace`;
+    ctx.fillText(item.value, x, 588);
+    if (item.note) {
+      ctx.font = '700 14px sans-serif';
+      ctx.fillText(item.note, x + 3, 616);
+    }
+    const tLabel = trendLabel(item.trend);
+    drawPill(x + 92, 608, tLabel, item.trend?.direction ?? 'flat');
+  });
+
+  ctx.fillStyle = divider;
+  ctx.fillRect(58, 660, 1484, 3);
+
+  const secondary = [
+    { label:['Verified','Members'], value:compactMetric(m.verified), note:`${verifiedRate}% verified`, icon:'shield' },
+    { label:['Social','Posts'], value:compactMetric(m.social), note:'approved', icon:'social' },
+    { label:['Event','Attendees'], value:compactMetric(m.eventAttendees), note:`last ${days}d`, icon:'calendar' },
+    { label:['Referrals'], value:compactMetric(m.validReferrals), note:'valid', icon:'link' },
+    { label:['Suggestions'], value:compactMetric(m.suggestions), note:'submitted', icon:'bulb' },
+  ];
+  const secX = [58, 365, 672, 979, 1286];
+
+  secondary.forEach((item, index) => {
+    const x = secX[index];
+    if (index > 0) {
+      ctx.fillStyle = divider;
+      ctx.globalAlpha = 0.62;
+      ctx.fillRect(x - 24, 689, 2, 125);
+      ctx.globalAlpha = 1;
+    }
+    drawIconTile(x, 688, item.icon, 58);
+    ctx.fillStyle = ink;
+    ctx.font = '800 17px sans-serif';
+    item.label.forEach((line, li) => ctx.fillText(line, x + 82, 710 + li * 21));
+    ctx.font = '900 43px monospace';
+    ctx.fillText(item.value, x + 82, 785);
+    ctx.fillStyle = softInk;
+    ctx.font = '700 13px sans-serif';
+    ctx.fillText(item.note, x + 82, 810);
+  });
+
+  ctx.fillStyle = divider;
+  ctx.fillRect(58, 835, 1484, 2);
+
+  ctx.fillStyle = ink;
+  ctx.font = '700 15px sans-serif';
+  ctx.fillText('Generated by LINKO', 58, 875);
+
+  ctx.textAlign = 'center';
+  ctx.font = '700 13px monospace';
+  ctx.fillText(`UPDATED ${generatedDate} · ${generatedTime}`, 800, 875);
+
+  ctx.textAlign = 'right';
+  ctx.font = '800 13px monospace';
+  ctx.fillText('PEOPLE CONNECT. PROGRESS.', 1542, 875);
+  ctx.textAlign = 'left';
+
+  const activationCaption = m.activationRate == null ? 'no new verifications yet' : `${m.activationRate}% activation among new verifications`;
+  const caption = `${communityName()} Community Health, last ${days} days: ${m.contributors} active contributors, ${m.qualifiedMessages} qualified messages, ${m.joins} new joins and ${activationCaption}. ${insight}`;
+  return { buffer: canvas.toBuffer('image/png'), caption, status: healthCardStatus(m, previous).label };
+}
+
 async function generateSocialCard(guild, member, type) {
   const W = 1600, H = 900;
   const canvas = createCanvas(W, H);
@@ -3995,6 +4455,18 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: rows.length ? `**Upcoming ${communityName()} Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : `No upcoming ${communityName()} events are scheduled.`, ephemeral: true });
     }
 
+    if (interaction.commandName === 'health-card') {
+      if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+      const days = interaction.options.getInteger('days') ?? (getSettingInt('health_window_days') || 7);
+      await interaction.deferReply({ ephemeral: true });
+      const card = await generateHealthCard(interaction.guild, days);
+      const file = new AttachmentBuilder(card.buffer, { name: `linko-community-health-${interaction.guildId}-${days}d.png` });
+      return interaction.editReply({
+        content: `**${communityName()} Community Health card is ready.**\nSuggested caption:\n${card.caption}\n\nThe image contains public-safe community metrics only.`,
+        files: [file],
+      });
+    }
+
     if (interaction.commandName === 'community-health' || interaction.commandName === 'refresh-health') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const days = interaction.commandName === 'community-health' ? (interaction.options.getInteger('days') ?? (getSettingInt('health_window_days') || 7)) : (getSettingInt('health_window_days') || 7);
@@ -4479,7 +4951,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
           ['Liquidity Studio', 'liquidity_studio'],
         ].map(([label, key]) => `${moduleEnabled(key) ? '✅' : '⛔'} ${label}`).join('\n');
         return interaction.reply({
-          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
+          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nCard accent: **${brandAccent()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
           ephemeral: true,
         });
       }
@@ -4514,6 +4986,12 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
         await updatePublicKxpDocs(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
         return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged, and the XP category was renamed where possible.`, ephemeral: true });
+      }
+      if (action === 'brand-color') {
+        const accent = normalizeBrandAccent(interaction.options.getString('hex', true));
+        if (!accent) return interaction.reply({ content: 'Brand color must be a valid 6-digit hex value, for example **#FF5A1F**.', ephemeral: true });
+        setSetting('brand_accent', accent);
+        return interaction.reply({ content: `✅ Shareable LINKO cards for this server will now use **${accent}** as the accent color. The Discord server icon is used automatically as the card logo.`, ephemeral: true });
       }
       if (action === 'preset') {
         const preset = interaction.options.getString('type', true);
@@ -4713,7 +5191,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
 
     if (interaction.commandName === 'mod-help') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
-      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/health-card` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
     }
 
     if (interaction.commandName === 'grant-klineo-role') {
