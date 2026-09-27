@@ -4010,6 +4010,25 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       return interaction.reply({ content: '✅ Member and Online counters refreshed.', ephemeral: true });
     }
 
+    if (interaction.commandName === 'server-settings') {
+      if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
+      const action = interaction.options.getSubcommand();
+      if (action === 'view') {
+        return interaction.reply({
+          content: `**LINKO SERVER SETTINGS**\nServer: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\nAllowed-server mode: **ON**`,
+          ephemeral: true,
+        });
+      }
+      if (action === 'xp-name') {
+        const requested = interaction.options.getString('name', true);
+        const label = normalizeXpLabel(requested);
+        if (!label) return interaction.reply({ content: 'XP name must contain **1 to 6 letters only**. Examples: `KXP`, `DOTXP`, `XP`.', ephemeral: true });
+        setSetting('xp_label', label);
+        await updatePublicKxpDocs(interaction.guild).catch(() => {});
+        await updateAllLeaderboards(interaction.guild).catch(() => {});
+        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged; only the display name changed.`, ephemeral: true });
+      }
+    }
     if (interaction.commandName === 'kxp-settings') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const active = getActiveVoiceEvent();
