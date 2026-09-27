@@ -1473,8 +1473,8 @@ function buildVerifyEmbed() {
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
 function buildSocialEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle('KlineO Social & Profiles')
-    .setDescription(`**Share KlineO. Earn KXP for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} KXP**, maximum 2 rewarded posts/day.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
+  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle('KlineO Social & KREATORs')
+    .setDescription(`**Share KlineO. Earn KXP for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} KXP**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} KXP per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator KXP is not a separate currency: it also increases the member's overall KXP and normal rank progression.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -2130,6 +2130,7 @@ Ranks:
 • Official voice event: **+${getSettingInt('kxp_voice_interval')} KXP per ${getSettingInt('voice_interval_minutes')} qualifying minutes**
 • Valid referral: **+${getSettingInt('kxp_valid_referral')} KXP** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
 • Approved KlineO social post: **+${getSettingInt('kxp_social_post')} KXP**
+• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} KXP per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
 • Valid bug report: **+${getSettingInt('kxp_bug_report')} KXP**
 • First-time X submission: **+${getSettingInt('kxp_profile_submission')} KXP**
 • First-time Telegram submission: **+${getSettingInt('kxp_profile_submission')} KXP**
@@ -2154,7 +2155,7 @@ Use \`/submit-post\` and submit your direct X, LinkedIn, YouTube, TikTok or Inst
 
 Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} KXP**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
 
-Approved posts are published here by LINKO.
+Approved posts are published here by LINKO. KREATOR posts can also earn reaction-based KXP, and campaign-tagged posts count toward a campaign leaderboard.
 
 [KLINEO-SOCIAL]`;
 }
@@ -2351,7 +2352,10 @@ async function buildKlineO(guild) {
 
   channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: 'Approved KlineO community posts appear here. Submit via /submit-post.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: 'Optional KlineO content missions and community briefs.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: 'Recognition for approved KlineO content contributions.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: 'Live KREATOR leaderboard. Creator KXP also counts toward the overall KXP leaderboard.' }, staffPrivate);
+  channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: 'Public KREATOR campaign leaderboards. Campaign KXP also counts toward KREATOR + overall KXP.' }, staffPrivate);
+  await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
+  await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
 
   for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators.'], [CHANNEL_NAMES.contentCollabs, 'KlineO creator collaborations.'], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name, topic }, creatorsPrivate);
 
