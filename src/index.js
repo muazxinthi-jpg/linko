@@ -4088,15 +4088,16 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
     if (interaction.commandName === 'kxp-settings') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const active = getActiveVoiceEvent();
-      return interaction.reply({ content: `**KLINEO KXP SETTINGS**
-Message: **+${getSettingInt('kxp_message')}**
-Voice: **+${getSettingInt('kxp_voice_interval')} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
-Valid referral: **+${getSettingInt('kxp_valid_referral')}**
-Approved social post: **+${getSettingInt('kxp_social_post')}**
-KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions** (max ${getSettingInt('creator_reaction_cap')} milestones/post)
-Valid bug report: **+${getSettingInt('kxp_bug_report')}**
-First-time X / Telegram / wallet item: **+${getSettingInt('kxp_profile_submission')}**
-Message daily cap: **${getSettingInt('message_daily_cap')} KXP**
+      const label = xpLabel();
+      return interaction.reply({ content: `**${interaction.guild.name} ${label} SETTINGS**
+Message: **+${getSettingInt('kxp_message')} ${label}**
+Voice: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
+Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}**
+Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
+KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions** (max ${getSettingInt('creator_reaction_cap')} milestones/post)
+Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**
+First-time X / Telegram / wallet item: **+${getSettingInt('kxp_profile_submission')} ${label}**
+Message daily cap: **${getSettingInt('message_daily_cap')} ${label}**
 Message cooldown: **${getSettingInt('message_cooldown_seconds')} sec**
 Message impact threshold: **${getSettingInt('impact_min_score')}** (evaluated after ${getSettingInt('impact_delay_seconds')} sec)
 
@@ -4107,10 +4108,10 @@ Voice event: ${active ? `**ACTIVE** — ${active.name} in <#${active.channel_id}
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const key = interaction.options.getString('event', true);
       const amount = interaction.options.getInteger('amount', true);
-      if (!(key in DEFAULT_SETTINGS)) return interaction.reply({ content: 'Unknown KXP setting.', ephemeral: true });
+      if (!(key in DEFAULT_SETTINGS) || key === 'xp_label') return interaction.reply({ content: 'Unknown XP reward setting.', ephemeral: true });
       setSetting(key, amount);
       await updatePublicKxpDocs(interaction.guild);
-      return interaction.reply({ content: `✅ Updated **${key}** to **${amount} KXP**. Public KXP information was refreshed. Run \`/kxp-settings\` to review the current economy.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Updated **${key}** to **${amount} ${xpLabel()}**. Public XP information was refreshed. Run \`/kxp-settings\` to review the current economy.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'leaderboard-settings') {
@@ -4119,48 +4120,48 @@ Voice event: ${active ? `**ACTIVE** — ${active.name} in <#${active.channel_id}
       const visibility = interaction.options.getString('visibility');
       if (!board && !visibility) {
         return interaction.reply({ content: `**LEADERBOARD SETTINGS**
-KXP Points: **${getSetting('kxp_leaderboard_visibility')}**
+${xpLabel()} Points: **${getSetting('kxp_leaderboard_visibility')}**
 Referrals: **${getSetting('referral_leaderboard_visibility')}**
 KREATORs: **${getSetting('creator_leaderboard_visibility')}**
 Creator Campaigns: **${getSetting('campaign_leaderboard_visibility')}**
 
-Public = visible to verified members. Private = visible only to KlineO staff.`, ephemeral: true });
+Public = visible to verified members. Private = visible only to staff.`, ephemeral: true });
       }
       if (!board || !visibility) return interaction.reply({ content: 'Choose both **board** and **visibility**, or leave both blank to view current settings.', ephemeral: true });
       setSetting(leaderboardVisibilityKey(board), visibility);
       await setLeaderboardChannelVisibility(interaction.guild, board, visibility);
       if (board === 'campaign') await updateCampaignLeaderboardMessages(interaction.guild);
       else await updateLeaderboardMessage(interaction.guild, board);
-      const label = board === 'kxp' ? 'KXP Points' : board === 'referrals' ? 'Referral' : board === 'creators' ? 'KREATOR' : 'Creator Campaign';
-      return interaction.reply({ content: `✅ ${label} leaderboard is now **${visibility.toUpperCase()}**.`, ephemeral: true });
+      const boardLabel = board === 'kxp' ? `${xpLabel()} Points` : board === 'referrals' ? 'Referral' : board === 'creators' ? 'KREATOR' : 'Creator Campaign';
+      return interaction.reply({ content: `✅ ${boardLabel} leaderboard is now **${visibility.toUpperCase()}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'voice-event') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const action = interaction.options.getSubcommand();
+      const label = xpLabel();
       if (action === 'status') {
         const active = getActiveVoiceEvent();
-        return interaction.reply({ content: active ? `🎙️ **Voice KXP event active**
+        return interaction.reply({ content: active ? `🎙️ **Voice ${label} event active**
 Event: **${active.name}**
 Channel: <#${active.channel_id}>
 Started: <t:${Math.floor(active.started_at / 1000)}:R>
-Reward: **+${getSettingInt('kxp_voice_interval')} KXP / ${getSettingInt('voice_interval_minutes')} qualifying minutes**` : 'No voice KXP event is active.', ephemeral: true });
+Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('voice_interval_minutes')} qualifying minutes**` : `No voice ${label} event is active.`, ephemeral: true });
       }
       if (action === 'start') {
         const channel = interaction.options.getChannel('channel', true);
         const name = interaction.options.getString('name', true).trim();
         const id = await startVoiceEvent(interaction.guild, channel, name, interaction.user.id);
         const eventsChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
-        if (eventsChannel) await eventsChannel.send(`🎙️ **Official voice event started:** ${name}
-Join <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_interval')} KXP per ${getSettingInt('voice_interval_minutes')} qualifying minutes** while this event is active. At least 2 real users must be present.`).catch(() => {});
-        return interaction.reply({ content: `✅ Voice KXP event #${id} started in ${channel}.`, ephemeral: true });
+        if (eventsChannel) await eventsChannel.send(`🎙️ **Official voice event started:** ${name}\nJoin <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes** while this event is active. At least 2 real users must be present.`).catch(() => {});
+        return interaction.reply({ content: `✅ Voice ${label} event #${id} started in ${channel}.`, ephemeral: true });
       }
       if (action === 'stop') {
         const ended = await stopVoiceEvent();
-        if (!ended) return interaction.reply({ content: 'No voice KXP event is active.', ephemeral: true });
+        if (!ended) return interaction.reply({ content: `No voice ${label} event is active.`, ephemeral: true });
         const eventsChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
         if (eventsChannel) await eventsChannel.send(`⏹️ **Official voice event ended:** ${ended.name}`).catch(() => {});
-        return interaction.reply({ content: `✅ Voice KXP event **${ended.name}** stopped. Voice time no longer earns KXP.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Voice ${label} event **${ended.name}** stopped. Voice time no longer earns ${label}.`, ephemeral: true });
       }
     }
 
