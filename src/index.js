@@ -3571,8 +3571,16 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
+    if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') {
+      if (!moduleEnabled('founders')) return interaction.reply({ content: 'The Founder module is disabled in this server.', ephemeral: true });
+      return handleFounderModal(interaction);
+    }
     if (!interaction.isChatInputCommand()) return;
+
+    const requiredModule = commandModule(interaction.commandName);
+    if (requiredModule && !moduleEnabled(requiredModule)) {
+      return interaction.reply({ content: `The **${requiredModule}** module is disabled in this server.`, ephemeral: true });
+    }
 
     // Acknowledge long-running setup immediately. Discord requires an initial
     // interaction response within ~3 seconds; command logging must never block it.
