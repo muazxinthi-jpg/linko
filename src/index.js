@@ -2755,16 +2755,19 @@ async function buildLinko(guild) {
     await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
     await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
   
-    for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators.'], [CHANNEL_NAMES.contentCollabs, `${name} creator collaborations.`], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name, topic }, creatorsPrivate);
+    for (const [channelName, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved KREATORs.'], [CHANNEL_NAMES.contentCollabs, `${name} creator collaborations.`], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name: channelName, topic }, creatorsPrivate);
   
   
   }
 
   if (moduleEnabled('founders') && categories.founders && roles.founder) {
-    channels.founderLobby = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderLobby, topic: 'Private discussion for verified founders and Studio clients.' }, foundersPrivate);
+    channels.founderLobby = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderLobby, topic: `Private discussion for verified ${name} founders${moduleEnabled('studio') ? ' and Studio clients' : ''}.` }, foundersPrivate);
     channels.founderDirectory = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderDirectory, topic: 'Approved founder/project websites and social profiles.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...[roles.founder, ...(roles.studio ? [roles.studio] : [])].map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-    channels.liquidityStudio = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.liquidityStudio, topic: `${name} Studio capabilities, process and onboarding.` }, foundersPrivate);
-    for (const [name, topic] of [[CHANNEL_NAMES.marketStructure, 'Founder-level market structure discussion.'], [CHANNEL_NAMES.founderResources, 'Founder resources and operating references.'], [CHANNEL_NAMES.studioRequests, 'Discuss Liquidity Studio onboarding and next steps.']]) await ensureTextChannel(guild, categories.founders, { name, topic }, foundersPrivate);
+    for (const [channelName, topic] of [[CHANNEL_NAMES.marketStructure, 'Founder-level market structure discussion.'], [CHANNEL_NAMES.founderResources, 'Founder resources and operating references.']]) await ensureTextChannel(guild, categories.founders, { name: channelName, topic }, foundersPrivate);
+    if (moduleEnabled('studio')) {
+      channels.liquidityStudio = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.liquidityStudio, topic: `${name} Studio capabilities, process and onboarding.` }, foundersPrivate);
+      await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.studioRequests, topic: 'Discuss Studio onboarding and next steps.' }, foundersPrivate);
+    }
     await ensureVoiceChannel(guild, categories.founders, { name: '🎙️ Founder Roundtable', userLimit: 25 }, privateVoiceFor(everyone, [roles.founder, ...(roles.studio ? [roles.studio] : []), ...staff]));
   
   
@@ -2783,33 +2786,37 @@ async function buildLinko(guild) {
   await ensureVoiceChannel(guild, categories.high, { name: '🎙️ Strategy Room', userLimit: 25 }, privateVoiceFor(everyone, l5plus));
   await ensureVoiceChannel(guild, categories.high, { name: '🎙️ Vanguard Room', userLimit: 20 }, privateVoiceFor(everyone, l6plus));
 
-  const publicVoices = [['📈 Trading Floor', 50], ['🌐 Market Room', 50], ['🤖 AI Lab', 30], ['💻 Co-Working', 30], ['💬 Community Lounge', 50], ['🎙️ KlineO AMA', 99], ['💤 AFK', 99]];
-  for (const [name, limit] of publicVoices) {
-    const c = await ensureVoiceChannel(guild, categories.voice, { name, userLimit: limit, reuseDefaultVoice: name === '💬 Community Lounge' }, privateVoiceFor(everyone, [roles.verified, ...staff]));
-    if (name === '💤 AFK') await guild.setAFKChannel(c, 'LINKO setup').catch(() => {});
+  const publicVoices = isKlineo
+    ? [['📈 Trading Floor', 50], ['🌐 Market Room', 50], ['🤖 AI Lab', 30], ['💻 Co-Working', 30], ['💬 Community Lounge', 50], ['🎙️ KlineO AMA', 99], ['💤 AFK', 99]]
+    : [['💬 Community Lounge', 50], ['💻 Co-Working', 30], ...(moduleEnabled('events') ? [[`🎙️ ${name} AMA`, 99]] : []), ['💤 AFK', 99]];
+  for (const [voiceName, limit] of publicVoices) {
+    const c = await ensureVoiceChannel(guild, categories.voice, { name: voiceName, userLimit: limit, reuseDefaultVoice: voiceName === '💬 Community Lounge' }, privateVoiceFor(everyone, [roles.verified, ...staff]));
+    if (voiceName === '💤 AFK') await guild.setAFKChannel(c, 'LINKO setup').catch(() => {});
   }
 
-  setSetupPhase('07/11 · Create Languages access');
-  channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: 'Choose KlineO language communities with /language list and /language add.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**KlineO Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add role:@LANG...\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
+  setSetupPhase('07/11 · Create optional language access');
+  if (moduleEnabled('languages') && categories.languages) {
+    channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: `Choose ${name} language communities with /language list and /language add.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**${name} Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
+  }
 
   setSetupPhase('08/11 · Create staff operations channels');
   const staffChannels = [
-    ['teamChat', CHANNEL_NAMES.teamChat, 'Private KlineO team coordination.'],
+    ['teamChat', CHANNEL_NAMES.teamChat, `Private ${name} team coordination.`],
     ['modCommands', CHANNEL_NAMES.modCommands, 'LINKO moderator command center. Staff-only slash commands and diagnostics.'],
-    ['communityHealth', CHANNEL_NAMES.communityHealth, 'KlineO activation, engagement, growth and rank health dashboard.'],
+    ['communityHealth', CHANNEL_NAMES.communityHealth, `${name} activation, engagement, growth and rank health dashboard.`],
     ['modInbox', CHANNEL_NAMES.modInbox, 'Consolidated pending reviews and moderator workload.'],
-    ['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product suggestion review and status controls.'],
     ['verificationLog', CHANNEL_NAMES.verificationLog, 'Member verification activity.'],
-    ['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.'],
-    ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, 'KlineO social-post KXP review queue.'],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
-    ['kxpLog', CHANNEL_NAMES.kxpLog, 'KXP awards and deductions.'],
-    ['walletLog', CHANNEL_NAMES.walletLog, 'Masked wallet submissions and changes. Full addresses are never posted here.'],
+    ['kxpLog', CHANNEL_NAMES.kxpLog, `${label} awards and deductions.`],
     ['botLog', CHANNEL_NAMES.botLog, 'LINKO operations and bot logs.'],
   ];
-  for (const [key, name, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name, topic }, staffPrivate);
+  if (moduleEnabled('product')) staffChannels.push(['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product/community suggestion review and status controls.']);
+  if (moduleEnabled('founders')) staffChannels.push(['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.']);
+  if (moduleEnabled('kreator')) staffChannels.push(['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `${name} social-post ${label} review queue.`]);
+  if (moduleEnabled('wallets')) staffChannels.push(['walletLog', CHANNEL_NAMES.walletLog, 'Masked wallet submissions and changes. Full addresses are never posted here.']);
+  for (const [key, channelName, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name: channelName, topic }, staffPrivate);
 
   setSetupPhase('09/11 · Seed verification, rules, docs + command guides');
   const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel('VERIFY & ENTER KLINEO').setStyle(ButtonStyle.Success));
