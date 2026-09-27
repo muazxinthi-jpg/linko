@@ -3788,56 +3788,6 @@ client.on('interactionCreate', async (interaction) => {
       const action = interaction.options.getSubcommand();
       const eventLong = ['create','start','end','cancel'].includes(action);
       if (eventLong) await interaction.deferReply({ ephemeral: true });
-      if (action === 'batch-create') {
-        await interaction.deferReply({ ephemeral: true });
-        const rawNames = interaction.options.getString('names', true);
-        const names = rawNames.split(',').map((name) => name.trim()).filter(Boolean);
-        if (!names.length) return interaction.editReply('Provide at least one channel name.');
-        if (names.length > 10) return interaction.editReply('Batch creation is capped at **10 channels** per command.');
-        const normalized = names.map((name) => name.toLowerCase());
-        if (new Set(normalized).size !== normalized.length) return interaction.editReply('Remove duplicate channel names from the batch.');
-
-        const categoryName = interaction.options.getString('category', true);
-        const type = interaction.options.getString('type', true);
-        const access = interaction.options.getString('access', true);
-        const emoji = interaction.options.getString('emoji')?.trim() || (type === 'voice' ? '🔊' : '💬');
-        const topic = interaction.options.getString('topic')?.trim() || '';
-        const links = interaction.options.getBoolean('links') ?? false;
-        const kxp = interaction.options.getBoolean('kxp') ?? false;
-        const slowmode = interaction.options.getInteger('slowmode') ?? 0;
-        const category = await ensureManagedCategory(interaction.guild, categoryName, access);
-        const perms = type === 'voice' ? accessVoiceOverwrites(interaction.guild, access) : accessOverwrites(interaction.guild, access);
-        const created = [];
-        const failed = [];
-
-        for (const name of names) {
-          try {
-            const displayName = type === 'voice' ? `${emoji} ${name.trim().slice(0,45)}` : `${emoji}・${slugifyChannelName(name)}`;
-            const channel = await interaction.guild.channels.create({
-              name: displayName,
-              type: type === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText,
-              parent: category.id,
-              topic: type === 'text' ? topic : undefined,
-              rateLimitPerUser: type === 'text' ? slowmode : undefined,
-              permissionOverwrites: perms,
-              reason: `LINKO batch channel manager by ${interaction.user.tag}`,
-            });
-            db.prepare('INSERT INTO managed_channels (channel_id,category_name,access,links_allowed,kxp_enabled,created_by,created_at,archived) VALUES (?,?,?,?,?,?,?,0)')
-              .run(channel.id, category.name, access, links ? 1 : 0, kxp ? 1 : 0, interaction.user.id, now());
-            created.push(channel);
-          } catch (error) {
-            failed.push(`${name}: ${String(error?.message ?? error).slice(0, 120)}`);
-          }
-        }
-
-        const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-        if (log && created.length) {
-          await log.send(`🧩 ${interaction.user} batch-created **${created.length}** managed channel(s) · access **${access}** · links **${links ? 'allowed' : 'blocked'}** · ${xpLabel()} **${kxp ? 'on' : 'off'}**.`).catch(() => {});
-        }
-        const createdText = created.length ? created.map((channel) => channel.toString()).join(', ') : 'none';
-        const failedText = failed.length ? `\nFailed: ${failed.join(' | ')}` : '';
-        return interaction.editReply(`✅ Created **${created.length}/${names.length}** channel(s): ${createdText}${failedText}`);
-      }
       if (action === 'create') {
         const title = interaction.options.getString('title', true).trim();
         const startAt = parseEventStart(interaction.options.getString('start', true));
@@ -3959,6 +3909,56 @@ client.on('interactionCreate', async (interaction) => {
       if (action === 'list') {
         const rows = db.prepare('SELECT * FROM managed_channels ORDER BY archived, created_at DESC LIMIT 50').all();
         return interaction.reply({ content: rows.length ? rows.map((r) => `${Number(r.archived) ? '📦' : '✅'} <#${r.channel_id}> — access:${r.access} · links:${Number(r.links_allowed)?'yes':'no'} · ${xpLabel()}:${Number(r.kxp_enabled)?'yes':'no'}`).join('\n') : 'No LINKO-managed extra channels yet.', ephemeral: true });
+      }
+      if (action === 'batch-create') {
+        await interaction.deferReply({ ephemeral: true });
+        const rawNames = interaction.options.getString('names', true);
+        const names = rawNames.split(',').map((name) => name.trim()).filter(Boolean);
+        if (!names.length) return interaction.editReply('Provide at least one channel name.');
+        if (names.length > 10) return interaction.editReply('Batch creation is capped at **10 channels** per command.');
+        const normalized = names.map((name) => name.toLowerCase());
+        if (new Set(normalized).size !== normalized.length) return interaction.editReply('Remove duplicate channel names from the batch.');
+
+        const categoryName = interaction.options.getString('category', true);
+        const type = interaction.options.getString('type', true);
+        const access = interaction.options.getString('access', true);
+        const emoji = interaction.options.getString('emoji')?.trim() || (type === 'voice' ? '🔊' : '💬');
+        const topic = interaction.options.getString('topic')?.trim() || '';
+        const links = interaction.options.getBoolean('links') ?? false;
+        const kxp = interaction.options.getBoolean('kxp') ?? false;
+        const slowmode = interaction.options.getInteger('slowmode') ?? 0;
+        const category = await ensureManagedCategory(interaction.guild, categoryName, access);
+        const perms = type === 'voice' ? accessVoiceOverwrites(interaction.guild, access) : accessOverwrites(interaction.guild, access);
+        const created = [];
+        const failed = [];
+
+        for (const name of names) {
+          try {
+            const displayName = type === 'voice' ? `${emoji} ${name.trim().slice(0,45)}` : `${emoji}・${slugifyChannelName(name)}`;
+            const channel = await interaction.guild.channels.create({
+              name: displayName,
+              type: type === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText,
+              parent: category.id,
+              topic: type === 'text' ? topic : undefined,
+              rateLimitPerUser: type === 'text' ? slowmode : undefined,
+              permissionOverwrites: perms,
+              reason: `LINKO batch channel manager by ${interaction.user.tag}`,
+            });
+            db.prepare('INSERT INTO managed_channels (channel_id,category_name,access,links_allowed,kxp_enabled,created_by,created_at,archived) VALUES (?,?,?,?,?,?,?,0)')
+              .run(channel.id, category.name, access, links ? 1 : 0, kxp ? 1 : 0, interaction.user.id, now());
+            created.push(channel);
+          } catch (error) {
+            failed.push(`${name}: ${String(error?.message ?? error).slice(0, 120)}`);
+          }
+        }
+
+        const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+        if (log && created.length) {
+          await log.send(`🧩 ${interaction.user} batch-created **${created.length}** managed channel(s) · access **${access}** · links **${links ? 'allowed' : 'blocked'}** · ${xpLabel()} **${kxp ? 'on' : 'off'}**.`).catch(() => {});
+        }
+        const createdText = created.length ? created.map((channel) => channel.toString()).join(', ') : 'none';
+        const failedText = failed.length ? `\nFailed: ${failed.join(' | ')}` : '';
+        return interaction.editReply(`✅ Created **${created.length}/${names.length}** channel(s): ${createdText}${failedText}`);
       }
       if (action === 'create') {
         await interaction.deferReply({ ephemeral: true });
