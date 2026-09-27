@@ -3274,22 +3274,24 @@ client.on('interactionCreate', async (interaction) => {
 
     // Acknowledge long-running setup immediately. Discord requires an initial
     // interaction response within ~3 seconds; command logging must never block it.
-    if (interaction.commandName === 'setup-klineo') {
+    if (interaction.commandName === 'setup-klineo' || interaction.commandName === 'setup-linko') {
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
-      if (!interaction.options.getBoolean('confirm', true)) return interaction.reply({ content: 'Preview only. Use `/setup-klineo confirm:true` to build/sync the final KlineO structure.', ephemeral: true });
+      if (!interaction.options.getBoolean('confirm', true)) {
+        return interaction.reply({ content: `Preview only. Use \`/${interaction.commandName} confirm:true\` to build/sync LINKO in this server.`, ephemeral: true });
+      }
       await interaction.deferReply({ ephemeral: true });
       logCommandUse(interaction).catch(() => {});
-      currentSetupPhase = 'starting';
+      setSetupPhase('starting');
       try {
         await buildKlineO(interaction.guild);
-        currentSetupPhase = 'idle';
-        return interaction.editReply('✅ KlineO LINKO v10.6 synced: activation/onboarding, community health, events, product roadmap, moderator inbox, language/interest roles, safe channel manager, impact KXP, referrals and all previous KlineO controls are active.');
+        setSetupPhase('idle');
+        return interaction.editReply(`✅ LINKO v10.7 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
       } catch (error) {
-        const phase = currentSetupPhase;
-        logLinkoError(`setup-klineo failed during ${phase}`, error);
-        currentSetupPhase = 'idle';
+        const phase = getSetupPhase();
+        logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
+        setSetupPhase('idle');
         const short = String(error?.message ?? error).slice(0, 900);
-        return interaction.editReply(`❌ LINKO setup stopped during **${phase}**.\n\n**Error:** ${short}\n\nNothing in your KXP/referral database was reset. Check \`data/linko-errors.log\` for the full stack.`);
+        return interaction.editReply(`❌ LINKO setup stopped during **${phase}**.\n\n**Error:** ${short}\n\nThis server's database is isolated at **${guildDatabasePath(interaction.guildId)}**. Check \`data/linko-errors.log\` for the full stack.`);
       }
     }
 
