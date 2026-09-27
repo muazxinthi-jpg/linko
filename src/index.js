@@ -1188,8 +1188,11 @@ function hasCoreRole(member) {
   const names = new Set([coreRoleName(), 'KLINEO CORE', 'COMMUNITY CORE']);
   return member?.roles?.cache?.some((r) => names.has(r.name));
 }
+function staffRoleNames() {
+  return [coreRoleName(), teamRoleName(), 'MODERATOR'];
+}
 function hasStaffRole(member) {
-  const names = new Set([coreRoleName(), teamRoleName(), 'KLINEO CORE', 'KLINEO TEAM', 'COMMUNITY CORE', 'COMMUNITY TEAM', 'MODERATOR']);
+  const names = new Set([...staffRoleNames(), 'KLINEO CORE', 'KLINEO TEAM', 'COMMUNITY CORE', 'COMMUNITY TEAM']);
   return member?.roles?.cache?.some((r) => names.has(r.name));
 }
 function hasVerifiedRole(member) { return member?.roles?.cache?.some((r) => r.name === 'VERIFIED MEMBER'); }
@@ -1579,18 +1582,18 @@ function scheduleModInboxUpdate(guild) {
 function accessRoleNames(access) {
   return ({
     verified: ['VERIFIED MEMBER'], analyst: ['ANALYST','OPERATOR','STRATEGIST','VANGUARD','PRIME'], strategist: ['STRATEGIST','VANGUARD','PRIME'],
-    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: ['KLINEO CORE','KLINEO TEAM','MODERATOR'],
+    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: staffRoleNames(),
   })[access] ?? ['VERIFIED MEMBER'];
 }
 function accessOverwrites(guild, access) {
   const roles = accessRoleNames(access).map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
-  const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const all = [...new Map([...roles, ...staff].map((r) => [r.id, r])).values()];
   return privateFor(guild.roles.everyone, all);
 }
 function accessVoiceOverwrites(guild, access) {
   const roles = accessRoleNames(access).map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
-  const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const all = [...new Map([...roles, ...staff].map((r) => [r.id, r])).values()];
   return privateVoiceFor(guild.roles.everyone, all);
 }
@@ -1955,7 +1958,7 @@ async function setLeaderboardChannelVisibility(guild, type, visibility) {
   setSetupPhase('03/11 · Build permission model + categories');
   const everyone = guild.roles.everyone;
   const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
-  const staff = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const overwrites = [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])];
   if (visibility === 'public' && verified) overwrites.push(overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]));
   for (const role of staff) overwrites.push(overwrite(role.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]));
@@ -2860,11 +2863,12 @@ async function publishOfficialLinks(guild) {
   return true;
 }
 async function createClientSpace(guild, projectName, member) {
-  const core = guild.roles.cache.find((r) => r.name === 'KLINEO CORE');
-  const team = guild.roles.cache.find((r) => r.name === 'KLINEO TEAM');
+  const core = guild.roles.cache.find((r) => r.name === coreRoleName());
+  const team = guild.roles.cache.find((r) => r.name === teamRoleName());
   const moderator = guild.roles.cache.find((r) => r.name === 'MODERATOR');
   const studio = guild.roles.cache.find((r) => r.name === 'STUDIO CLIENT');
-  if (!core || !team || !moderator || !studio) throw new Error('Run /setup-klineo first.');
+  if (!moduleEnabled('liquidity_studio')) throw new Error('Liquidity Studio module is disabled for this server.');
+  if (!core || !team || !moderator || !studio) throw new Error('Run /setup-linko first.');
   await member.roles.add(studio, `KlineO Studio client for ${projectName}`);
   const everyone = guild.roles.everyone;
   const allowed = [core, team, moderator];
@@ -3848,7 +3852,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!role) role = await interaction.guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${interaction.user.tag}` });
         let category = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAMES.languages);
         if (!category) category = await ensureCategory(interaction.guild, CATEGORY_NAMES.languages, [overwrite(interaction.guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
-        const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => interaction.guild.roles.cache.find((r) => r.name===n)).filter(Boolean);
+        const staff = staffRoleNames().map((n) => interaction.guild.roles.cache.find((r) => r.name===n)).filter(Boolean);
         const perms = privateFor(interaction.guild.roles.everyone, [role, ...staff]);
         const chName = `${emoji}・${slug}`;
         let channel = interaction.guild.channels.cache.find((c) => c.parentId===category.id && c.name===chName && c.type===ChannelType.GuildText);
