@@ -3308,7 +3308,7 @@ client.on('interactionCreate', async (interaction) => {
       const xp = getXp(user.id);
       const rank = rankForXp(xp);
       const next = nextRankForXp(xp);
-      return interaction.reply({ content: `**${user.username}** — **${rank.name}** — **${xp.toLocaleString()} KXP**${next ? `\nNext: ${next.name} at ${next.threshold.toLocaleString()} KXP (${(next.threshold - xp).toLocaleString()} to go).` : '\nPRIME reached. Lifetime KXP continues with no cap.'}`, ephemeral: true });
+      return interaction.reply({ content: `**${user.username}** — **${rank.name}** — **${xp.toLocaleString()} ${xpLabel()}**${next ? `\nNext: ${next.name} at ${next.threshold.toLocaleString()} ${xpLabel()} (${(next.threshold - xp).toLocaleString()} to go).` : `\nPRIME reached. Lifetime ${xpLabel()} continues with no cap.`}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'leaderboard') {
@@ -3345,7 +3345,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'invites') {
       const stats = getReferralStats(interaction.user.id);
-      return interaction.reply({ content: `**Your KlineO referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral KXP logged: **${stats.earned}**`, ephemeral: true });
+      return interaction.reply({ content: `**Your KlineO referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'join-source') {
@@ -3858,7 +3858,7 @@ client.on('interactionCreate', async (interaction) => {
         if (campaign.status === 'closed') return interaction.reply({ content: `Campaign #${id} is already closed.`, ephemeral: true });
         db.prepare("UPDATE creator_campaigns SET status = 'closed', closed_at = ? WHERE id = ?").run(now(), id);
         await updateCampaignLeaderboardMessages(interaction.guild);
-        return interaction.reply({ content: `✅ Closed creator campaign **#${id} · ${campaign.name}**. Its leaderboard is frozen and will remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**. KREATOR lifetime + overall KXP remain permanent.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Closed creator campaign **#${id} · ${campaign.name}**. Its leaderboard is frozen and will remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**. KREATOR lifetime + overall ${xpLabel()} remain permanent.`, ephemeral: true });
       }
     }
 
@@ -3868,7 +3868,7 @@ client.on('interactionCreate', async (interaction) => {
       const amount = interaction.options.getInteger('amount', true);
       const reason = interaction.options.getString('reason', true);
       const total = await addXp(interaction.guild, user.id, amount, reason, interaction.user.id);
-      return interaction.reply({ content: `${amount >= 0 ? 'Awarded' : 'Adjusted'} ${user}: ${amount >= 0 ? '+' : ''}${amount} KXP. New total: **${total} KXP**.`, ephemeral: true });
+      return interaction.reply({ content: `${amount >= 0 ? 'Awarded' : 'Adjusted'} ${user}: ${amount >= 0 ? '+' : ''}${amount} ${xpLabel()}. New total: **${total} ${xpLabel()}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'remove-xp') {
@@ -3877,7 +3877,7 @@ client.on('interactionCreate', async (interaction) => {
       const amount = interaction.options.getInteger('amount', true);
       const reason = interaction.options.getString('reason', true);
       const total = await addXp(interaction.guild, user.id, -amount, `Removed by staff: ${reason}`, interaction.user.id);
-      return interaction.reply({ content: `Removed **${amount} KXP** from ${user}. New total: **${total} KXP**.`, ephemeral: true });
+      return interaction.reply({ content: `Removed **${amount} ${xpLabel()}** from ${user}. New total: **${total} ${xpLabel()}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'user-kxp') {
@@ -3885,14 +3885,14 @@ client.on('interactionCreate', async (interaction) => {
       const user = interaction.options.getUser('member', true);
       const b = getKxpBreakdown(user.id);
       const rank = rankForXp(b.total);
-      return interaction.reply({ content: `**USER KXP REPORT**\nUser: ${user}\nRole: **${rank.name}**\nTotal KXP: **${b.total.toLocaleString()}**\n\nMessages: **${b.messages.toLocaleString()}**\nVoice: **${b.voice.toLocaleString()}**\nReferrals: **${b.referrals.toLocaleString()}**\nSocial Posts: **${b.social.toLocaleString()}**\nBug Reports: **${b.bugs.toLocaleString()}**\nProfile / Wallet: **${b.profile.toLocaleString()}**\nManual / Other: **${b.manual.toLocaleString()}**`, ephemeral: true });
+      return interaction.reply({ content: `**USER ${xpLabel()} REPORT**\nUser: ${user}\nRole: **${rank.name}**\nTotal ${xpLabel()}: **${b.total.toLocaleString()}**\n\nMessages: **${b.messages.toLocaleString()}**\nVoice: **${b.voice.toLocaleString()}**\nReferrals: **${b.referrals.toLocaleString()}**\nSocial Posts: **${b.social.toLocaleString()}**\nBug Reports: **${b.bugs.toLocaleString()}**\nProfile / Wallet: **${b.profile.toLocaleString()}**\nManual / Other: **${b.manual.toLocaleString()}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'referral-stats') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       const s = getReferralStats(user.id);
-      return interaction.reply({ content: `**REFERRAL REPORT**\nUser: ${user}\nInvited: **${s.total}**\nValid: **${s.valid}**\nTracked invite: **${s.tracked}**\nMember-declared valid: **${s.claimed}**\nModerator-confirmed: **${s.manual}**\nAwaiting inviter confirmation: **${s.awaitingConfirmation}**\nPending total: **${s.pending}**\nReferral KXP: **${s.earned.toLocaleString()}**`, ephemeral: true });
+      return interaction.reply({ content: `**REFERRAL REPORT**\nUser: ${user}\nInvited: **${s.total}**\nValid: **${s.valid}**\nTracked invite: **${s.tracked}**\nMember-declared valid: **${s.claimed}**\nModerator-confirmed: **${s.manual}**\nAwaiting inviter confirmation: **${s.awaitingConfirmation}**\nPending total: **${s.pending}**\nReferral ${xpLabel()}: **${s.earned.toLocaleString()}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'confirm-referral') {
@@ -3932,7 +3932,7 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🤝 **Manual referral confirmed** — ${inviterUser} referred ${referredUser}. Confirmed by ${interaction.user}. Joined <t:${Math.floor(Number(joinedAt)/1000)}:R>.`).catch(() => {});
       await updateLeaderboardMessage(interaction.guild, 'referrals');
-      return interaction.reply({ content: `✅ Confirmed ${inviterUser} as the inviter of ${referredUser}. **+${award} KXP** awarded. New inviter total: **${total} KXP**.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Confirmed ${inviterUser} as the inviter of ${referredUser}. **+${award} ${xpLabel()}** awarded. New inviter total: **${total} ${xpLabel()}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'impact-settings') {
@@ -3992,7 +3992,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'refresh-leaderboard') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       await updateAllLeaderboards(interaction.guild);
-      return interaction.reply({ content: '✅ KXP, referral, KREATOR and campaign leaderboards refreshed.', ephemeral: true });
+      return interaction.reply({ content: `✅ ${xpLabel()}, referral, KREATOR and campaign leaderboards refreshed.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'export-leaderboard') {
@@ -4254,7 +4254,7 @@ Join <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_inter
       const reference = interaction.options.getString('reference') ?? 'staff validated report';
       const award = getSettingInt('kxp_bug_report');
       const total = award > 0 ? await addXp(interaction.guild, user.id, award, `Valid bug report: ${reference}`, interaction.user.id) : getXp(user.id);
-      return interaction.reply({ content: `🐞 Approved bug report from ${user}. Awarded **+${award} KXP**. New total: **${total} KXP**.`, ephemeral: true });
+      return interaction.reply({ content: `🐞 Approved bug report from ${user}. Awarded **+${award} ${xpLabel()}**. New total: **${total} ${xpLabel()}**.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'mod-help') {
