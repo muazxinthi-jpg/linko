@@ -2315,9 +2315,13 @@ async function updateCampaignLeaderboardMessages(guild) {
 
 async function updateAllLeaderboards(guild) {
   await updateLeaderboardMessage(guild, 'kxp');
-  await updateLeaderboardMessage(guild, 'referrals');
-  await updateLeaderboardMessage(guild, 'creators');
-  await updateCampaignLeaderboardMessages(guild);
+  if (moduleEnabled('referrals')) await updateLeaderboardMessage(guild, 'referrals');
+  if (moduleEnabled('kreator')) {
+    await updateLeaderboardMessage(guild, 'creators');
+    await updateCampaignLeaderboardMessages(guild);
+  } else {
+    pruneExpiredCampaignReactionRows();
+  }
 }
 
 function scheduleLeaderboardUpdate(guild) {
