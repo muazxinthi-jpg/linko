@@ -363,6 +363,7 @@ const DEFAULT_SETTINGS = {
   creator_reaction_threshold: '100',
   creator_reaction_kxp: '1',
   creator_reaction_cap: '3',
+  campaign_leaderboard_retention_days: '7',
   kxp_bug_report: '3',
   kxp_profile_submission: '1',
   referral_activity_min_events: '1',
@@ -1800,19 +1801,64 @@ async function updateLeaderboardMessage(guild, type = 'kxp') {
   else await channel.send(payload).catch(() => {});
 }
 
+function campaignLeaderboardRetentionSeconds() {
+  return Math.max(1, getSettingInt('campaign_leaderboard_retention_days') || 7) * 86400;
+}
+
+function visibleCreatorCampaigns() {
+  const cutoff = now() - campaignLeaderboardRetentionSeconds();
+  return db.prepare(`
+    SELECT * FROM creator_campaigns
+    WHERE status = 'active'
+       OR (status = 'closed' AND COALESCE(closed_at, 0) >= ?)
+    ORDER BY id DESC
+    LIMIT 10
+  `).all(cutoff);
+}
+
+function pruneExpiredCampaignReactionRows() {
+  const cutoff = now() - campaignLeaderboardRetentionSeconds();
+  db.prepare(`
+    DELETE FROM creator_post_reactions
+    WHERE submission_id IN (
+      SELECT s.id
+      FROM social_submissions s
+      JOIN creator_campaigns c ON c.id = s.campaign_id
+      WHERE c.status = 'closed'
+        AND COALESCE(c.closed_at, 0) < ?
+    )
+  `).run(cutoff);
+}
+
 async function updateCampaignLeaderboardMessages(guild) {
   const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'campaign-leaderboard' && c.isTextBased());
   if (!channel) return;
-  const campaigns = creatorCampaigns().slice(0, 10);
+  pruneExpiredCampaignReactionRows();
+  const campaigns = visibleCreatorCampaigns();
+  const visibleIds = new Set(campaigns.map((c) => Number(c.id)));
   const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+
+  // Remove expired campaign leaderboard messages. Lifetime KREATOR and overall KXP
+  // remain untouched because awarded KXP is already persisted separately.
+  if (recent) {
+    for (const message of recent.values()) {
+      if (message.author.id !== client.user.id) continue;
+      const footer = message.embeds.map((e) => e.footer?.text ?? '').find((x) => x.includes('[KLINEO-CAMPAIGN-LEADERBOARD:'));
+      if (!footer) continue;
+      const match = footer.match(/\[KLINEO-CAMPAIGN-LEADERBOARD:(\d+)\]/);
+      if (match && !visibleIds.has(Number(match[1]))) await message.delete().catch(() => {});
+    }
+  }
+
   if (!campaigns.length) {
     const marker = '[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]';
     const existing = recent?.find((m) => m.author.id === client.user.id && m.content?.includes(marker));
-    const content = `**KlineO Creator Campaign Leaderboards**\n\nNo creator campaigns have been created yet. Staff can use \`/creator-campaign create\`.\n\n${marker}`;
+    const content = `**KlineO Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
     if (existing) await existing.edit({ content, embeds: [] }).catch(() => {});
     else await channel.send({ content }).catch(() => {});
     return;
   }
+
   const empty = recent?.find((m) => m.author.id === client.user.id && m.content?.includes('[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]'));
   if (empty) await empty.delete().catch(() => {});
   for (const campaign of campaigns) {
@@ -3627,7 +3673,7 @@ client.on('interactionCreate', async (interaction) => {
         if (campaign.status === 'closed') return interaction.reply({ content: `Campaign #${id} is already closed.`, ephemeral: true });
         db.prepare("UPDATE creator_campaigns SET status = 'closed', closed_at = ? WHERE id = ?").run(now(), id);
         await updateCampaignLeaderboardMessages(interaction.guild);
-        return interaction.reply({ content: `✅ Closed creator campaign **#${id} · ${campaign.name}**. Its leaderboard is now frozen for new submissions.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Closed creator campaign **#${id} · ${campaign.name}**. Its leaderboard is frozen and will remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**. KREATOR lifetime + overall KXP remain permanent.`, ephemeral: true });
       }
     }
 
