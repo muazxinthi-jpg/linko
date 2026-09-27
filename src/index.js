@@ -2146,9 +2146,10 @@ function toIso(ts) {
 }
 
 function leaderboardCsv(guild, type) {
+  const label = xpLabel();
   const lines = [];
   if (type === 'kxp') {
-    lines.push(['Position','Discord Username','Display Name','Discord User ID','Rank','Total KXP','Message KXP','Voice KXP','Referral KXP','Social KXP','Bug KXP','Profile/Wallet KXP','Manual/Other KXP','Valid Referrals','Tracked Referrals','Member Declared Referrals','Moderator Confirmed Referrals','Approved Social Posts','Validated Bugs','Joined Server','Verified At','Last Activity'].map(csvEscape).join(','));
+    lines.push(['Position','Discord Username','Display Name','Discord User ID','Rank',`Total ${label}`,`Message ${label}`,`Voice ${label}`,`Referral ${label}`,`Social ${label}`,`Bug ${label}`,`Profile/Wallet ${label}`,`Manual/Other ${label}`,'Valid Referrals','Tracked Referrals','Member Declared Referrals','Moderator Confirmed Referrals','Approved Social Posts','Validated Bugs','Joined Server','Verified At','Last Activity'].map(csvEscape).join(','));
     const rows = leaderboardRows(guild, 100000);
     rows.forEach((row, index) => {
       const member = guild.members.cache.get(row.user_id);
@@ -2163,7 +2164,7 @@ function leaderboardCsv(guild, type) {
       ].map(csvEscape).join(','));
     });
   } else if (type === 'referrals') {
-    lines.push(['Position','Discord Username','Display Name','Discord User ID','Valid Referrals','Tracked Referrals','Member Declared Referrals','Moderator Confirmed Referrals','Pending Referrals','Total Invited','Referral KXP','Current KXP','Rank'].map(csvEscape).join(','));
+    lines.push(['Position','Discord Username','Display Name','Discord User ID','Valid Referrals','Tracked Referrals','Member Declared Referrals','Moderator Confirmed Referrals','Pending Referrals','Total Invited',`Referral ${label}`,`Current ${label}`,'Rank'].map(csvEscape).join(','));
     const rows = referralLeaderboardRows(guild, 100000);
     rows.forEach((row, index) => {
       const member = guild.members.cache.get(row.user_id);
@@ -2172,7 +2173,7 @@ function leaderboardCsv(guild, type) {
       lines.push([index + 1, member?.user?.username ?? '', member?.displayName ?? '', row.user_id, refs.valid, refs.tracked, refs.claimed, refs.manual, refs.pending, refs.total, refs.earned, xp, rankForXp(xp).name].map(csvEscape).join(','));
     });
   } else {
-    lines.push(['Discord Username','Display Name','Discord User ID','Rank','Total KXP','Message KXP','Voice KXP','Referral KXP','Social KXP','Bug KXP','Profile/Wallet KXP','Manual/Other KXP','Valid Referrals','Tracked Referrals','Member Declared Referrals','Moderator Confirmed Referrals','Approved Social Posts','Validated Bugs','Joined Server','Verified At','Last Activity'].map(csvEscape).join(','));
+    lines.push(['Discord Username','Display Name','Discord User ID','Rank',`Total ${label}`,`Message ${label}`,`Voice ${label}`,`Referral ${label}`,`Social ${label}`,`Bug ${label}`,`Profile/Wallet ${label}`,`Manual/Other ${label}`,'Valid Referrals','Tracked Referrals','Member Declared Referrals','Moderator Confirmed Referrals','Approved Social Posts','Validated Bugs','Joined Server','Verified At','Last Activity'].map(csvEscape).join(','));
     const members = [...guild.members.cache.values()].filter((m) => !m.user.bot && hasVerifiedRole(m));
     members.sort((a, b) => getXp(b.id) - getXp(a.id) || a.id.localeCompare(b.id));
     for (const member of members) {
@@ -2818,7 +2819,7 @@ async function checkPendingReferrals(guild) {
     const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
     if (log) await log.send(`🤝 **Referral validated** — <@${ref.inviter_id}> → <@${ref.member_id}> · source selected + inviter confirmed + verified + 7 days + active on **${activeDays} day(s)** (${activity} tracked activity event${activity === 1 ? '' : 's'}).`).catch(() => {});
     const inviterMember = await guild.members.fetch(ref.inviter_id).catch(() => null);
-    if (inviterMember) await inviterMember.send(`✅ Your KlineO referral <@${ref.member_id}> is now valid. **+${award} KXP** has been added to your account.`).catch(() => {});
+    if (inviterMember) await inviterMember.send(`✅ Your KlineO referral <@${ref.member_id}> is now valid. **+${award} ${xpLabel()}** has been added to your account.`).catch(() => {});
   }
   scheduleLeaderboardUpdate(guild);
 }
@@ -3134,7 +3135,7 @@ client.on('guildMemberAdd', async (member) => {
       const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🧭 **Pending referral detected** — <@${inviterId}> → ${member}. Source: ${mapped ? 'LINKO tracked invite' : 'standard Discord invite'}. It becomes valid only after verification + 7 days + community activity.`).catch(() => {});
       const inviterMember = await member.guild.members.fetch(inviterId).catch(() => null);
-      if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending KlineO referral** for ${member.user.username}. No referral KXP is awarded yet. It becomes valid after they verify, remain in the server for 7 days, and show community activity.`).catch(() => {});
+      if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending KlineO referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet. It becomes valid after they verify, remain in the server for 7 days, and show community activity.`).catch(() => {});
     }
   }
   if (!attributed) {
@@ -3393,7 +3394,7 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${detectedMatch ? 'LINKO invite detection already confirms the inviter.' : 'Awaiting inviter confirmation.'}`).catch(() => {});
       if (!detectedMatch) {
-        await inviter.send(`🤝 **KlineO referral confirmation**\n${member.user.username} says you personally invited them to KlineO. If correct, go to the KlineO server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral KXP is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
+        await inviter.send(`🤝 **KlineO referral confirmation**\n${member.user.username} says you personally invited them to KlineO. If correct, go to the KlineO server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
       }
       scheduleModInboxUpdate(interaction.guild);
       return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter KlineO.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
@@ -3473,8 +3474,8 @@ client.on('interactionCreate', async (interaction) => {
         earned += await awardFirstSubmissionKxp(interaction.guild, interaction.user.id, 'telegram', 'Telegram account');
         earned += await awardFirstSubmissionKxp(interaction.guild, interaction.user.id, `wallet_${network}`, `${walletNetworkLabel(network)} wallet`);
         const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'wallet-log' && c.isTextBased());
-        if (log) await log.send(`🔐 **Wallet/profile ${old ? 'updated' : 'submitted'}** — ${interaction.user} · X **${xAccount}** · Telegram **${telegramAccount}** · **${walletNetworkLabel(network)}** ${old && walletChanged ? `${maskWallet(old.address)} → ` : ''}${maskWallet(address)}${old && walletChanged && lockHours ? ` · reward lock ${lockHours}h` : ''}${earned ? ` · +${earned} KXP first-time submission reward` : ''}`).catch(() => {});
-        const rewardLine = earned ? `\n\n🎯 First-time profile submission rewards: **+${earned} KXP**.` : '\n\nNo new submission KXP was awarded because these profile items were already rewarded previously.';
+        if (log) await log.send(`🔐 **Wallet/profile ${old ? 'updated' : 'submitted'}** — ${interaction.user} · X **${xAccount}** · Telegram **${telegramAccount}** · **${walletNetworkLabel(network)}** ${old && walletChanged ? `${maskWallet(old.address)} → ` : ''}${maskWallet(address)}${old && walletChanged && lockHours ? ` · reward lock ${lockHours}h` : ''}${earned ? ` · +${earned} ${xpLabel()} first-time submission reward` : ''}`).catch(() => {});
+        const rewardLine = earned ? `\n\n🎯 First-time profile submission rewards: **+${earned} ${xpLabel()}**.` : '\n\nNo new submission ${xpLabel()} was awarded because these profile items were already rewarded previously.';
         const walletStatus = !old ? 'submitted' : walletChanged ? `updated; the new wallet address is locked for reward payouts for **${lockHours} hours**` : 'kept unchanged';
         return interaction.reply({ content: `✅ X and Telegram saved. ${walletNetworkLabel(network)} wallet ${walletStatus}.${rewardLine}\n\nLINKO stores public identifiers/addresses only. It never connects, signs or requests approvals, and it does not verify wallet ownership.`, ephemeral: true });
       }
@@ -3697,7 +3698,7 @@ client.on('interactionCreate', async (interaction) => {
         }
         db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), id);
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-        return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ' Official voice KXP is active.' : ''}`);
+        return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ' Official voice ${xpLabel()} is active.' : ''}`);
       }
       if (action === 'end') {
         await endCommunityEvent(interaction.guild, id, interaction.user.id, false);
@@ -3938,7 +3939,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'impact-settings') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
-      return interaction.reply({ content: `**LINKO MESSAGE IMPACT SETTINGS**\nMinimum impact score: **${getSettingInt('impact_min_score')}**\nEvaluation delay: **${getSettingInt('impact_delay_seconds')} sec**\nCandidate window: **${getSettingInt('impact_candidate_window_minutes')} min**\nMinimum words: **${getSettingInt('impact_min_words')}**\nMinimum alphabetic characters: **${getSettingInt('impact_min_alpha_chars')}**\nMessage KXP: **+${getSettingInt('kxp_message')}**\nDaily message-KXP cap: **${getSettingInt('message_daily_cap')}**\nAward cooldown: **${getSettingInt('message_cooldown_seconds')} sec**\n\nImpact score = content quality/relevance + distinct meaningful reply + distinct reaction + moderator confirmation. Message bodies are **not stored** in LINKO's database.`, ephemeral: true });
+      return interaction.reply({ content: `**LINKO MESSAGE IMPACT SETTINGS**\nMinimum impact score: **${getSettingInt('impact_min_score')}**\nEvaluation delay: **${getSettingInt('impact_delay_seconds')} sec**\nCandidate window: **${getSettingInt('impact_candidate_window_minutes')} min**\nMinimum words: **${getSettingInt('impact_min_words')}**\nMinimum alphabetic characters: **${getSettingInt('impact_min_alpha_chars')}**\nMessage ${xpLabel()}: **+${getSettingInt('kxp_message')}**\nDaily message-${xpLabel()} cap: **${getSettingInt('message_daily_cap')}**\nAward cooldown: **${getSettingInt('message_cooldown_seconds')} sec**\n\nImpact score = content quality/relevance + distinct meaningful reply + distinct reaction + moderator confirmation. Message bodies are **not stored** in LINKO's database.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'set-impact') {
@@ -3963,21 +3964,21 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.commandName === 'impact-status') {
         if (!row) {
           const a = analyzeImpactMessage(message.content);
-          return interaction.reply({ content: `**IMPACT STATUS**\nAuthor: ${message.author}\nChannel: ${message.channel}\nCandidate: **NO**\nWords: **${a.words}**\nAlphabetic chars: **${a.alphaChars}**\nHard filter rejected this message, so no automatic message KXP can be earned.`, ephemeral: true });
+          return interaction.reply({ content: `**IMPACT STATUS**\nAuthor: ${message.author}\nChannel: ${message.channel}\nCandidate: **NO**\nWords: **${a.words}**\nAlphabetic chars: **${a.alphaChars}**\nHard filter rejected this message, so no automatic message ${xpLabel()} can be earned.`, ephemeral: true });
         }
         return interaction.reply({ content: `**IMPACT STATUS**\nAuthor: ${message.author}\nChannel: ${message.channel}\nBase content score: **${row.base_score}**\nMeaningful replies: **${row.reply_count}**\nDistinct reactions: **${row.reaction_count}**\nModerator bonus: **${row.moderator_bonus}**\nCurrent impact score: **${candidateScore(row)} / ${getSettingInt('impact_min_score')} required**\nAwarded: **${Number(row.awarded) ? 'YES' : 'NO'}**\nRevoked: **${Number(row.revoked) ? 'YES' : 'NO'}**`, ephemeral: true });
       }
       if (interaction.commandName === 'mark-impactful') {
-        if (!row) return interaction.reply({ content: 'This message fails the hard anti-spam filter. Use `/give-xp` only if staff intentionally wants to recognize it outside normal message KXP.', ephemeral: true });
-        if (Number(row.revoked)) return interaction.reply({ content: 'This message was previously revoked from message KXP.', ephemeral: true });
-        if (Number(row.awarded)) return interaction.reply({ content: 'This message already received its message KXP.', ephemeral: true });
+        if (!row) return interaction.reply({ content: 'This message fails the hard anti-spam filter. Use `/give-xp` only if staff intentionally wants to recognize it outside normal message ${xpLabel()}.', ephemeral: true });
+        if (Number(row.revoked)) return interaction.reply({ content: 'This message was previously revoked from message ${xpLabel()}.', ephemeral: true });
+        if (Number(row.awarded)) return interaction.reply({ content: 'This message already received its message ${xpLabel()}.', ephemeral: true });
         db.prepare('UPDATE message_candidates SET moderator_bonus = MAX(moderator_bonus, 2) WHERE message_id = ?').run(row.message_id);
         row = db.prepare('SELECT * FROM message_candidates WHERE message_id = ?').get(row.message_id);
         const awarded = await awardImpactCandidate(interaction.guild, row, interaction.user.id, true);
-        return interaction.reply({ content: awarded ? `✅ Marked ${message.author}'s message as impactful and awarded **+${getSettingInt('kxp_message')} KXP**.` : 'The message was confirmed as impactful, but no KXP could be awarded because the member has reached the daily message cap or is not eligible.', ephemeral: true });
+        return interaction.reply({ content: awarded ? `✅ Marked ${message.author}'s message as impactful and awarded **+${getSettingInt('kxp_message')} ${xpLabel()}**.` : 'The message was confirmed as impactful, but no ${xpLabel()} could be awarded because the member has reached the daily message cap or is not eligible.', ephemeral: true });
       }
       if (interaction.commandName === 'remove-message-xp') {
-        if (!row || !Number(row.awarded) || Number(row.revoked)) return interaction.reply({ content: 'This message does not currently have reversible message KXP.', ephemeral: true });
+        if (!row || !Number(row.awarded) || Number(row.revoked)) return interaction.reply({ content: 'This message does not currently have reversible message ${xpLabel()}.', ephemeral: true });
         const logRow = db.prepare("SELECT amount, created_at FROM xp_log WHERE user_id = ? AND reason LIKE ? AND amount > 0 ORDER BY id DESC LIMIT 1").get(row.user_id, `%:${row.message_id} (%`);
         const amount = Number(logRow?.amount ?? getSettingInt('kxp_message'));
         db.prepare('UPDATE message_candidates SET revoked = 1 WHERE message_id = ?').run(row.message_id);
@@ -3986,7 +3987,7 @@ client.on('interactionCreate', async (interaction) => {
           db.prepare('UPDATE daily_xp SET message_xp = MAX(0, message_xp - ?) WHERE user_id = ? AND day = ?').run(amount, row.user_id, d);
         }
         const total = await addXp(interaction.guild, row.user_id, -amount, `Reversed qualified community message:#${message.channel.name}:${message.id}`, interaction.user.id);
-        return interaction.reply({ content: `✅ Reversed **${amount} message KXP** from ${message.author}. New total: **${total} KXP**.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Reversed **${amount} message ${xpLabel()}** from ${message.author}. New total: **${total} ${xpLabel()}**.`, ephemeral: true });
       }
     }
 
