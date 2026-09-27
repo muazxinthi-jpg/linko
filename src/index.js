@@ -2612,11 +2612,20 @@ async function maybeAwardReferralRoleBonus(_guild, _memberId, _roleName) {
   // No automatic Creator/Founder referral bonus in v5.
 }
 
-async function buildKlineO(guild) {
-  setSetupPhase('01/11 · Fetch server state + migrate legacy structure');
+async function buildLinko(guild) {
+  ensureServerProfile(guild);
+  const isKlineo = isKlineoTemplate();
+  const name = communityName();
+  const label = xpLabel();
+  const CAT = isKlineo ? CATEGORY_NAMES : {
+    stats: '📊・SERVER STATS', start: '👋・START HERE', community: `💬・${communityNameUpper()} COMMUNITY`, kxp: `⚡・${label}`,
+    signal: '📈・SIGNAL ROOM', social: '📣・SOCIAL', creators: '🎨・KREATOR HUB', founders: '🏛️・FOUNDERS HUB', studio: '💧・STUDIO',
+    high: '◆・HIGHER LEVELS', voice: '🎙️・VOICE', languages: '🌍・LANGUAGES', staff: '🛡️・STAFF',
+  };
+  setSetupPhase('01/11 · Fetch server state + apply server profile');
   await guild.roles.fetch();
   await guild.channels.fetch();
-  await migrateLegacyStructure(guild);
+  if (isKlineo) await migrateLegacyStructure(guild);
   // Remove deprecated member profile-directory channels from v6. Member socials are no longer collected.
   for (const legacyBase of ['community-directory', 'profile-submissions']) {
     const legacy = guild.channels.cache.find((c) => baseChannelName(c.name) === legacyBase && c.type !== ChannelType.GuildCategory);
@@ -2628,7 +2637,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('02/11 · Create/sync roles');
   const roles = {};
-  for (const spec of ROLE_SPECS) roles[spec.key] = await ensureRole(guild, spec);
+  for (const spec of profileRoleSpecs()) roles[spec.key] = await ensureRole(guild, spec);
   for (const rank of RANKS) roles[rank.key] = guild.roles.cache.find((r) => r.name === rank.name);
   for (const [key, label, color] of INTERESTS) {
     roles[`interest_${key}`] = await ensureRole(guild, { name: `${INTEREST_ROLE_PREFIX}${label}`, color, hoist: false, permissions: [] });
@@ -2636,7 +2645,16 @@ async function buildKlineO(guild) {
 
   const me = await guild.members.fetchMe();
   const ceiling = me.roles.highest.position;
-  const orderedNames = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR', 'STUDIO CLIENT', 'VERIFIED FOUNDER', 'PARTNER', 'KREATOR', 'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER', ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`)];
+  const orderedNames = [
+    ...(isKlineo ? ['KLINEO CORE', 'KLINEO TEAM'] : [genericCoreRoleName(), genericTeamRoleName()]),
+    'MODERATOR',
+    ...(moduleEnabled('studio') ? ['STUDIO CLIENT'] : []),
+    ...(moduleEnabled('founders') ? ['VERIFIED FOUNDER'] : []),
+    'PARTNER',
+    ...(moduleEnabled('kreator') ? ['KREATOR'] : []),
+    'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER',
+    ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`),
+  ];
   const movable = orderedNames.map((n) => guild.roles.cache.find((r) => r.name === n)).filter((r) => r && r.position < ceiling);
   const positions = movable.map((r, i) => ({ role: r.id, position: Math.max(1, ceiling - 1 - i) }));
   if (positions.length) await guild.roles.setPositions(positions).catch((e) => console.warn('Role order warning:', e.message));
@@ -2646,9 +2664,9 @@ async function buildKlineO(guild) {
   const verifiedBase = privateFor(everyone, [roles.verified, ...staff]);
   const startReadOnly = readOnlyOverwrites(everyone, staff);
   const staffPrivate = privateFor(everyone, staff);
-  const creatorsPrivate = privateFor(everyone, [roles.creator, ...staff]);
-  const foundersPrivate = privateFor(everyone, [roles.founder, roles.studio, ...staff]);
-  const studioPrivate = privateFor(everyone, [roles.studio, ...staff]);
+  const creatorsPrivate = moduleEnabled('kreator') && roles.creator ? privateFor(everyone, [roles.creator, ...staff]) : null;
+  const foundersPrivate = moduleEnabled('founders') && roles.founder ? privateFor(everyone, [roles.founder, ...(roles.studio ? [roles.studio] : []), ...staff]) : null;
+  const studioPrivate = moduleEnabled('studio') && roles.studio ? privateFor(everyone, [roles.studio, ...staff]) : null;
   const signalRoles = [roles.l3, roles.l4, roles.l5, roles.l6, roles.l7, ...staff];
   const signalPrivate = privateFor(everyone, signalRoles);
   const l5plus = [roles.l5, roles.l6, roles.l7, ...staff];
@@ -2656,19 +2674,19 @@ async function buildKlineO(guild) {
   const l7plus = [roles.l7, ...staff];
 
   const categories = {};
-  categories.stats = await ensureCategory(guild, CATEGORY_NAMES.stats, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
-  categories.start = await ensureCategory(guild, CATEGORY_NAMES.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
-  categories.community = await ensureCategory(guild, CATEGORY_NAMES.community, verifiedBase);
-  categories.kxp = await ensureCategory(guild, CATEGORY_NAMES.kxp, verifiedBase);
-  categories.signal = await ensureCategory(guild, CATEGORY_NAMES.signal, signalPrivate);
-  categories.social = await ensureCategory(guild, CATEGORY_NAMES.social, verifiedBase);
-  categories.creators = await ensureCategory(guild, CATEGORY_NAMES.creators, creatorsPrivate);
-  categories.founders = await ensureCategory(guild, CATEGORY_NAMES.founders, foundersPrivate);
-  categories.studio = await ensureCategory(guild, CATEGORY_NAMES.studio, studioPrivate);
-  categories.high = await ensureCategory(guild, CATEGORY_NAMES.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
-  categories.voice = await ensureCategory(guild, CATEGORY_NAMES.voice, verifiedBase);
-  categories.languages = await ensureCategory(guild, CATEGORY_NAMES.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  categories.staff = await ensureCategory(guild, CATEGORY_NAMES.staff, staffPrivate);
+  categories.stats = await ensureCategory(guild, CAT.stats, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
+  categories.start = await ensureCategory(guild, CAT.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
+  categories.community = await ensureCategory(guild, CAT.community, verifiedBase);
+  categories.kxp = await ensureCategory(guild, CAT.kxp, verifiedBase);
+  categories.signal = await ensureCategory(guild, CAT.signal, signalPrivate);
+  categories.social = await ensureCategory(guild, CAT.social, verifiedBase);
+  categories.creators = await ensureCategory(guild, CAT.creators, creatorsPrivate);
+  categories.founders = await ensureCategory(guild, CAT.founders, foundersPrivate);
+  categories.studio = await ensureCategory(guild, CAT.studio, studioPrivate);
+  categories.high = await ensureCategory(guild, CAT.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
+  categories.voice = await ensureCategory(guild, CAT.voice, verifiedBase);
+  categories.languages = await ensureCategory(guild, CAT.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  categories.staff = await ensureCategory(guild, CAT.staff, staffPrivate);
   await categories.stats.setPosition(0).catch(() => {});
   await categories.start.setPosition(1).catch(() => {});
   await updateServerStats(guild, true);
@@ -2865,7 +2883,7 @@ All staff commands enforce LINKO role/permission checks.
   await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
   await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: '**KlineO Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]' });
 
-  setSetupPhase('COMPLETE · KlineO structure synced successfully');
+  setSetupPhase(`COMPLETE · ${name} structure synced successfully`);
   return { roles, categories, channels };
 }
 
