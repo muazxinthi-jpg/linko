@@ -1,3 +1,39 @@
+# LINKO v10.6.0
+
+LINKO v10.6 adds the **KREATOR economy** on top of the existing KXP system. KREATOR points are attribution, not a separate currency: approved creator-content KXP and reaction-milestone KXP also increase the member's normal overall KXP balance and rank progression.
+
+## KREATOR leaderboard
+
+- Approved creators receive the **KREATOR** functional role with a distinct violet color.
+- KREATOR remains separate from OBSERVER → PRIME community ranks and carries no administrative permissions.
+- `🏅・kreator-leaderboard` is public to verified members by default.
+- Approved KREATOR social-post KXP contributes to both the KREATOR leaderboard and the overall KXP leaderboard.
+
+## Reaction KXP
+
+For LINKO-published approved KREATOR posts:
+
+- Only **unique verified Discord members** count.
+- Bots and the post creator's own reactions do not count.
+- Multiple emoji from the same member still count as one unique reactor.
+- Default milestone: **100 unique verified reactors = +1 KXP**.
+- Default maximum: **3 reaction milestones per post**.
+- Removing reactions lowers the live unique-reaction count, but already-earned milestones are not clawed back or awarded twice after re-adding reactions.
+
+## Creator campaigns
+
+- Staff can use `/creator-campaign create/list/close`.
+- KREATORs can attach an active campaign with `/submit-post campaign:<ID>`.
+- `🏁・campaign-leaderboard` is public to verified members by default.
+- Campaign KXP also contributes to the lifetime KREATOR leaderboard and normal overall KXP.
+- Closing a campaign blocks new tagged submissions and freezes new reaction-milestone awards for that campaign.
+
+## Upgrade safety
+
+The v10.6 SQLite changes are additive. They do **not** reset existing KXP, referrals, wallet records, settings, or other community data. Keep the persistent Railway volume mounted at `/app/data`.
+
+---
+
 # LINKO v10.5.1 FINAL
 
 Hotfix: split the moderator command-center seed into two Discord messages so `/setup-klineo` stays under Discord's 2,000-character message limit. No database schema or KXP/referral data reset is required.
