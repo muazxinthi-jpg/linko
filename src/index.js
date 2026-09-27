@@ -2064,7 +2064,7 @@ async function updateCampaignLeaderboardMessages(guild) {
   if (!campaigns.length) {
     const marker = '[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]';
     const existing = recent?.find((m) => m.author.id === client.user.id && m.content?.includes(marker));
-    const content = `**KlineO Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
+    const content = `**${communityName()} Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
     if (existing) await existing.edit({ content, embeds: [] }).catch(() => {});
     else await channel.send({ content }).catch(() => {});
     return;
@@ -2419,7 +2419,7 @@ Use `/rank`, `/points`, `/invite`, `/invites`, and `/leaderboard`.
 
 function socialRulesContent() {
   const label = xpLabel();
-  return `**Share KlineO. Earn ${label} for genuine contributions.**
+  return `**Share ${communityName()}. Earn ${label} for genuine contributions.**
 
 Use \`/submit-post\` and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
 
@@ -2596,22 +2596,22 @@ async function buildKlineO(guild) {
   channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `${communityName()} official announcements.` }, startReadOnly);
 
   for (const [key, name, topic, slowmode] of [
-    ['general', CHANNEL_NAMES.general, 'General KlineO discussion. Public links are blocked.', 2],
+    ['general', CHANNEL_NAMES.general, `General ${communityName()} discussion. Public links are blocked.`, 2],
     ['marketChat', CHANNEL_NAMES.marketChat, 'Market discussion. No guaranteed-return claims. Public links are blocked.', 3],
     ['tradeSetups', CHANNEL_NAMES.tradeSetups, 'Trading setups and risk context. Public links are blocked.', 5],
-    ['aiAgentLab', CHANNEL_NAMES.aiAgentLab, 'AI agents, execution workflows and KlineO experiments. Public links are blocked.', 3],
-    ['productUpdates', CHANNEL_NAMES.productUpdates, 'KlineO product releases and integrations.', 0],
-    ['productFeedback', CHANNEL_NAMES.productFeedback, 'Constructive KlineO product feedback. Public links are blocked.', 5],
-    ['bugReports', CHANNEL_NAMES.bugReports, 'Report reproducible KlineO bugs. Valid reports can be approved by staff for KXP. Public links are blocked.', 10],
+    ['aiAgentLab', CHANNEL_NAMES.aiAgentLab, `AI agents, execution workflows and ${communityName()} experiments. Public links are blocked.`, 3],
+    ['productUpdates', CHANNEL_NAMES.productUpdates, `${communityName()} product releases and integrations.`, 0],
+    ['productFeedback', CHANNEL_NAMES.productFeedback, `Constructive ${communityName()} product feedback. Public links are blocked.`, 5],
+    ['bugReports', CHANNEL_NAMES.bugReports, `Report reproducible ${communityName()} bugs. Valid reports can be approved by staff for ${xpLabel()}. Public links are blocked.`, 10],
     ['help', CHANNEL_NAMES.help, 'Ask for community or product help. Public links are blocked.', 5],
-    ['introductions', CHANNEL_NAMES.introductions, 'Introduce yourself to KlineO. Public links are blocked.', 10],
+    ['introductions', CHANNEL_NAMES.introductions, `Introduce yourself to ${communityName()}. Public links are blocked.`, 10],
     ['wins', CHANNEL_NAMES.wins, 'Share wins, mistakes and lessons. Public links are blocked.', 5],
   ]) {
     const perms = baseChannelName(name) === 'product-updates' ? [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))] : verifiedBase;
     channels[key] = await ensureTextChannel(guild, categories.community, { name, topic, slowmode, reuseDefaultGeneral: baseChannelName(name) === 'general' }, perms);
   }
 
-  channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: 'Structured KlineO product suggestions and status updates. Submit with /suggest.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: `Structured ${communityName()} product suggestions and status updates. Submit with /suggest.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
   channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('how'), topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
@@ -2672,26 +2672,26 @@ async function buildKlineO(guild) {
   await ensureVoiceChannel(guild, categories.high, { name: '🎙️ Strategy Room', userLimit: 25 }, privateVoiceFor(everyone, l5plus));
   await ensureVoiceChannel(guild, categories.high, { name: '🎙️ Vanguard Room', userLimit: 20 }, privateVoiceFor(everyone, l6plus));
 
-  const publicVoices = [['📈 Trading Floor', 50], ['🌐 Market Room', 50], ['🤖 AI Lab', 30], ['💻 Co-Working', 30], ['💬 Community Lounge', 50], ['🎙️ KlineO AMA', 99], ['💤 AFK', 99]];
+  const publicVoices = [['📈 Trading Floor', 50], ['🌐 Market Room', 50], ['🤖 AI Lab', 30], ['💻 Co-Working', 30], ['💬 Community Lounge', 50], [`🎙️ ${communityName()} AMA`, 99], ['💤 AFK', 99]];
   for (const [name, limit] of publicVoices) {
     const c = await ensureVoiceChannel(guild, categories.voice, { name, userLimit: limit, reuseDefaultVoice: name === '💬 Community Lounge' }, privateVoiceFor(everyone, [roles.verified, ...staff]));
     if (name === '💤 AFK') await guild.setAFKChannel(c, 'LINKO setup').catch(() => {});
   }
 
   setSetupPhase('07/11 · Create Languages access');
-  channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: 'Choose KlineO language communities with /language list and /language add.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**KlineO Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add role:@LANG...\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
+  channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: `Choose ${communityName()} language communities with /language list and /language add.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**${communityName()} Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add role:@LANG...\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
 
   setSetupPhase('08/11 · Create staff operations channels');
   const staffChannels = [
-    ['teamChat', CHANNEL_NAMES.teamChat, 'Private KlineO team coordination.'],
+    ['teamChat', CHANNEL_NAMES.teamChat, `Private ${communityName()} team coordination.`],
     ['modCommands', CHANNEL_NAMES.modCommands, 'LINKO moderator command center. Staff-only slash commands and diagnostics.'],
-    ['communityHealth', CHANNEL_NAMES.communityHealth, 'KlineO activation, engagement, growth and rank health dashboard.'],
+    ['communityHealth', CHANNEL_NAMES.communityHealth, `${communityName()} activation, engagement, growth and rank health dashboard.`],
     ['modInbox', CHANNEL_NAMES.modInbox, 'Consolidated pending reviews and moderator workload.'],
     ['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product suggestion review and status controls.'],
     ['verificationLog', CHANNEL_NAMES.verificationLog, 'Member verification activity.'],
     ['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.'],
-    ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, 'KlineO social-post KXP review queue.'],
+    ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `${communityName()} social-post ${xpLabel()} review queue.`],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
     ['kxpLog', xpChannelName('log'), `${xpLabel()} awards and deductions.`],
