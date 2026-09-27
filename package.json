@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.5.1",
+  "version": "10.7.0",
   "private": true,
-  "description": "LINKO v10.5.1 FINAL \u2014 KlineO community operations bot (Discord message-length hotfix)",
+  "description": "LINKO v10.7.0 — multi-server community profiles, per-server XP labels, KREATOR campaigns and batch channel management",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
