@@ -1571,8 +1571,9 @@ function buildVerifyEmbed() {
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
 function buildSocialEmbed() {
+  const label = xpLabel();
   const e = new EmbedBuilder().setColor(BRAND.blue).setTitle('KlineO Social & KREATORs')
-    .setDescription(`**Share KlineO. Earn KXP for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} KXP**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} KXP per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator KXP is not a separate currency: it also increases the member's overall KXP and normal rank progression.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
+    .setDescription(`**Share KlineO. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -2295,17 +2296,17 @@ Use `/rank`, `/points`, `/invite`, `/invites`, and `/leaderboard`.
 }
 
 function socialRulesContent() {
-  return `**Share KlineO. Earn KXP for genuine contributions.**
+  const label = xpLabel();
+  return `**Share KlineO. Earn ${label} for genuine contributions.**
 
 Use \`/submit-post\` and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
 
-Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} KXP**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
+Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
 
-Approved posts are published here by LINKO. KREATOR posts can also earn reaction-based KXP, and campaign-tagged posts count toward a campaign leaderboard.
+Approved posts are published here by LINKO. KREATOR posts can also earn reaction-based ${label}, and campaign-tagged posts count toward a campaign leaderboard.
 
 [KLINEO-SOCIAL]`;
 }
-
 async function updatePublicKxpDocs(guild) {
   const how = guild.channels.cache.find((c) => baseChannelName(c.name) === 'how-to-earn-kxp' && c.isTextBased());
   const social = guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
@@ -2337,6 +2338,7 @@ async function syncRankRole(guild, userId, announce = true) {
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member || member.user.bot || !hasVerifiedRole(member)) return null;
   const xp = getXp(userId);
+  const label = xpLabel();
   const target = rankForXp(xp);
   const rankRoles = RANKS.map((r) => guild.roles.cache.find((role) => role.name === r.name)).filter(Boolean);
   const targetRole = rankRoles.find((r) => r.name === target.name);
@@ -2350,19 +2352,20 @@ async function syncRankRole(guild, userId, announce = true) {
   if (announce && (!current || RANKS.findIndex((r) => r.name === target.name) > RANKS.findIndex((r) => r.name === current.name))) {
     const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'rank-ups' && c.isTextBased());
     if (channel) {
+      const tail = nextRankForXp(xp) ? ` Next: **${nextRankForXp(xp).name}**.` : ` PRIME reached. Lifetime ${label} continues with no cap.`;
+      const content = `**${member} reached ${target.name}**\n${xp.toLocaleString()} ${label} earned.${tail}\nUse \`/social-card\` to generate your own shareable card.`;
       try {
         const card = await generateSocialCard(guild, member, 'progress');
         const file = new AttachmentBuilder(card.buffer, { name: `klineo-rank-${member.id}.png` });
-        await channel.send({ content: `**${member} reached ${target.name}**\n${xp.toLocaleString()} KXP earned.${nextRankForXp(xp) ? ` Next: **${nextRankForXp(xp).name}**.` : ' PRIME reached. Lifetime KXP continues with no cap.'}\nUse \`/social-card\` to generate your own shareable card.`, files: [file] });
+        await channel.send({ content, files: [file] });
       } catch {
-        await channel.send(`**${member} reached ${target.name}**\n${xp.toLocaleString()} KXP earned.${nextRankForXp(xp) ? ` Next: **${nextRankForXp(xp).name}**.` : ' PRIME reached. Lifetime KXP continues with no cap.'}`);
+        await channel.send(content);
       }
     }
     await awardReferralMilestones(guild, userId, target.name);
   }
   return target;
 }
-
 async function addXp(guild, userId, amount, reason, actorId = null) {
   if (!Number.isInteger(amount) || amount === 0) return getXp(userId);
   ensureUserRow(userId);
@@ -2374,12 +2377,11 @@ async function addXp(guild, userId, amount, reason, actorId = null) {
   db.prepare('INSERT INTO xp_log (user_id, amount, reason, created_at, actor_id) VALUES (?, ?, ?, ?, ?)').run(userId, applied, reason, now(), actorId);
   await syncRankRole(guild, userId, true);
   const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'kxp-log' && c.isTextBased());
-  if (log) log.send(`<@${userId}> ${applied >= 0 ? '+' : ''}${applied} KXP — ${reason}${actorId ? ` — by <@${actorId}>` : ''}`).catch(() => {});
+  if (log) log.send(`<@${userId}> ${applied >= 0 ? '+' : ''}${applied} ${xpLabel()} — ${reason}${actorId ? ` — by <@${actorId}>` : ''}`).catch(() => {});
   scheduleLeaderboardUpdate(guild);
   scheduleHealthUpdate(guild);
   return next;
 }
-
 async function awardReferralMilestones(_guild, _referredUserId, _rankName) {
   // LINKO v5 keeps referral rewards deliberately conservative.
   // A referral earns KXP only after the referred member verifies and remains for 7 days.
