@@ -1635,23 +1635,27 @@ function withImageOrPlaceholder(embed, slot, label) {
   return embed.addFields({ name: '🖼️ Image', value: `**${label} image not uploaded yet.**\nStaff: use \`/server-image set\` and upload the image for this section.` });
 }
 function buildWelcomeEmbed(channels) {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('Welcome to KlineO')
-    .setDescription(`KlineO is a community for traders, creators, founders and market operators around AI-powered trading and digital-asset market infrastructure.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined KlineO\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn KXP through meaningful participation, official voice events, valid referrals and approved KlineO content.\n\nFounders can apply with \`/apply-founder\`. Generate a shareable KlineO card anytime with \`/social-card\`.
-
-After verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.\n\n**Security:** KlineO staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
+  const name = communityName();
+  const label = xpLabel();
+  const founderLine = moduleEnabled('founder_hub') ? '\n\nFounders can apply with `/apply-founder`.' : '';
+  const socialLine = moduleEnabled('kreator') ? ` Approved creator content can also earn ${label}.` : '';
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`)
+    .setDescription(`${name} is powered by LINKO community operations.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined ${name}\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn ${label} through meaningful participation, official voice events and valid referrals.${socialLine}${founderLine}\n\nAfter verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.\n\n**Security:** ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
     .setFooter({ text: '[KLINEO-WELCOME]' });
   return withImageOrPlaceholder(e, 'welcome', 'Welcome');
 }
 function buildVerifyEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('Verify & enter KlineO')
-    .setDescription('Before verification, run **/join-source** and tell LINKO how you joined KlineO. Then complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that KlineO staff will never ask for your seed phrase, private key, or funds via unsolicited DM.')
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Verify & enter ${name}`)
+    .setDescription(`Before verification, run **/join-source** and tell LINKO how you joined ${name}. Then complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
     .setFooter({ text: '[KLINEO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
 function buildSocialEmbed() {
   const label = xpLabel();
-  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle('KlineO Social & KREATORs')
-    .setDescription(`**Share KlineO. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Social & KREATORs`)
+    .setDescription(`**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a ${name} post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -1670,24 +1674,25 @@ function officialLinkUrlValid(raw) {
 }
 function teamProfiles() { return db.prepare('SELECT * FROM team_profiles ORDER BY role_title COLLATE NOCASE, user_id').all(); }
 function buildOfficialLinksEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('KlineO — Official Links')
-    .setDescription('Only trust links listed in this channel. KlineO staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.');
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`${name} — Official Links`)
+    .setDescription(`Only trust links listed in this channel. ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`);
   const linkFields = Object.entries(OFFICIAL_LINKS).map(([type, [key, label]]) => ({ type, key, label, value: getSetting(key) })).filter((x) => x.value);
   if (linkFields.length) e.addFields(linkFields.map((x) => ({ name: x.label, value: x.value, inline: true })));
-  else e.addFields({ name: '🔗 Official links', value: '**Not configured yet.**\nKLINEO CORE: use `/official-links set` to add the verified website and social links.' });
+  else e.addFields({ name: '🔗 Official links', value: `**Not configured yet.**\n${coreRoleName()}: use \`/official-links set\` to add verified website and social links.` });
   const profiles = teamProfiles().slice(0, 10);
-  if (profiles.length) {
-    e.addFields({ name: '👥 Official Founders & Team', value: profiles.map((p) => {
-      const links = [p.website && `[Website](${p.website})`, p.x && `[X](${p.x})`, p.linkedin && `[LinkedIn](${p.linkedin})`, p.telegram && `[Telegram](${p.telegram})`].filter(Boolean).join(' · ');
-      return `<@${p.user_id}> — **${p.role_title}**${links ? `\n${links}` : ''}`;
-    }).join('\n\n') });
-  }
+  if (profiles.length) e.addFields({ name: '👥 Official Founders & Team', value: profiles.map((p) => {
+    const links = [p.website && `[Website](${p.website})`, p.x && `[X](${p.x})`, p.linkedin && `[LinkedIn](${p.linkedin})`, p.telegram && `[Telegram](${p.telegram})`].filter(Boolean).join(' · ');
+    return `<@${p.user_id}> — **${p.role_title}**${links ? `\n${links}` : ''}`;
+  }).join('\n\n') });
   e.setFooter({ text: '[KLINEO-OFFICIAL-LINKS]' });
   return withImageOrPlaceholder(e, 'official', 'Official Links');
 }
 function buildFounderHubEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle('KlineO Founder Hub')
-    .setDescription('Verified founders and active Studio clients can discuss market structure, operations and KlineO Liquidity Studio here.\n\nUse `/apply-founder` to submit your project website, project socials, founder socials, role/title and Liquidity Studio interest. Approved founder profiles are added to the private Founder Directory. Sensitive client-specific work belongs in a private Studio workspace.')
+  const name = communityName();
+  const studioText = moduleEnabled('liquidity_studio') ? ` and ${name} Liquidity Studio` : '';
+  const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`${name} Founder Hub`)
+    .setDescription(`Verified founders can discuss market structure and community operations${studioText} here. Use \`/apply-founder\` to submit your project website, project socials, founder socials and role/title. Approved profiles are added to the private Founder Directory.`)
     .setFooter({ text: '[KLINEO-FOUNDERS]' });
   return withImageOrPlaceholder(e, 'founder', 'Founder Hub');
 }
