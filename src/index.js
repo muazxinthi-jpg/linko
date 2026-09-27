@@ -3062,6 +3062,7 @@ async function createFounderApplicationModal(interaction) {
 }
 
 async function handleFounderModal(interaction) {
+  if (!moduleEnabled('founder_hub')) return interaction.reply({ content: 'The Founder Hub module is disabled in this server.', ephemeral: true });
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first in #verify.', ephemeral: true });
   const values = {
@@ -3089,6 +3090,7 @@ async function handleFounderModal(interaction) {
 }
 
 async function handleFounderReview(interaction, action, id) {
+  if (!moduleEnabled('founder_hub')) return interaction.reply({ content: 'The Founder Hub module is disabled in this server.', ephemeral: true });
   if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
   const app = db.prepare('SELECT * FROM founder_applications WHERE id = ?').get(id);
   if (!app || app.status !== 'pending') return interaction.reply({ content: 'This application has already been reviewed or does not exist.', ephemeral: true });
@@ -3157,6 +3159,7 @@ async function handleSocialSubmission(interaction) {
   }
 }
 async function handleSocialReview(interaction, id, approved) {
+  if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
   const xp = approved ? getSettingInt('kxp_social_post') : 0;
   const label = xpLabel();
   if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
@@ -3194,6 +3197,7 @@ function creatorEmojiKey(reaction) {
 }
 
 async function reconcileCreatorReactionRewards(guild, submissionId) {
+  if (!moduleEnabled('kreator')) return;
   const sub = db.prepare('SELECT * FROM social_submissions WHERE id = ?').get(submissionId);
   if (!sub || sub.status !== 'approved' || !Number(sub.creator_eligible)) return;
   const creator = await guild.members.fetch(sub.user_id).catch(() => null);
