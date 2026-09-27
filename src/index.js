@@ -997,10 +997,24 @@ const commands = [
       ))
       .addBooleanOption((o) => o.setName('enabled').setDescription('Enable or disable').setRequired(true))),
 
-  new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
+  new SlashCommandBuilder().setName('xp-settings').setDescription('Staff: view current XP earning settings.'),
+  new SlashCommandBuilder().setName('kxp-settings').setDescription('KlineO alias: view current XP earning settings.'),
+  new SlashCommandBuilder()
+    .setName('set-xp')
+    .setDescription('Staff: change an XP reward value from Discord.')
+    .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
+      { name: 'Qualifying message', value: 'kxp_message' },
+      { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
+      { name: 'Valid referral', value: 'kxp_valid_referral' },
+      { name: 'Approved social post', value: 'kxp_social_post' },
+      { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
+      { name: 'Valid bug report', value: 'kxp_bug_report' },
+      { name: 'Profile / wallet first-time submission', value: 'kxp_profile_submission' },
+    ))
+    .addIntegerOption((o) => o.setName('amount').setDescription('XP amount').setRequired(true).setMinValue(0).setMaxValue(100)),
   new SlashCommandBuilder()
     .setName('set-kxp')
-    .setDescription('Staff: change an XP reward value from Discord.')
+    .setDescription('KlineO alias: change an XP reward value from Discord.')
     .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
       { name: 'Qualifying message', value: 'kxp_message' },
       { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
@@ -4289,7 +4303,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       }
     }
 
-    if (interaction.commandName === 'kxp-settings') {
+    if (interaction.commandName === 'xp-settings' || interaction.commandName === 'kxp-settings') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const active = getActiveVoiceEvent();
       const label = xpLabel();
@@ -4308,7 +4322,7 @@ Message impact threshold: **${getSettingInt('impact_min_score')}** (evaluated af
 Voice event: ${active ? `**ACTIVE** — ${active.name} in <#${active.channel_id}>` : '**OFF**'}`, ephemeral: true });
     }
 
-    if (interaction.commandName === 'set-kxp') {
+    if (interaction.commandName === 'set-xp' || interaction.commandName === 'set-kxp') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const key = interaction.options.getString('event', true);
       const amount = interaction.options.getInteger('amount', true);
