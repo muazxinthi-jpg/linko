@@ -27,6 +27,7 @@ const CONFIGURED_GUILD_IDS = String(process.env.GUILD_IDS ?? process.env.GUILD_I
   .map((value) => value.trim())
   .filter(Boolean);
 const GUILD_IDS = new Set(CONFIGURED_GUILD_IDS);
+const PRIMARY_GUILD_ID = String(process.env.PRIMARY_GUILD_ID ?? process.env.GUILD_ID ?? CONFIGURED_GUILD_IDS[0] ?? '').trim();
 const MIN_ACCOUNT_AGE_HOURS = Number(process.env.MIN_ACCOUNT_AGE_HOURS ?? 0);
 
 if (!TOKEN || GUILD_IDS.size === 0) {
@@ -382,7 +383,19 @@ const db = {
 };
 
 const DEFAULT_SETTINGS = {
+  server_profile_initialized: '0',
+  server_name: '',
+  server_template: 'community',
   xp_label: 'KXP',
+  module_referrals: '1',
+  module_events: '1',
+  module_kreator: '0',
+  module_signals: '0',
+  module_founders: '0',
+  module_studio: '0',
+  module_wallets: '0',
+  module_languages: '0',
+  module_product: '0',
   kxp_message: '1',
   kxp_voice_interval: '1',
   kxp_valid_referral: '1',
@@ -487,6 +500,97 @@ function normalizeXpLabel(raw) {
 
 function xpLabel() {
   return normalizeXpLabel(getSetting('xp_label')) ?? 'KXP';
+}
+
+const PROFILE_MODULES = Object.freeze({
+  referrals: 'module_referrals',
+  events: 'module_events',
+  kreator: 'module_kreator',
+  signals: 'module_signals',
+  founders: 'module_founders',
+  studio: 'module_studio',
+  wallets: 'module_wallets',
+  languages: 'module_languages',
+  product: 'module_product',
+});
+
+function communityName() {
+  return String(getSetting('server_name') || 'Community').trim() || 'Community';
+}
+
+function communityNameUpper() {
+  return communityName().toUpperCase().slice(0, 28);
+}
+
+function serverTemplate() {
+  return getSetting('server_template') === 'klineo' ? 'klineo' : 'community';
+}
+
+function isKlineoTemplate() {
+  return serverTemplate() === 'klineo';
+}
+
+function moduleEnabled(moduleName) {
+  const key = PROFILE_MODULES[moduleName];
+  if (!key) return false;
+  return getSetting(key) !== '0';
+}
+
+function setModuleEnabled(moduleName, enabled) {
+  const key = PROFILE_MODULES[moduleName];
+  if (!key) throw new Error('Unknown LINKO module');
+  setSetting(key, enabled ? '1' : '0');
+  if (moduleName === 'studio' && enabled) setSetting(PROFILE_MODULES.founders, '1');
+  if (moduleName === 'founders' && !enabled) setSetting(PROFILE_MODULES.studio, '0');
+}
+
+function enabledModuleNames() {
+  return Object.keys(PROFILE_MODULES).filter((name) => moduleEnabled(name));
+}
+
+function genericCoreRoleName() { return 'LINKO CORE'; }
+function genericTeamRoleName() { return 'LINKO TEAM'; }
+function coreRoleNames() { return ['KLINEO CORE', genericCoreRoleName()]; }
+function teamRoleNames() { return ['KLINEO TEAM', genericTeamRoleName()]; }
+function staffRoleNames() { return [...coreRoleNames(), ...teamRoleNames(), 'MODERATOR']; }
+
+function ensureServerProfile(guild) {
+  if (getSetting('server_profile_initialized') === '1') {
+    if (!getSetting('server_name')) setSetting('server_name', guild.name);
+    return;
+  }
+  const primary = String(guild.id) === PRIMARY_GUILD_ID;
+  setSetting('server_name', primary ? 'KlineO' : guild.name);
+  setSetting('server_template', primary ? 'klineo' : 'community');
+  setSetting('xp_label', primary ? 'KXP' : 'XP');
+  const allOn = primary;
+  for (const name of Object.keys(PROFILE_MODULES)) {
+    const enabled = allOn || name === 'referrals' || name === 'events';
+    setModuleEnabled(name, enabled);
+  }
+  if (!primary) {
+    for (const key of ['official_website','official_liquidity_studio','official_x','official_telegram','official_linkedin','official_docs','official_support']) setSetting(key, '');
+  }
+  setSetting('server_profile_initialized', '1');
+}
+
+function applyProfilePreset(preset, guild) {
+  const normalized = preset === 'klineo' ? 'klineo' : 'community';
+  setSetting('server_template', normalized);
+  if (normalized === 'klineo') {
+    setSetting('server_name', 'KlineO');
+    setSetting('xp_label', 'KXP');
+    for (const name of Object.keys(PROFILE_MODULES)) setModuleEnabled(name, true);
+    if (!getSetting('official_website')) setSetting('official_website', 'https://klineo.xyz');
+    if (!getSetting('official_liquidity_studio')) setSetting('official_liquidity_studio', 'https://klineo.io');
+    if (!getSetting('official_x')) setSetting('official_x', 'https://x.com/klineoxyz');
+  } else {
+    if (!getSetting('server_name') || getSetting('server_name') === 'KlineO') setSetting('server_name', guild.name);
+    if (xpLabel() === 'KXP') setSetting('xp_label', 'XP');
+    for (const name of Object.keys(PROFILE_MODULES)) setModuleEnabled(name, ['referrals','events'].includes(name));
+    for (const key of ['official_website','official_liquidity_studio','official_x','official_telegram','official_linkedin','official_docs','official_support']) setSetting(key, '');
+  }
+  setSetting('server_profile_initialized', '1');
 }
 
 const client = new Client({
