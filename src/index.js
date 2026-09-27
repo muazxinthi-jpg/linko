@@ -1009,10 +1009,30 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('server-settings')
-    .setDescription('Administrator: view or change this server\'s LINKO settings.')
-    .addSubcommand((sc) => sc.setName('view').setDescription('View server-level LINKO settings.'))
+    .setDescription('Administrator: view or change this server\'s LINKO profile.')
+    .addSubcommand((sc) => sc.setName('view').setDescription('View server profile, XP name and enabled modules.'))
+    .addSubcommand((sc) => sc.setName('name').setDescription('Set the community display name used by LINKO.')
+      .addStringOption((o) => o.setName('name').setDescription('Community/server name').setRequired(true).setMinLength(2).setMaxLength(40)))
     .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
-      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6))),
+      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6)))
+    .addSubcommand((sc) => sc.setName('preset').setDescription('Apply a safe LINKO module preset.')
+      .addStringOption((o) => o.setName('preset').setDescription('Preset').setRequired(true).addChoices(
+        { name: 'KlineO full preset', value: 'klineo' },
+        { name: 'Generic community preset', value: 'community' },
+      )))
+    .addSubcommand((sc) => sc.setName('module').setDescription('Enable or disable one optional LINKO module.')
+      .addStringOption((o) => o.setName('module').setDescription('Module').setRequired(true).addChoices(
+        { name: 'Referrals', value: 'referrals' },
+        { name: 'Events', value: 'events' },
+        { name: 'KREATOR', value: 'kreator' },
+        { name: 'Signals', value: 'signals' },
+        { name: 'Founders', value: 'founders' },
+        { name: 'Studio', value: 'studio' },
+        { name: 'Wallets', value: 'wallets' },
+        { name: 'Languages', value: 'languages' },
+        { name: 'Product / feedback', value: 'product' },
+      ))
+      .addBooleanOption((o) => o.setName('enabled').setDescription('Enable this module?').setRequired(true))),
 
   new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
   new SlashCommandBuilder()
