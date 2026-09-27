@@ -4474,10 +4474,18 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       }
       if (action === 'name') {
         const requested = interaction.options.getString('name', true).trim();
+        const previous = communityName();
         setSetting('server_name', requested);
+        if (!isKlineoTemplate()) {
+          const oldCategoryName = `💬・${String(previous).toUpperCase().slice(0, 28)} COMMUNITY`;
+          const newCategoryName = `💬・${communityNameUpper()} COMMUNITY`;
+          const oldCategory = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === oldCategoryName);
+          const target = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === newCategoryName);
+          if (oldCategory && !target && oldCategory.name !== newCategoryName) await oldCategory.setName(newCategoryName, 'LINKO community name update').catch(() => {});
+        }
         await refreshBrandMessages(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
-        return interaction.reply({ content: `✅ LINKO now identifies this community as **${requested}**. Run \`/setup-linko confirm:true\` to sync category/channel presentation if needed.`, ephemeral: true });
+        return interaction.reply({ content: `✅ LINKO now identifies this community as **${requested}**. Run \`/setup-linko confirm:true\` to sync remaining presentation if needed.`, ephemeral: true });
       }
       if (action === 'xp-name') {
         const requested = interaction.options.getString('name', true);
@@ -4500,6 +4508,8 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       if (action === 'preset') {
         const preset = interaction.options.getString('preset', true);
         applyProfilePreset(preset, interaction.guild);
+        await migrateProfileStructureNames(interaction.guild).catch(() => {});
+        if (moduleEnabled('referrals')) await cacheInvites(interaction.guild).catch(() => {});
         await interaction.guild.commands.set(commandsForCurrentProfile()).catch(() => {});
         return interaction.reply({ content: `✅ Applied the **${serverTemplate()}** preset. Community: **${communityName()}** · XP: **${xpLabel()}** · Modules: **${enabledModuleNames().join(', ') || 'core only'}**.\n\nRun \`/setup-linko confirm:true\` to sync the structure. Existing channels are not destructively deleted.`, ephemeral: true });
       }
