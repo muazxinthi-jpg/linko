@@ -382,6 +382,7 @@ const db = {
 };
 
 const DEFAULT_SETTINGS = {
+  xp_label: 'KXP',
   kxp_message: '1',
   kxp_voice_interval: '1',
   kxp_valid_referral: '1',
@@ -426,25 +427,47 @@ const DEFAULT_SETTINGS = {
   wallet_change_lock_hours: '24',
 };
 
-for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+function initializeGuildDatabase(database) {
+  database.exec('PRAGMA journal_mode = WAL;');
+  database.exec('PRAGMA foreign_keys = ON;');
+  database.exec(SCHEMA_SQL);
+
+  ensureSqliteColumn(database, 'wallet_profiles', 'x_account', 'TEXT');
+  ensureSqliteColumn(database, 'wallet_profiles', 'telegram_account', 'TEXT');
+  ensureSqliteColumn(database, 'social_submissions', 'campaign_id', 'INTEGER');
+  ensureSqliteColumn(database, 'social_submissions', 'creator_eligible', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
+  ensureSqliteColumn(database, 'social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
+
+  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+    database.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  // Compatibility migration if an existing guild database is ever copied into the sharded layout.
+  for (const ref of database.prepare('SELECT member_id, inviter_id, invite_code, joined_at, valid_awarded FROM referrals').all()) {
+    const exists = database.prepare('SELECT user_id FROM join_attribution WHERE user_id = ?').get(ref.member_id);
+    if (exists) continue;
+    const code = String(ref.invite_code ?? '');
+    const isManual = code.startsWith('manual:');
+    const isSelf = code.startsWith('self:');
+    const tracked = !!code && !isManual && !isSelf;
+    const confirmed = tracked || isManual || Number(ref.valid_awarded) === 1;
+    database.prepare(`INSERT OR IGNORE INTO join_attribution
+      (user_id, source, inviter_id, detected_inviter_id, source_confirmed, inviter_confirmed, created_at, updated_at)
+      VALUES (?, 'member', ?, ?, 1, ?, ?, ?)`)
+      .run(ref.member_id, ref.inviter_id, tracked ? ref.inviter_id : null, confirmed ? 1 : 0, Number(ref.joined_at ?? Date.now()), Date.now());
+  }
 }
 
-// Backward-compatible referral attribution migration for existing KlineO data.
-// Tracked Discord/LINKO invites are treated as confirmed evidence; old member-declared referrals
-// remain pending inviter confirmation; moderator-confirmed referrals are already confirmed.
-for (const ref of db.prepare('SELECT member_id, inviter_id, invite_code, joined_at, valid_awarded FROM referrals').all()) {
-  const exists = db.prepare('SELECT user_id FROM join_attribution WHERE user_id = ?').get(ref.member_id);
-  if (exists) continue;
-  const code = String(ref.invite_code ?? '');
-  const isManual = code.startsWith('manual:');
-  const isSelf = code.startsWith('self:');
-  const tracked = !!code && !isManual && !isSelf;
-  const confirmed = tracked || isManual || Number(ref.valid_awarded) === 1;
-  db.prepare(`INSERT OR IGNORE INTO join_attribution
-    (user_id, source, inviter_id, detected_inviter_id, source_confirmed, inviter_confirmed, created_at, updated_at)
-    VALUES (?, 'member', ?, ?, 1, ?, ?, ?)`)
-    .run(ref.member_id, ref.inviter_id, tracked ? ref.inviter_id : null, confirmed ? 1 : 0, Number(ref.joined_at ?? Date.now()), Date.now());
+function getGuildDb(guildId) {
+  const id = String(guildId);
+  let database = guildDbs.get(id);
+  if (database) return database;
+  database = new DatabaseSync(guildDatabasePath(id));
+  initializeGuildDatabase(database);
+  guildDbs.set(id, database);
+  return database;
 }
 
 function getSetting(key) {
@@ -455,6 +478,15 @@ function getSettingInt(key) {
 }
 function setSetting(key, value) {
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
+}
+
+function normalizeXpLabel(raw) {
+  const label = String(raw ?? '').trim().toUpperCase();
+  return /^[A-Z]{1,6}$/.test(label) ? label : null;
+}
+
+function xpLabel() {
+  return normalizeXpLabel(getSetting('xp_label')) ?? 'KXP';
 }
 
 const client = new Client({
