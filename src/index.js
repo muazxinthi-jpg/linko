@@ -27,6 +27,7 @@ const CONFIGURED_GUILD_IDS = String(process.env.GUILD_IDS ?? process.env.GUILD_I
   .map((value) => value.trim())
   .filter(Boolean);
 const GUILD_IDS = new Set(CONFIGURED_GUILD_IDS);
+const PRIMARY_GUILD_ID = String(process.env.PRIMARY_GUILD_ID ?? process.env.GUILD_ID ?? CONFIGURED_GUILD_IDS[0] ?? '').trim();
 const MIN_ACCOUNT_AGE_HOURS = Number(process.env.MIN_ACCOUNT_AGE_HOURS ?? 0);
 
 if (!TOKEN || GUILD_IDS.size === 0) {
@@ -382,7 +383,19 @@ const db = {
 };
 
 const DEFAULT_SETTINGS = {
+  server_profile_initialized: '0',
+  server_name: '',
+  server_template: 'community',
   xp_label: 'KXP',
+  module_referrals: '1',
+  module_events: '1',
+  module_kreator: '0',
+  module_signals: '0',
+  module_founders: '0',
+  module_studio: '0',
+  module_wallets: '0',
+  module_languages: '0',
+  module_product: '0',
   kxp_message: '1',
   kxp_voice_interval: '1',
   kxp_valid_referral: '1',
@@ -489,6 +502,117 @@ function xpLabel() {
   return normalizeXpLabel(getSetting('xp_label')) ?? 'KXP';
 }
 
+const PROFILE_MODULES = Object.freeze({
+  referrals: 'module_referrals',
+  events: 'module_events',
+  kreator: 'module_kreator',
+  signals: 'module_signals',
+  founders: 'module_founders',
+  studio: 'module_studio',
+  wallets: 'module_wallets',
+  languages: 'module_languages',
+  product: 'module_product',
+});
+
+function xpSlug() {
+  return xpLabel().toLowerCase();
+}
+
+function xpLeaderboardChannelName() {
+  return `🏆・${xpSlug()}-leaderboard`;
+}
+
+function howToEarnXpChannelName() {
+  return `⚡・how-to-earn-${xpSlug()}`;
+}
+
+function xpLeaderboardBase() {
+  return baseChannelName(xpLeaderboardChannelName());
+}
+
+function howToEarnXpBase() {
+  return baseChannelName(howToEarnXpChannelName());
+}
+
+function communityName() {
+  return String(getSetting('server_name') || 'Community').trim() || 'Community';
+}
+
+function communityNameUpper() {
+  return communityName().toUpperCase().slice(0, 28);
+}
+
+function serverTemplate() {
+  return getSetting('server_template') === 'klineo' ? 'klineo' : 'community';
+}
+
+function isKlineoTemplate() {
+  return serverTemplate() === 'klineo';
+}
+
+function moduleEnabled(moduleName) {
+  const key = PROFILE_MODULES[moduleName];
+  if (!key) return false;
+  return getSetting(key) !== '0';
+}
+
+function setModuleEnabled(moduleName, enabled) {
+  const key = PROFILE_MODULES[moduleName];
+  if (!key) throw new Error('Unknown LINKO module');
+  setSetting(key, enabled ? '1' : '0');
+  if (moduleName === 'studio' && enabled) setSetting(PROFILE_MODULES.founders, '1');
+  if (moduleName === 'founders' && !enabled) setSetting(PROFILE_MODULES.studio, '0');
+}
+
+function enabledModuleNames() {
+  return Object.keys(PROFILE_MODULES).filter((name) => moduleEnabled(name));
+}
+
+function genericCoreRoleName() { return 'LINKO CORE'; }
+function genericTeamRoleName() { return 'LINKO TEAM'; }
+function coreRoleNames() { return ['KLINEO CORE', genericCoreRoleName()]; }
+function teamRoleNames() { return ['KLINEO TEAM', genericTeamRoleName()]; }
+function staffRoleNames() { return [...coreRoleNames(), ...teamRoleNames(), 'MODERATOR']; }
+
+function ensureServerProfile(guild) {
+  if (getSetting('server_profile_initialized') === '1') {
+    if (!getSetting('server_name')) setSetting('server_name', guild.name);
+    return;
+  }
+  const primary = String(guild.id) === PRIMARY_GUILD_ID;
+  setSetting('server_name', primary ? 'KlineO' : guild.name);
+  setSetting('server_template', primary ? 'klineo' : 'community');
+  setSetting('xp_label', primary ? 'KXP' : 'XP');
+  const allOn = primary;
+  for (const name of Object.keys(PROFILE_MODULES)) {
+    const enabled = allOn || name === 'referrals' || name === 'events';
+    setModuleEnabled(name, enabled);
+  }
+  if (!primary) {
+    for (const key of ['official_website','official_liquidity_studio','official_x','official_telegram','official_linkedin','official_docs','official_support']) setSetting(key, '');
+  }
+  setSetting('server_profile_initialized', '1');
+}
+
+function applyProfilePreset(preset, guild) {
+  const normalized = preset === 'klineo' ? 'klineo' : 'community';
+  setSetting('server_template', normalized);
+  if (normalized === 'klineo') {
+    setSetting('server_name', 'KlineO');
+    setSetting('xp_label', 'KXP');
+    for (const name of Object.keys(PROFILE_MODULES)) setModuleEnabled(name, true);
+    if (!getSetting('official_website')) setSetting('official_website', 'https://klineo.xyz');
+    if (!getSetting('official_liquidity_studio')) setSetting('official_liquidity_studio', 'https://klineo.io');
+    if (!getSetting('official_x')) setSetting('official_x', 'https://x.com/klineoxyz');
+  } else {
+    if (!getSetting('server_name') || getSetting('server_name') === 'KlineO') setSetting('server_name', guild.name);
+    if (xpLabel() === 'KXP') setSetting('xp_label', 'XP');
+    for (const name of Object.keys(PROFILE_MODULES)) setModuleEnabled(name, ['referrals','events'].includes(name));
+    for (const key of ['official_website','official_liquidity_studio','official_x','official_telegram','official_linkedin','official_docs','official_support']) setSetting(key, '');
+  }
+  setSetting('server_profile_initialized', '1');
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -555,6 +679,44 @@ const ROLE_SPECS = [
   { key: 'ambassador', name: 'AMBASSADOR', color: BRAND.limeSoft, hoist: true, permissions: [] },
   ...[...RANKS].reverse().map((rank) => ({ ...rank, hoist: false, permissions: [] })),
 ];
+
+function genericRoleSpecs() {
+  const specs = [
+    { key: 'core', name: genericCoreRoleName(), color: BRAND.white, hoist: true, permissions: [PermissionFlagsBits.Administrator] },
+    { key: 'team', name: genericTeamRoleName(), color: BRAND.lime, hoist: true, permissions: [] },
+    {
+      key: 'moderator',
+      name: 'MODERATOR',
+      color: BRAND.cyan,
+      hoist: true,
+      permissions: [
+        PermissionFlagsBits.ViewAuditLog,
+        PermissionFlagsBits.KickMembers,
+        PermissionFlagsBits.BanMembers,
+        PermissionFlagsBits.ModerateMembers,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.ManageThreads,
+        PermissionFlagsBits.ManageNicknames,
+        PermissionFlagsBits.MuteMembers,
+        PermissionFlagsBits.DeafenMembers,
+        PermissionFlagsBits.MoveMembers,
+        PermissionFlagsBits.ManageEvents,
+      ],
+    },
+    { key: 'verified', name: 'VERIFIED MEMBER', color: BRAND.gray, hoist: false, permissions: [] },
+    { key: 'partner', name: 'PARTNER', color: BRAND.blue, hoist: true, permissions: [] },
+    { key: 'ambassador', name: 'AMBASSADOR', color: BRAND.limeSoft, hoist: true, permissions: [] },
+  ];
+  if (moduleEnabled('kreator')) specs.push({ key: 'creator', name: 'KREATOR', color: 0xA855F7, hoist: true, permissions: [] });
+  if (moduleEnabled('founders')) specs.push({ key: 'founder', name: 'VERIFIED FOUNDER', color: BRAND.emerald, hoist: true, permissions: [] });
+  if (moduleEnabled('studio')) specs.push({ key: 'studio', name: 'STUDIO CLIENT', color: 0xF59E0B, hoist: true, permissions: [] });
+  specs.push(...[...RANKS].reverse().map((rank) => ({ ...rank, hoist: false, permissions: [] })));
+  return specs;
+}
+
+function profileRoleSpecs() {
+  return isKlineoTemplate() ? ROLE_SPECS : genericRoleSpecs();
+}
 
 const PUBLIC_NO_LINK_CHANNELS = new Set([
   'general', 'market-chat', 'trade-setups', 'ai-agent-lab', 'product-feedback', 'bug-reports', 'help',
@@ -706,43 +868,43 @@ const commands = [
     .setDescription('KlineO alias: build or sync LINKO in this Discord server.')
     .addBooleanOption((o) => o.setName('confirm').setDescription('Set true to build/sync.').setRequired(true)),
 
-  new SlashCommandBuilder().setName('rank').setDescription('Show your KlineO rank and progress.')
+  new SlashCommandBuilder().setName('rank').setDescription('Show your community rank and progress.')
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
   new SlashCommandBuilder().setName('points').setDescription('Show your server XP balance.')
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
-  new SlashCommandBuilder().setName('leaderboard').setDescription('Show a KlineO leaderboard.')
+  new SlashCommandBuilder().setName('leaderboard').setDescription('Show a community leaderboard.')
     .addStringOption((o) => o.setName('type').setDescription('Leaderboard type').addChoices(
       { name: 'XP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
       { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaign', value: 'campaign' },
     ))
     .addIntegerOption((o) => o.setName('campaign').setDescription('Campaign ID when viewing a campaign leaderboard').setMinValue(1)),
-  new SlashCommandBuilder().setName('invite').setDescription('Create your tracked KlineO invite link.'),
-  new SlashCommandBuilder().setName('invites').setDescription('Show your KlineO referral stats.'),
+  new SlashCommandBuilder().setName('invite').setDescription('Create your tracked community invite link.'),
+  new SlashCommandBuilder().setName('invites').setDescription('Show your referral stats.'),
   new SlashCommandBuilder()
     .setName('join-source')
-    .setDescription('Required before verification: tell LINKO how you joined KlineO.')
-    .addStringOption((o) => o.setName('source').setDescription('How did you find/join KlineO?').setRequired(true).addChoices(
-      { name: 'Invited by a KlineO member', value: 'member' },
-      { name: 'Found KlineO myself', value: 'organic' },
+    .setDescription('Required before verification: tell LINKO how you joined this community.')
+    .addStringOption((o) => o.setName('source').setDescription('How did you find/join this community?').setRequired(true).addChoices(
+      { name: 'Invited by a community member', value: 'member' },
+      { name: 'Found this community myself', value: 'organic' },
       { name: 'X / social media', value: 'x' },
       { name: 'Telegram', value: 'telegram' },
       { name: 'Event / AMA', value: 'event' },
       { name: 'Partner / creator', value: 'partner' },
     ))
-    .addUserOption((o) => o.setName('member').setDescription('Required only if a KlineO member invited you.')),
+    .addUserOption((o) => o.setName('member').setDescription('Required only if a community member invited you.')),
   new SlashCommandBuilder()
     .setName('confirm-invited')
-    .setDescription('Confirm that you personally invited a pending KlineO member.')
+    .setDescription('Confirm that you personally invited a pending community member.')
     .addUserOption((o) => o.setName('member').setDescription('The member you invited').setRequired(true)),
   new SlashCommandBuilder()
     .setName('referred-by')
     .setDescription('Legacy shortcut: tell LINKO who invited you.')
-    .addUserOption((o) => o.setName('member').setDescription('The KlineO member who invited you').setRequired(true)),
-  new SlashCommandBuilder().setName('commands').setDescription('Show the KlineO member command guide.'),
+    .addUserOption((o) => o.setName('member').setDescription('The community member who invited you').setRequired(true)),
+  new SlashCommandBuilder().setName('commands').setDescription('Show the LINKO member command guide.'),
 
   new SlashCommandBuilder()
     .setName('wallet')
-    .setDescription('Manage your submitted KlineO payout wallet addresses. LINKO never connects or signs.')
+    .setDescription('Manage submitted payout wallet addresses. LINKO never connects or signs.')
     .addSubcommand((sc) => sc.setName('view').setDescription('Privately view your submitted EVM and Solana wallets.'))
     .addSubcommand((sc) => sc.setName('set').setDescription('Add or change a submitted wallet address.')
       .addStringOption((o) => o.setName('network').setDescription('Wallet network').setRequired(true).addChoices(
@@ -772,7 +934,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('creator-campaign')
-    .setDescription('Staff: manage KlineO creator campaigns.')
+    .setDescription('Staff: manage creator campaigns.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a creator campaign.')
       .addStringOption((o) => o.setName('name').setDescription('Campaign name').setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName('description').setDescription('Short campaign brief').setMaxLength(300)))
@@ -782,7 +944,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('social-card')
-    .setDescription('Generate a shareable KlineO social card.')
+    .setDescription('Generate a shareable community social card.')
     .addStringOption((o) => o.setName('type').setDescription('Card type').setRequired(true).addChoices(
       { name: 'Progress', value: 'progress' }, { name: 'Referral', value: 'referral' },
       { name: 'Community Impact', value: 'impact' }, { name: 'Founder', value: 'founder' },
@@ -790,17 +952,17 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('official-links')
-    .setDescription('Staff: manage verified KlineO official links.')
+    .setDescription('Staff: manage verified official links.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View configured official links.'))
     .addSubcommand((sc) => sc.setName('publish').setDescription('Refresh the public Official Links card.'))
-    .addSubcommand((sc) => sc.setName('set').setDescription('Core: set an official KlineO link.')
+    .addSubcommand((sc) => sc.setName('set').setDescription('Core: set an official community link.')
       .addStringOption((o) => o.setName('type').setDescription('Official link type').setRequired(true).addChoices(
         { name: 'Website', value: 'website' }, { name: 'Liquidity Studio', value: 'liquidity_studio' },
         { name: 'X', value: 'x' }, { name: 'Telegram', value: 'telegram' }, { name: 'LinkedIn', value: 'linkedin' },
         { name: 'Docs', value: 'docs' }, { name: 'Support', value: 'support' },
       ))
       .addStringOption((o) => o.setName('url').setDescription('Verified https:// URL').setRequired(true).setMaxLength(300)))
-    .addSubcommand((sc) => sc.setName('remove').setDescription('Core: remove an official KlineO link.')
+    .addSubcommand((sc) => sc.setName('remove').setDescription('Core: remove an official community link.')
       .addStringOption((o) => o.setName('type').setDescription('Official link type').setRequired(true).addChoices(
         { name: 'Website', value: 'website' }, { name: 'Liquidity Studio', value: 'liquidity_studio' },
         { name: 'X', value: 'x' }, { name: 'Telegram', value: 'telegram' }, { name: 'LinkedIn', value: 'linkedin' },
@@ -809,10 +971,10 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('team-profile')
-    .setDescription('Staff: manage official KlineO founder/team profiles.')
+    .setDescription('Staff: manage official founder/team profiles.')
     .addSubcommand((sc) => sc.setName('list').setDescription('List configured team profiles.'))
     .addSubcommand((sc) => sc.setName('set').setDescription('Core: add or update an official team profile.')
-      .addUserOption((o) => o.setName('member').setDescription('Official KlineO team member').setRequired(true))
+      .addUserOption((o) => o.setName('member').setDescription('Official community team member').setRequired(true))
       .addStringOption((o) => o.setName('role').setDescription('Role/title, e.g. Founder & CEO').setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName('website').setDescription('Website URL').setMaxLength(300))
       .addStringOption((o) => o.setName('x').setDescription('X profile URL').setMaxLength(300))
@@ -905,10 +1067,30 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('server-settings')
-    .setDescription('Administrator: view or change this server\'s LINKO settings.')
-    .addSubcommand((sc) => sc.setName('view').setDescription('View server-level LINKO settings.'))
+    .setDescription('Administrator: view or change this server\'s LINKO profile.')
+    .addSubcommand((sc) => sc.setName('view').setDescription('View server profile, XP name and enabled modules.'))
+    .addSubcommand((sc) => sc.setName('name').setDescription('Set the community display name used by LINKO.')
+      .addStringOption((o) => o.setName('name').setDescription('Community/server name').setRequired(true).setMinLength(2).setMaxLength(40)))
     .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
-      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6))),
+      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6)))
+    .addSubcommand((sc) => sc.setName('preset').setDescription('Apply a safe LINKO module preset.')
+      .addStringOption((o) => o.setName('preset').setDescription('Preset').setRequired(true).addChoices(
+        { name: 'KlineO full preset', value: 'klineo' },
+        { name: 'Generic community preset', value: 'community' },
+      )))
+    .addSubcommand((sc) => sc.setName('module').setDescription('Enable or disable one optional LINKO module.')
+      .addStringOption((o) => o.setName('module').setDescription('Module').setRequired(true).addChoices(
+        { name: 'Referrals', value: 'referrals' },
+        { name: 'Events', value: 'events' },
+        { name: 'KREATOR', value: 'kreator' },
+        { name: 'Signals', value: 'signals' },
+        { name: 'Founders', value: 'founders' },
+        { name: 'Studio', value: 'studio' },
+        { name: 'Wallets', value: 'wallets' },
+        { name: 'Languages', value: 'languages' },
+        { name: 'Product / feedback', value: 'product' },
+      ))
+      .addBooleanOption((o) => o.setName('enabled').setDescription('Enable this module?').setRequired(true))),
 
   new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
   new SlashCommandBuilder()
@@ -952,8 +1134,8 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('server-image')
-    .setDescription('Staff: manage KlineO welcome and section images.')
-    .addSubcommand((sc) => sc.setName('set').setDescription('Upload/set an image for a KlineO section.')
+    .setDescription('Staff: manage welcome and section images.')
+    .addSubcommand((sc) => sc.setName('set').setDescription('Upload/set an image for a community section.')
       .addStringOption((o) => o.setName('slot').setDescription('Image slot').setRequired(true).addChoices(
         { name: 'Welcome', value: 'welcome' }, { name: 'Verification', value: 'verify' }, { name: 'Official Links', value: 'official' }, { name: 'Social', value: 'social' }, { name: 'Founder Hub', value: 'founder' },
       ))
@@ -962,11 +1144,11 @@ const commands = [
       .addStringOption((o) => o.setName('slot').setDescription('Image slot').setRequired(true).addChoices(
         { name: 'Welcome', value: 'welcome' }, { name: 'Verification', value: 'verify' }, { name: 'Official Links', value: 'official' }, { name: 'Social', value: 'social' }, { name: 'Founder Hub', value: 'founder' },
       )))
-    .addSubcommand((sc) => sc.setName('status').setDescription('Show which KlineO section images are configured.')),
+    .addSubcommand((sc) => sc.setName('status').setDescription('Show which community section images are configured.')),
 
   new SlashCommandBuilder()
     .setName('grant-klineo-role')
-    .setDescription('Staff: grant a KlineO access role.')
+    .setDescription('Staff: grant a community access role.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
     .addStringOption((o) => o.setName('role').setDescription('Role').setRequired(true).addChoices(
       { name: 'Verified Founder', value: 'VERIFIED FOUNDER' },
@@ -982,11 +1164,11 @@ const commands = [
     .addStringOption((o) => o.setName('project').setDescription('Project name').setRequired(true).setMaxLength(40))
     .addUserOption((o) => o.setName('member').setDescription('Primary client representative').setRequired(true)),
 
-  new SlashCommandBuilder().setName('onboarding').setDescription('Show your KlineO activation checklist.'),
+  new SlashCommandBuilder().setName('onboarding').setDescription('Show your community activation checklist.'),
 
   new SlashCommandBuilder()
     .setName('interest')
-    .setDescription('Manage your KlineO interest roles.')
+    .setDescription('Manage your community interest roles.')
     .addSubcommand((sc) => sc.setName('add').setDescription('Add an interest.')
       .addStringOption((o) => o.setName('interest').setDescription('Interest').setRequired(true).addChoices(
         { name: 'Trading', value: 'trading' }, { name: 'AI', value: 'ai' }, { name: 'Markets', value: 'markets' },
@@ -1001,32 +1183,32 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('language')
-    .setDescription('Manage your KlineO language channels.')
+    .setDescription('Manage community language channels.')
     .addSubcommand((sc) => sc.setName('add').setDescription('Join a language community.')
       .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
     .addSubcommand((sc) => sc.setName('remove').setDescription('Leave a language community.')
       .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
-    .addSubcommand((sc) => sc.setName('list').setDescription('List available KlineO languages.')),
+    .addSubcommand((sc) => sc.setName('list').setDescription('List available community languages.')),
 
   new SlashCommandBuilder()
     .setName('suggest')
-    .setDescription('Submit a KlineO product suggestion.')
+    .setDescription('Submit a community/product suggestion.')
     .addStringOption((o) => o.setName('title').setDescription('Short suggestion title').setRequired(true).setMaxLength(80))
     .addStringOption((o) => o.setName('details').setDescription('What should change and why?').setRequired(true).setMaxLength(1200)),
 
-  new SlashCommandBuilder().setName('events').setDescription('Show upcoming KlineO community events.'),
+  new SlashCommandBuilder().setName('events').setDescription('Show upcoming community events.'),
 
   new SlashCommandBuilder()
     .setName('community-health')
-    .setDescription('Staff: show KlineO community health metrics.')
+    .setDescription('Staff: show community health metrics.')
     .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
   new SlashCommandBuilder().setName('refresh-health').setDescription('Staff: refresh the persistent community-health dashboard.'),
   new SlashCommandBuilder().setName('mod-inbox').setDescription('Staff: show the consolidated LINKO moderation inbox.'),
 
   new SlashCommandBuilder()
     .setName('event')
-    .setDescription('Staff: manage KlineO community events.')
-    .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a KlineO event.')
+    .setDescription('Staff: manage community events.')
+    .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a community event.')
       .addStringOption((o) => o.setName('title').setDescription('Event title').setRequired(true).setMaxLength(100))
       .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
@@ -1044,7 +1226,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('suggestion')
-    .setDescription('Staff: manage KlineO product suggestions.')
+    .setDescription('Staff: manage community/product suggestions.')
     .addSubcommand((sc) => sc.setName('list').setDescription('List recent open suggestions.'))
     .addSubcommand((sc) => sc.setName('status').setDescription('Change a suggestion status.')
       .addIntegerOption((o) => o.setName('id').setDescription('Suggestion ID').setRequired(true).setMinValue(1))
@@ -1056,7 +1238,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('language-manager')
-    .setDescription('Staff: create or manage KlineO language communities.')
+    .setDescription('Staff: create or manage language communities.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a language role + private language channel.')
       .addStringOption((o) => o.setName('name').setDescription('Language name, e.g. Deutsch').setRequired(true).setMaxLength(30))
       .addStringOption((o) => o.setName('emoji').setDescription('Flag/emoji, e.g. 🇩🇪').setRequired(true).setMaxLength(12))
@@ -1067,7 +1249,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('channel-manager')
-    .setDescription('Staff: safely create, edit or archive extra KlineO channels.')
+    .setDescription('Staff: safely create, edit or archive extra community channels.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a managed text or voice channel.')
       .addStringOption((o) => o.setName('name').setDescription('Channel name').setRequired(true).setMaxLength(50))
       .addStringOption((o) => o.setName('category').setDescription('Category name').setRequired(true).setMaxLength(50))
@@ -1104,6 +1286,103 @@ const commands = [
     .addSubcommand((sc) => sc.setName('list').setDescription('List LINKO-managed extra channels.')),
 ].map((c) => c.toJSON());
 
+const MODULE_COMMANDS = Object.freeze({
+  referrals: new Set(['invite','invites','join-source','confirm-invited','confirm-referral','referral-stats']),
+  events: new Set(['events','event','voice-event']),
+  kreator: new Set(['submit-post','creator-campaign']),
+  founders: new Set(['apply-founder']),
+  studio: new Set(['create-client-space']),
+  wallets: new Set(['wallet','wallet-admin','export-wallets']),
+  languages: new Set(['language','language-manager']),
+  product: new Set(['suggest','suggestion','approve-bug']),
+});
+
+function commandModule(commandName) {
+  for (const [moduleName, names] of Object.entries(MODULE_COMMANDS)) if (names.has(commandName)) return moduleName;
+  return null;
+}
+
+const GENERIC_COMMAND_ALIASES = Object.freeze({
+  'user-kxp': 'user-xp',
+  'kxp-settings': 'xp-settings',
+  'set-kxp': 'set-xp',
+  'grant-klineo-role': 'grant-linko-role',
+});
+
+function profileCommandJson(command) {
+  const out = structuredClone(command);
+
+  if (out.name === 'leaderboard') {
+    const option = out.options?.find((o) => o.name === 'type');
+    if (option?.choices) {
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'referrals') return moduleEnabled('referrals');
+        if (choice.value === 'creators' || choice.value === 'campaign') return moduleEnabled('kreator');
+        return true;
+      });
+    }
+  }
+
+  if (out.name === 'social-card') {
+    const option = out.options?.find((o) => o.name === 'type');
+    if (option?.choices) {
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'referral') return moduleEnabled('referrals');
+        if (choice.value === 'founder') return moduleEnabled('founders');
+        return true;
+      });
+    }
+  }
+
+  if (out.name === 'grant-klineo-role') {
+    const option = out.options?.find((o) => o.name === 'role');
+    if (option?.choices) {
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'KREATOR') return moduleEnabled('kreator');
+        if (choice.value === 'VERIFIED FOUNDER') return moduleEnabled('founders');
+        if (choice.value === 'STUDIO CLIENT') return moduleEnabled('studio');
+        return true;
+      });
+    }
+  }
+
+  if (out.name === 'official-links' && !moduleEnabled('studio')) {
+    for (const sub of out.options ?? []) {
+      const option = sub.options?.find((o) => o.name === 'type');
+      if (option?.choices) option.choices = option.choices.filter((choice) => choice.value !== 'liquidity_studio');
+    }
+  }
+
+  if (out.name === 'server-image') {
+    for (const sub of out.options ?? []) {
+      const option = sub.options?.find((o) => o.name === 'slot');
+      if (!option?.choices) continue;
+      option.choices = option.choices.filter((choice) => {
+        if (choice.value === 'social') return moduleEnabled('kreator');
+        if (choice.value === 'founder') return moduleEnabled('founders');
+        return true;
+      });
+    }
+  }
+
+  return out;
+}
+
+function commandsForCurrentProfile() {
+  return commands
+    .filter((command) => {
+      if (command.name === 'setup-klineo' && !isKlineoTemplate()) return false;
+      const moduleName = commandModule(command.name);
+      return !moduleName || moduleEnabled(moduleName);
+    })
+    .map(profileCommandJson)
+    .map((command) => {
+      if (isKlineoTemplate()) return command;
+      const alias = GENERIC_COMMAND_ALIASES[command.name];
+      return alias ? { ...command, name: alias } : command;
+    });
+}
+
 function now() { return Date.now(); }
 function dayKey(ts = Date.now()) { return new Date(ts).toISOString().slice(0, 10); }
 function overwrite(id, allow = [], deny = []) { return { id, allow, deny }; }
@@ -1111,10 +1390,11 @@ function isAdmin(interaction) {
   return interaction.guild?.ownerId === interaction.user.id || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
 }
 function hasCoreRole(member) {
-  return member?.roles?.cache?.some((r) => r.name === 'KLINEO CORE');
+  const names = coreRoleNames();
+  return member?.roles?.cache?.some((r) => names.includes(r.name));
 }
 function hasStaffRole(member) {
-  const names = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR'];
+  const names = staffRoleNames();
   return member?.roles?.cache?.some((r) => names.includes(r.name));
 }
 function hasVerifiedRole(member) { return member?.roles?.cache?.some((r) => r.name === 'VERIFIED MEMBER'); }
@@ -1266,7 +1546,7 @@ async function recordImpactEngagement(messageId, userId, kind) {
 }
 async function resolveMessageForStaff(guild, raw) {
   const parsed = parseDiscordMessageLink(raw, guild.id);
-  if (!parsed) throw new Error('Use a full Discord message link from this KlineO server.');
+  if (!parsed) throw new Error('Use a full Discord message link from this server.');
   const channel = guild.channels.cache.get(parsed.channelId) ?? await guild.channels.fetch(parsed.channelId).catch(() => null);
   if (!channel?.isTextBased()) throw new Error('Message channel could not be found.');
   const message = await channel.messages.fetch(parsed.messageId).catch(() => null);
@@ -1295,7 +1575,7 @@ function buildSuggestionEmbed(row) {
       { name: 'Status', value: `**${suggestionStatusLabel(row.status)}**`, inline: true },
       { name: 'Submitted by', value: `<@${row.user_id}>`, inline: true },
       ...(row.staff_note ? [{ name: 'Staff note', value: row.staff_note.slice(0, 1024) }] : []),
-    ).setFooter({ text: `KlineO Product Suggestion #${row.id}` }).setTimestamp(new Date(row.updated_at || row.created_at));
+    ).setFooter({ text: `${communityName()} Product Suggestion #${row.id}` }).setTimestamp(new Date(row.updated_at || row.created_at));
 }
 async function updateSuggestionMessages(guild, id) {
   const row = db.prepare('SELECT * FROM product_suggestions WHERE id = ?').get(id);
@@ -1326,7 +1606,7 @@ async function setSuggestionStatus(guild, id, status, actorId, note = '') {
   db.prepare('UPDATE product_suggestions SET status = ?, updated_at = ?, updated_by = ?, staff_note = ? WHERE id = ?').run(status, now(), actorId, note || row.staff_note || '', id);
   await updateSuggestionMessages(guild, id);
   const member = await guild.members.fetch(row.user_id).catch(() => null);
-  if (member) await member.send(`💡 Your KlineO suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
+  if (member) await member.send(`💡 Your ${communityName()} suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
   scheduleModInboxUpdate(guild); scheduleHealthUpdate(guild);
 }
 function parseEventStart(raw) {
@@ -1349,14 +1629,14 @@ function buildEventEmbed(row) {
   const endSec = Math.floor((Number(row.start_at) + Number(row.duration_minutes) * 60000) / 1000);
   const e = new EmbedBuilder().setColor(row.status === 'live' ? BRAND.lime : row.status === 'cancelled' ? BRAND.rose : row.status === 'ended' ? BRAND.gray : BRAND.cyan)
     .setTitle(`${row.status === 'live' ? '🔴 ' : '📅 '}#${row.id} · ${row.title}`)
-    .setDescription(row.description || 'KlineO community event')
+    .setDescription(row.description || `${communityName()} community event`)
     .addFields(
       { name: 'Status', value: `**${eventStatusLabel(row.status)}**`, inline: true },
       { name: 'Starts', value: `<t:${startSec}:F>\n<t:${startSec}:R>`, inline: true },
       { name: 'Ends', value: `<t:${endSec}:t>`, inline: true },
       { name: 'RSVP', value: `✅ Going: **${counts.going}**\n⭐ Interested: **${counts.interested}**`, inline: true },
       ...(row.voice_channel_id ? [{ name: 'Voice room', value: `<#${row.voice_channel_id}>`, inline: true }] : []),
-    ).setFooter({ text: `KlineO Event #${row.id}` });
+    ).setFooter({ text: `${communityName()} Event #${row.id}` });
   return e;
 }
 function eventButtons(id, status) {
@@ -1399,7 +1679,7 @@ async function endCommunityEvent(guild, id, actorId = null, automatic = false) {
     const totalAttendees = Number(db.prepare('SELECT COUNT(*) AS c FROM event_attendance WHERE event_id=?').get(id)?.c ?? 0);
     const rsvp = eventRsvpCounts(id);
     const recap = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`✅ Event Recap · ${row.title}`)
-      .setDescription(`${automatic ? 'LINKO closed this event automatically at the scheduled end time.' : 'This KlineO event has ended.'}`)
+      .setDescription(`${automatic ? 'LINKO closed this event automatically at the scheduled end time.' : `This ${communityName()} event has ended.`}`)
       .addFields(
         { name: 'Attendance', value: `Voice attendees: **${totalAttendees}**\nRSVP Going: **${rsvp.going}**\nInterested: **${rsvp.interested}**`, inline: true },
         ...(attendance.length ? [{ name: 'Top attendance', value: attendance.slice(0,5).map((a) => `<@${a.user_id}> — **${a.minutes} min**`).join('\n') }] : []),
@@ -1453,7 +1733,7 @@ function healthMetrics(guild, days = 7) {
 function buildHealthEmbed(guild, days = 7) {
   const m = healthMetrics(guild, days);
   const ranks = RANKS.map((r) => `${r.name}: **${m.rankCounts[r.name]}**`).join(' · ');
-  return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 KlineO Community Health · ${days}d`)
+  return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 ${communityName()} Community Health · ${days}d`)
     .addFields(
       { name: 'Community', value: `Members: **${m.total}**\nVerified: **${m.verified}**\nOnline now: **${m.online}**`, inline: true },
       { name: `${days}d growth`, value: `New joins: **${m.joins}**\nVerified: **${m.verifications}**\nActivation: **${m.activationRate}%**`, inline: true },
@@ -1504,18 +1784,18 @@ function scheduleModInboxUpdate(guild) {
 function accessRoleNames(access) {
   return ({
     verified: ['VERIFIED MEMBER'], analyst: ['ANALYST','OPERATOR','STRATEGIST','VANGUARD','PRIME'], strategist: ['STRATEGIST','VANGUARD','PRIME'],
-    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: ['KLINEO CORE','KLINEO TEAM','MODERATOR'],
+    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: staffRoleNames(),
   })[access] ?? ['VERIFIED MEMBER'];
 }
 function accessOverwrites(guild, access) {
   const roles = accessRoleNames(access).map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
-  const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const all = [...new Map([...roles, ...staff].map((r) => [r.id, r])).values()];
   return privateFor(guild.roles.everyone, all);
 }
 function accessVoiceOverwrites(guild, access) {
   const roles = accessRoleNames(access).map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
-  const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const all = [...new Map([...roles, ...staff].map((r) => [r.id, r])).values()];
   return privateVoiceFor(guild.roles.everyone, all);
 }
@@ -1557,23 +1837,33 @@ function withImageOrPlaceholder(embed, slot, label) {
   return embed.addFields({ name: '🖼️ Image', value: `**${label} image not uploaded yet.**\nStaff: use \`/server-image set\` and upload the image for this section.` });
 }
 function buildWelcomeEmbed(channels) {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('Welcome to KlineO')
-    .setDescription(`KlineO is a community for traders, creators, founders and market operators around AI-powered trading and digital-asset market infrastructure.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined KlineO\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn KXP through meaningful participation, official voice events, valid referrals and approved KlineO content.\n\nFounders can apply with \`/apply-founder\`. Generate a shareable KlineO card anytime with \`/social-card\`.
-
-After verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.\n\n**Security:** KlineO staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
+  const name = communityName();
+  const label = xpLabel();
+  const referralStep = moduleEnabled('referrals') ? `2. Run \`/join-source\` and tell LINKO how you joined **${name}**\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**` : `2. Verify in <#${channels.verify.id}>\n3. Enter as **OBSERVER**`;
+  const optional = [
+    moduleEnabled('founders') ? 'Founders can apply with `/apply-founder`.' : '',
+    moduleEnabled('kreator') ? 'KREATORs can submit approved social content and compete on creator leaderboards.' : '',
+    moduleEnabled('languages') ? 'Use `/language` after verification to join language rooms.' : '',
+  ].filter(Boolean).join(' ');
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`)
+    .setDescription(`LINKO powers community access, ranks and participation for **${name}**.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n${referralStep}\n\nEarn **${label}** through the activities enabled by this community. ${optional}\n\n**Security:** ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
     .setFooter({ text: '[KLINEO-WELCOME]' });
   return withImageOrPlaceholder(e, 'welcome', 'Welcome');
 }
+
 function buildVerifyEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('Verify & enter KlineO')
-    .setDescription('Before verification, run **/join-source** and tell LINKO how you joined KlineO. Then complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that KlineO staff will never ask for your seed phrase, private key, or funds via unsolicited DM.')
+  const name = communityName();
+  const referralText = moduleEnabled('referrals') ? 'Before verification, run **/join-source** and tell LINKO how you joined. Then ' : '';
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Verify & enter ${name}`)
+    .setDescription(`${referralText}complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
     .setFooter({ text: '[KLINEO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
 function buildSocialEmbed() {
   const label = xpLabel();
-  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle('KlineO Social & KREATORs')
-    .setDescription(`**Share KlineO. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Social & KREATORs`)
+    .setDescription(`**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a ${name} post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a shareable progress, referral, impact or Founder card. Public chat links remain blocked.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -1592,11 +1882,12 @@ function officialLinkUrlValid(raw) {
 }
 function teamProfiles() { return db.prepare('SELECT * FROM team_profiles ORDER BY role_title COLLATE NOCASE, user_id').all(); }
 function buildOfficialLinksEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('KlineO — Official Links')
-    .setDescription('Only trust links listed in this channel. KlineO staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.');
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`${name} — Official Links`)
+    .setDescription(`Only trust links listed in this channel. ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`);
   const linkFields = Object.entries(OFFICIAL_LINKS).map(([type, [key, label]]) => ({ type, key, label, value: getSetting(key) })).filter((x) => x.value);
   if (linkFields.length) e.addFields(linkFields.map((x) => ({ name: x.label, value: x.value, inline: true })));
-  else e.addFields({ name: '🔗 Official links', value: '**Not configured yet.**\nKLINEO CORE: use `/official-links set` to add the verified website and social links.' });
+  else e.addFields({ name: '🔗 Official links', value: `**Not configured yet.**\nServer administrators can use \`/official-links set\` to add verified links.` });
   const profiles = teamProfiles().slice(0, 10);
   if (profiles.length) {
     e.addFields({ name: '👥 Official Founders & Team', value: profiles.map((p) => {
@@ -1608,8 +1899,10 @@ function buildOfficialLinksEmbed() {
   return withImageOrPlaceholder(e, 'official', 'Official Links');
 }
 function buildFounderHubEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle('KlineO Founder Hub')
-    .setDescription('Verified founders and active Studio clients can discuss market structure, operations and KlineO Liquidity Studio here.\n\nUse `/apply-founder` to submit your project website, project socials, founder socials, role/title and Liquidity Studio interest. Approved founder profiles are added to the private Founder Directory. Sensitive client-specific work belongs in a private Studio workspace.')
+  const name = communityName();
+  const studioLine = moduleEnabled('studio') ? ` and active Studio clients` : '';
+  const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`${name} Founder Hub`)
+    .setDescription(`Verified founders${studioLine} can discuss market structure, operations and community growth here.\n\nUse \`/apply-founder\` to submit your project website, project socials, founder socials and role/title. Approved profiles are added to the private Founder Directory.${moduleEnabled('studio') ? ' Sensitive client-specific Studio work belongs in a private client workspace.' : ''}`)
     .setFooter({ text: '[KLINEO-FOUNDERS]' });
   return withImageOrPlaceholder(e, 'founder', 'Founder Hub');
 }
@@ -1632,6 +1925,55 @@ async function logCommandUse(interaction) {
   if (!channel) return;
   const where = interaction.channelId ? `<#${interaction.channelId}>` : 'unknown channel';
   await channel.send(`⌨️ ${interaction.user} used **/${interaction.commandName}** in ${where}.`).catch(() => {});
+}
+
+async function migrateProfileStructureNames(guild) {
+  await guild.roles.fetch();
+  await guild.channels.fetch();
+
+  const rolePairs = isKlineoTemplate()
+    ? [[genericCoreRoleName(), 'KLINEO CORE'], [genericTeamRoleName(), 'KLINEO TEAM']]
+    : [['KLINEO CORE', genericCoreRoleName()], ['KLINEO TEAM', genericTeamRoleName()]];
+
+  for (const [from, to] of rolePairs) {
+    const oldRole = guild.roles.cache.find((r) => r.name === from && !r.managed);
+    const target = guild.roles.cache.find((r) => r.name === to && !r.managed);
+    if (oldRole && !target) await oldRole.setName(to, 'LINKO server profile role migration').catch(() => {});
+  }
+
+  const genericCategories = {
+    community: `💬・${communityNameUpper()} COMMUNITY`,
+    xp: `⚡・${xpLabel()}`,
+    signal: '📈・SIGNAL ROOM',
+    social: '📣・SOCIAL',
+    creators: '🎨・KREATOR HUB',
+    founders: '🏛️・FOUNDERS HUB',
+    studio: '💧・STUDIO',
+    high: '◆・HIGHER LEVELS',
+    voice: '🎙️・VOICE',
+    languages: '🌍・LANGUAGES',
+    staff: '🛡️・STAFF',
+  };
+
+  const pairs = [
+    [CATEGORY_NAMES.community, genericCategories.community],
+    [CATEGORY_NAMES.kxp, genericCategories.xp],
+    [CATEGORY_NAMES.social, genericCategories.social],
+    [CATEGORY_NAMES.creators, genericCategories.creators],
+    [CATEGORY_NAMES.founders, genericCategories.founders],
+    [CATEGORY_NAMES.studio, genericCategories.studio],
+  ];
+
+  for (const [klineoName, genericName] of pairs) {
+    const from = isKlineoTemplate() ? genericName : klineoName;
+    const to = isKlineoTemplate() ? klineoName : genericName;
+    const oldCategory = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === from);
+    const target = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === to);
+    if (oldCategory && !target) await oldCategory.setName(to, 'LINKO server profile category migration').catch(() => {});
+  }
+
+  await guild.roles.fetch();
+  await guild.channels.fetch();
 }
 
 async function migrateLegacyStructure(guild) {
@@ -1856,7 +2198,7 @@ function leaderboardChannelBase(type) {
   if (type === 'referrals') return 'referral-leaderboard';
   if (type === 'creators') return 'kreator-leaderboard';
   if (type === 'campaign') return 'campaign-leaderboard';
-  return 'kxp-leaderboard';
+  return xpLeaderboardBase();
 }
 
 function leaderboardVisibilityKey(type) {
@@ -1880,7 +2222,7 @@ async function setLeaderboardChannelVisibility(guild, type, visibility) {
   setSetupPhase('03/11 · Build permission model + categories');
   const everyone = guild.roles.everyone;
   const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
-  const staff = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR'].map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const overwrites = [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])];
   if (visibility === 'public' && verified) overwrites.push(overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]));
   for (const role of staff) overwrites.push(overwrite(role.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]));
@@ -1954,7 +2296,7 @@ async function updateCampaignLeaderboardMessages(guild) {
   if (!campaigns.length) {
     const marker = '[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]';
     const existing = recent?.find((m) => m.author.id === client.user.id && m.content?.includes(marker));
-    const content = `**KlineO Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
+    const content = `**${communityName()} Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
     if (existing) await existing.edit({ content, embeds: [] }).catch(() => {});
     else await channel.send({ content }).catch(() => {});
     return;
@@ -1973,9 +2315,13 @@ async function updateCampaignLeaderboardMessages(guild) {
 
 async function updateAllLeaderboards(guild) {
   await updateLeaderboardMessage(guild, 'kxp');
-  await updateLeaderboardMessage(guild, 'referrals');
-  await updateLeaderboardMessage(guild, 'creators');
-  await updateCampaignLeaderboardMessages(guild);
+  if (moduleEnabled('referrals')) await updateLeaderboardMessage(guild, 'referrals');
+  if (moduleEnabled('kreator')) {
+    await updateLeaderboardMessage(guild, 'creators');
+    await updateCampaignLeaderboardMessages(guild);
+  } else {
+    pruneExpiredCampaignReactionRows();
+  }
 }
 
 function scheduleLeaderboardUpdate(guild) {
@@ -2081,8 +2427,8 @@ async function awardFirstSubmissionKxp(guild, userId, item, label, actorId = nul
 
 function joinSourceLabel(source) {
   return ({
-    member: 'Invited by a KlineO member',
-    organic: 'Found KlineO myself',
+    member: 'Invited by a community member',
+    organic: 'Found this community myself',
     x: 'X / social media',
     telegram: 'Telegram',
     event: 'Event / AMA',
@@ -2205,15 +2551,15 @@ async function ensureRole(guild, spec) {
   try {
     let role = guild.roles.cache.find((r) => r.name === spec.name && !r.managed);
     const data = { name: spec.name, color: spec.color, hoist: spec.hoist, mentionable: false, permissions: spec.permissions ?? [] };
-    if (!role) role = await guild.roles.create({ ...data, reason: 'LINKO KlineO setup' });
-    else await role.edit({ ...data, reason: 'LINKO KlineO setup sync' });
+    if (!role) role = await guild.roles.create({ ...data, reason: 'LINKO setup' });
+    else await role.edit({ ...data, reason: 'LINKO setup sync' });
     return role;
   } catch (error) { throw contextualError(`Role ${spec.name}`, error); }
 }
 async function ensureCategory(guild, name, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildCategory && x.name === name);
-    if (!c) c = await guild.channels.create({ name, type: ChannelType.GuildCategory, permissionOverwrites, reason: 'LINKO KlineO setup' });
+    if (!c) c = await guild.channels.create({ name, type: ChannelType.GuildCategory, permissionOverwrites, reason: 'LINKO setup' });
     else await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
     return c;
   } catch (error) { throw contextualError(`Category ${name}`, error); }
@@ -2222,7 +2568,7 @@ async function ensureTextChannel(guild, category, spec, permissionOverwrites = [
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === category.id && x.name === spec.name);
     if (!c && spec.reuseDefaultGeneral) c = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && !x.parentId && x.name === 'general');
-    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildText, parent: category.id, topic: spec.topic, rateLimitPerUser: spec.slowmode ?? 0, permissionOverwrites, reason: 'LINKO KlineO setup' });
+    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildText, parent: category.id, topic: spec.topic, rateLimitPerUser: spec.slowmode ?? 0, permissionOverwrites, reason: 'LINKO setup' });
     else {
       await c.edit({ name: spec.name, parent: category.id, topic: spec.topic, rateLimitPerUser: spec.slowmode ?? 0, reason: 'LINKO setup sync' });
       await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
@@ -2234,7 +2580,7 @@ async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = 
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
     if (!c && spec.reuseDefaultVoice) c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && !x.parentId && x.name === 'General');
-    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildVoice, parent: category.id, userLimit: spec.userLimit ?? 0, permissionOverwrites, reason: 'LINKO KlineO setup' });
+    if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildVoice, parent: category.id, userLimit: spec.userLimit ?? 0, permissionOverwrites, reason: 'LINKO setup' });
     else {
       await c.edit({ name: spec.name, parent: category.id, userLimit: spec.userLimit ?? 0, reason: 'LINKO setup sync' });
       await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
@@ -2262,54 +2608,49 @@ async function seedMessage(channel, marker, payload) {
 
 function kxpRulesContent() {
   const label = xpLabel();
-  return `**${label} — Experience Points**
-
-Ranks:
-• OBSERVER — 0 ${label}
-• SCOUT — 150 ${label}
-• ANALYST — 500 ${label}
-• OPERATOR — 1,200 ${label}
-• STRATEGIST — 2,500 ${label}
-• VANGUARD — 5,000 ${label}
-• PRIME — 10,000+ ${label} (highest rank; ${label} continues with no maximum)
-
-**Current earning rules**
-• Qualifying message: **+${getSettingInt('kxp_message')} ${label}**
-• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**
-• Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
-• Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
-• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
-• Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**
-• First-time X submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time Telegram submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time EVM wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time Solana wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-
-**${label} never caps.** PRIME unlocks at 10,000 ${label}, but members can keep earning lifetime ${label} indefinitely. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
-
-Voice time only earns ${label} while staff have an **official voice event** active.
-
-**Message ${label} is impact-scored.** LINKO first rejects short/trivial/repeated/duplicate/link-spam messages. Candidate messages are then scored using content quality/relevance plus real community response (meaningful replies or distinct reactions). A moderator can confirm or reverse edge cases. LINKO stores only message IDs + scores/metadata for this system, not the message body.
-
-Use `/rank`, `/points`, `/invite`, `/invites`, and `/leaderboard`.
-
-[KLINEO-KXP]`;
+  const lines = [
+    `**${label} — Experience Points**`,
+    '',
+    'Ranks:',
+    `• OBSERVER — 0 ${label}`,
+    `• SCOUT — 150 ${label}`,
+    `• ANALYST — 500 ${label}`,
+    `• OPERATOR — 1,200 ${label}`,
+    `• STRATEGIST — 2,500 ${label}`,
+    `• VANGUARD — 5,000 ${label}`,
+    `• PRIME — 10,000+ ${label} (highest rank; ${label} continues with no maximum)`,
+    '',
+    '**Current earning rules**',
+    `• Qualifying message: **+${getSettingInt('kxp_message')} ${label}**`,
+  ];
+  if (moduleEnabled('events')) lines.push(`• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**`);
+  if (moduleEnabled('referrals')) lines.push(`• Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after verification + 7 days + qualifying activity`);
+  if (moduleEnabled('kreator')) {
+    lines.push(`• Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**`);
+    lines.push(`• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post`);
+  }
+  if (moduleEnabled('product')) lines.push(`• Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**`);
+  if (moduleEnabled('wallets')) lines.push(`• First-time eligible profile/wallet submissions: **+${getSettingInt('kxp_profile_submission')} ${label}** per eligible item`);
+  lines.push(
+    '',
+    `**${label} never caps.** PRIME unlocks at 10,000 ${label}, but members can keep earning lifetime ${label} indefinitely.`,
+    '',
+    `**Message ${label} is impact-scored.** LINKO rejects short/trivial/repeated/duplicate/link-spam messages and scores qualifying participation using content quality plus genuine community response.`,
+    '',
+    'Use /rank, /points and /leaderboard.',
+    '',
+    '[KLINEO-KXP]',
+  );
+  return lines.join('\n');
 }
 
 function socialRulesContent() {
   const label = xpLabel();
-  return `**Share KlineO. Earn ${label} for genuine contributions.**
-
-Use \`/submit-post\` and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
-
-Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
-
-Approved posts are published here by LINKO. KREATOR posts can also earn reaction-based ${label}, and campaign-tagged posts count toward a campaign leaderboard.
-
-[KLINEO-SOCIAL]`;
+  const name = communityName();
+  return `**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse /submit-post and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.\n\nModerators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.\n\nApproved KREATOR posts can also earn reaction-based ${label}, and campaign-tagged posts count toward a campaign leaderboard.\n\n[KLINEO-SOCIAL]`;
 }
 async function updatePublicKxpDocs(guild) {
-  const how = guild.channels.cache.find((c) => baseChannelName(c.name) === 'how-to-earn-kxp' && c.isTextBased());
+  const how = guild.channels.cache.find((c) => baseChannelName(c.name) === howToEarnXpBase() && c.isTextBased());
   const social = guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
   const links = guild.channels.cache.find((c) => baseChannelName(c.name) === 'official-links' && c.isTextBased());
   if (how) await seedMessage(how, '[KLINEO-KXP]', { content: kxpRulesContent() });
@@ -2392,11 +2733,21 @@ async function maybeAwardReferralRoleBonus(_guild, _memberId, _roleName) {
   // No automatic Creator/Founder referral bonus in v5.
 }
 
-async function buildKlineO(guild) {
-  setSetupPhase('01/11 · Fetch server state + migrate legacy structure');
+async function buildLinko(guild) {
+  ensureServerProfile(guild);
+  const isKlineo = isKlineoTemplate();
+  const name = communityName();
+  const label = xpLabel();
+  const CAT = isKlineo ? CATEGORY_NAMES : {
+    stats: '📊・SERVER STATS', start: '👋・START HERE', community: `💬・${communityNameUpper()} COMMUNITY`, kxp: `⚡・${label}`,
+    signal: '📈・SIGNAL ROOM', social: '📣・SOCIAL', creators: '🎨・KREATOR HUB', founders: '🏛️・FOUNDERS HUB', studio: '💧・STUDIO',
+    high: '◆・HIGHER LEVELS', voice: '🎙️・VOICE', languages: '🌍・LANGUAGES', staff: '🛡️・STAFF',
+  };
+  setSetupPhase('01/11 · Fetch server state + apply server profile');
   await guild.roles.fetch();
   await guild.channels.fetch();
-  await migrateLegacyStructure(guild);
+  await migrateProfileStructureNames(guild);
+  if (isKlineo) await migrateLegacyStructure(guild);
   // Remove deprecated member profile-directory channels from v6. Member socials are no longer collected.
   for (const legacyBase of ['community-directory', 'profile-submissions']) {
     const legacy = guild.channels.cache.find((c) => baseChannelName(c.name) === legacyBase && c.type !== ChannelType.GuildCategory);
@@ -2408,7 +2759,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('02/11 · Create/sync roles');
   const roles = {};
-  for (const spec of ROLE_SPECS) roles[spec.key] = await ensureRole(guild, spec);
+  for (const spec of profileRoleSpecs()) roles[spec.key] = await ensureRole(guild, spec);
   for (const rank of RANKS) roles[rank.key] = guild.roles.cache.find((r) => r.name === rank.name);
   for (const [key, label, color] of INTERESTS) {
     roles[`interest_${key}`] = await ensureRole(guild, { name: `${INTEREST_ROLE_PREFIX}${label}`, color, hoist: false, permissions: [] });
@@ -2416,7 +2767,16 @@ async function buildKlineO(guild) {
 
   const me = await guild.members.fetchMe();
   const ceiling = me.roles.highest.position;
-  const orderedNames = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR', 'STUDIO CLIENT', 'VERIFIED FOUNDER', 'PARTNER', 'KREATOR', 'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER', ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`)];
+  const orderedNames = [
+    ...(isKlineo ? ['KLINEO CORE', 'KLINEO TEAM'] : [genericCoreRoleName(), genericTeamRoleName()]),
+    'MODERATOR',
+    ...(moduleEnabled('studio') ? ['STUDIO CLIENT'] : []),
+    ...(moduleEnabled('founders') ? ['VERIFIED FOUNDER'] : []),
+    'PARTNER',
+    ...(moduleEnabled('kreator') ? ['KREATOR'] : []),
+    'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER',
+    ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`),
+  ];
   const movable = orderedNames.map((n) => guild.roles.cache.find((r) => r.name === n)).filter((r) => r && r.position < ceiling);
   const positions = movable.map((r, i) => ({ role: r.id, position: Math.max(1, ceiling - 1 - i) }));
   if (positions.length) await guild.roles.setPositions(positions).catch((e) => console.warn('Role order warning:', e.message));
@@ -2426,9 +2786,9 @@ async function buildKlineO(guild) {
   const verifiedBase = privateFor(everyone, [roles.verified, ...staff]);
   const startReadOnly = readOnlyOverwrites(everyone, staff);
   const staffPrivate = privateFor(everyone, staff);
-  const creatorsPrivate = privateFor(everyone, [roles.creator, ...staff]);
-  const foundersPrivate = privateFor(everyone, [roles.founder, roles.studio, ...staff]);
-  const studioPrivate = privateFor(everyone, [roles.studio, ...staff]);
+  const creatorsPrivate = moduleEnabled('kreator') && roles.creator ? privateFor(everyone, [roles.creator, ...staff]) : null;
+  const foundersPrivate = moduleEnabled('founders') && roles.founder ? privateFor(everyone, [roles.founder, ...(roles.studio ? [roles.studio] : []), ...staff]) : null;
+  const studioPrivate = moduleEnabled('studio') && roles.studio ? privateFor(everyone, [roles.studio, ...staff]) : null;
   const signalRoles = [roles.l3, roles.l4, roles.l5, roles.l6, roles.l7, ...staff];
   const signalPrivate = privateFor(everyone, signalRoles);
   const l5plus = [roles.l5, roles.l6, roles.l7, ...staff];
@@ -2436,86 +2796,111 @@ async function buildKlineO(guild) {
   const l7plus = [roles.l7, ...staff];
 
   const categories = {};
-  categories.stats = await ensureCategory(guild, CATEGORY_NAMES.stats, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
-  categories.start = await ensureCategory(guild, CATEGORY_NAMES.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
-  categories.community = await ensureCategory(guild, CATEGORY_NAMES.community, verifiedBase);
-  categories.kxp = await ensureCategory(guild, CATEGORY_NAMES.kxp, verifiedBase);
-  categories.signal = await ensureCategory(guild, CATEGORY_NAMES.signal, signalPrivate);
-  categories.social = await ensureCategory(guild, CATEGORY_NAMES.social, verifiedBase);
-  categories.creators = await ensureCategory(guild, CATEGORY_NAMES.creators, creatorsPrivate);
-  categories.founders = await ensureCategory(guild, CATEGORY_NAMES.founders, foundersPrivate);
-  categories.studio = await ensureCategory(guild, CATEGORY_NAMES.studio, studioPrivate);
-  categories.high = await ensureCategory(guild, CATEGORY_NAMES.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
-  categories.voice = await ensureCategory(guild, CATEGORY_NAMES.voice, verifiedBase);
-  categories.languages = await ensureCategory(guild, CATEGORY_NAMES.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  categories.staff = await ensureCategory(guild, CATEGORY_NAMES.staff, staffPrivate);
+  categories.stats = await ensureCategory(guild, CAT.stats, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
+  categories.start = await ensureCategory(guild, CAT.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
+  categories.community = await ensureCategory(guild, CAT.community, verifiedBase);
+  categories.kxp = await ensureCategory(guild, CAT.kxp, verifiedBase);
+  if (moduleEnabled('signals')) categories.signal = await ensureCategory(guild, CAT.signal, signalPrivate);
+  if (moduleEnabled('kreator')) {
+    categories.social = await ensureCategory(guild, CAT.social, verifiedBase);
+    categories.creators = await ensureCategory(guild, CAT.creators, creatorsPrivate);
+  }
+  if (moduleEnabled('founders')) categories.founders = await ensureCategory(guild, CAT.founders, foundersPrivate);
+  if (moduleEnabled('studio')) categories.studio = await ensureCategory(guild, CAT.studio, studioPrivate);
+  categories.high = await ensureCategory(guild, CAT.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
+  categories.voice = await ensureCategory(guild, CAT.voice, verifiedBase);
+  if (moduleEnabled('languages')) categories.languages = await ensureCategory(guild, CAT.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  categories.staff = await ensureCategory(guild, CAT.staff, staffPrivate);
   await categories.stats.setPosition(0).catch(() => {});
   await categories.start.setPosition(1).catch(() => {});
   await updateServerStats(guild, true);
 
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
-  channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: 'Welcome to KlineO. Start here.' }, startReadOnly);
-  channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: 'KlineO community and security rules.' }, startReadOnly);
-  channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: 'Verify yourself to unlock KlineO.' }, startReadOnly);
-  channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: 'Only trust official KlineO links listed here.' }, startReadOnly);
-  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: 'Official KlineO announcements.' }, startReadOnly);
+  channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: `Welcome to ${name}. Start here.` }, startReadOnly);
+  channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${name} community and security rules.` }, startReadOnly);
+  channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `Verify yourself to unlock ${name}.` }, startReadOnly);
+  channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: `Only trust official ${name} links listed here.` }, startReadOnly);
+  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `Official ${name} announcements.` }, startReadOnly);
 
   for (const [key, name, topic, slowmode] of [
-    ['general', CHANNEL_NAMES.general, 'General KlineO discussion. Public links are blocked.', 2],
+    ['general', CHANNEL_NAMES.general, `General ${name} discussion. Public links are blocked.`, 2],
     ['marketChat', CHANNEL_NAMES.marketChat, 'Market discussion. No guaranteed-return claims. Public links are blocked.', 3],
     ['tradeSetups', CHANNEL_NAMES.tradeSetups, 'Trading setups and risk context. Public links are blocked.', 5],
-    ['aiAgentLab', CHANNEL_NAMES.aiAgentLab, 'AI agents, execution workflows and KlineO experiments. Public links are blocked.', 3],
-    ['productUpdates', CHANNEL_NAMES.productUpdates, 'KlineO product releases and integrations.', 0],
-    ['productFeedback', CHANNEL_NAMES.productFeedback, 'Constructive KlineO product feedback. Public links are blocked.', 5],
-    ['bugReports', CHANNEL_NAMES.bugReports, 'Report reproducible KlineO bugs. Valid reports can be approved by staff for KXP. Public links are blocked.', 10],
+    ['aiAgentLab', CHANNEL_NAMES.aiAgentLab, `AI agents, execution workflows and ${name} experiments. Public links are blocked.`, 3],
+    ['productUpdates', CHANNEL_NAMES.productUpdates, `${name} product releases and integrations.`, 0],
+    ['productFeedback', CHANNEL_NAMES.productFeedback, `Constructive ${name} product feedback. Public links are blocked.`, 5],
+    ['bugReports', CHANNEL_NAMES.bugReports, `Report reproducible ${name} bugs. Valid reports can be approved by staff for ${label}. Public links are blocked.`, 10],
     ['help', CHANNEL_NAMES.help, 'Ask for community or product help. Public links are blocked.', 5],
-    ['introductions', CHANNEL_NAMES.introductions, 'Introduce yourself to KlineO. Public links are blocked.', 10],
+    ['introductions', CHANNEL_NAMES.introductions, `Introduce yourself to ${name}. Public links are blocked.`, 10],
     ['wins', CHANNEL_NAMES.wins, 'Share wins, mistakes and lessons. Public links are blocked.', 5],
   ]) {
+    if (!isKlineo && ['marketChat', 'tradeSetups', 'aiAgentLab'].includes(key) && !moduleEnabled('signals')) continue;
+    if (['productUpdates', 'productFeedback', 'bugReports'].includes(key) && !moduleEnabled('product')) continue;
     const perms = baseChannelName(name) === 'product-updates' ? [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))] : verifiedBase;
     channels[key] = await ensureTextChannel(guild, categories.community, { name, topic, slowmode, reuseDefaultGeneral: baseChannelName(name) === 'general' }, perms);
   }
 
-  channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: 'Structured KlineO product suggestions and status updates. Submit with /suggest.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  if (moduleEnabled('product')) channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: `Structured ${name} suggestions and status updates. Submit with /suggest.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
-  setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
-  channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.howKxp, topic: 'How KXP, referrals and rank progression work.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Use LINKO member commands here: /rank /points /leaderboard /invite /invites /join-source /confirm-invited /wallet /submit-post /social-card /apply-founder.' }, verifiedBase);
-  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.leaderboard, topic: 'Live KlineO Top 50 KXP leaderboard. Auto-refreshes; visibility is controlled by moderators.' }, staffPrivate);
-  channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: 'Live KlineO Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.' }, staffPrivate);
+  setSetupPhase('05/11 · Create XP + persistent leaderboard channels');
+  channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: howToEarnXpChannelName(), topic: `How ${label}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Use LINKO member commands here.' }, verifiedBase);
+  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpLeaderboardChannelName(), topic: `Live ${name} Top 50 ${label} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   await setLeaderboardChannelVisibility(guild, 'kxp', getSetting('kxp_leaderboard_visibility'));
-  await setLeaderboardChannelVisibility(guild, 'referrals', getSetting('referral_leaderboard_visibility'));
-  channels.rankUps = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.rankUps, topic: 'KlineO community rank progression.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.referrals = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referrals, topic: 'Use /invite and /invites. Valid referrals earn KXP.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.events = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.events, topic: 'Official community events, AMAs and campaigns.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.rankUps = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.rankUps, topic: `${name} community rank progression.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  if (moduleEnabled('referrals')) {
+    channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `Live ${name} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
+    await setLeaderboardChannelVisibility(guild, 'referrals', getSetting('referral_leaderboard_visibility'));
+    channels.referrals = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referrals, topic: `Use /invite and /invites. Valid referrals earn ${label}.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  }
+  if (moduleEnabled('events')) channels.events = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.events, topic: `Official ${name} community events, AMAs and campaigns.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('06/11 · Create Signal, Social, Founder, Studio, higher-level + voice spaces');
-  for (const [key, name, topic] of [
-    ['analystChat', CHANNEL_NAMES.analystChat, 'ANALYST+ discussion. Links unlock at STRATEGIST.'],
-    ['tradeAnalysis', CHANNEL_NAMES.tradeAnalysis, 'ANALYST+ trade analysis. Links unlock at STRATEGIST.'],
-    ['marketThesis', CHANNEL_NAMES.marketThesis, 'ANALYST+ market theses. Links unlock at STRATEGIST.'],
-    ['aiStrategies', CHANNEL_NAMES.aiStrategies, 'ANALYST+ AI strategy discussion. Links unlock at STRATEGIST.'],
-  ]) channels[key] = await ensureTextChannel(guild, categories.signal, { name, topic, slowmode: 5 }, signalPrivate);
-  channels.analystVoice = await ensureVoiceChannel(guild, categories.signal, { name: '🔊 Analyst Room', userLimit: 30 }, privateVoiceFor(everyone, signalRoles));
+  if (moduleEnabled('signals') && categories.signal) {
+    for (const [key, name, topic] of [
+      ['analystChat', CHANNEL_NAMES.analystChat, 'ANALYST+ discussion. Links unlock at STRATEGIST.'],
+      ['tradeAnalysis', CHANNEL_NAMES.tradeAnalysis, 'ANALYST+ trade analysis. Links unlock at STRATEGIST.'],
+      ['marketThesis', CHANNEL_NAMES.marketThesis, 'ANALYST+ market theses. Links unlock at STRATEGIST.'],
+      ['aiStrategies', CHANNEL_NAMES.aiStrategies, 'ANALYST+ AI strategy discussion. Links unlock at STRATEGIST.'],
+    ]) channels[key] = await ensureTextChannel(guild, categories.signal, { name, topic, slowmode: 5 }, signalPrivate);
+    channels.analystVoice = await ensureVoiceChannel(guild, categories.signal, { name: '🔊 Analyst Room', userLimit: 30 }, privateVoiceFor(everyone, signalRoles));
+  
+  
+  }
 
-  channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: 'Approved KlineO community posts appear here. Submit via /submit-post.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: 'Optional KlineO content missions and community briefs.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: 'Live KREATOR leaderboard. Creator KXP also counts toward the overall KXP leaderboard.' }, staffPrivate);
-  channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: 'Public KREATOR campaign leaderboards. Campaign KXP also counts toward KREATOR + overall KXP.' }, staffPrivate);
-  await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
-  await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
+  if (moduleEnabled('kreator') && categories.social && categories.creators) {
+    channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: `Approved ${name} community posts appear here. Submit via /submit-post.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: `Optional ${name} content missions and community briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Creator ${label} also counts toward overall ${label}.` }, staffPrivate);
+    channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `Public KREATOR campaign leaderboards. Campaign ${label} also counts toward KREATOR + overall ${label}.` }, staffPrivate);
+    await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
+    await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
+  
+    for (const [channelName, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved KREATORs.'], [CHANNEL_NAMES.contentCollabs, `${name} creator collaborations.`], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name: channelName, topic }, creatorsPrivate);
+  
+  
+  }
 
-  for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators.'], [CHANNEL_NAMES.contentCollabs, 'KlineO creator collaborations.'], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) await ensureTextChannel(guild, categories.creators, { name, topic }, creatorsPrivate);
+  if (moduleEnabled('founders') && categories.founders && roles.founder) {
+    channels.founderLobby = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderLobby, topic: `Private discussion for verified ${name} founders${moduleEnabled('studio') ? ' and Studio clients' : ''}.` }, foundersPrivate);
+    channels.founderDirectory = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderDirectory, topic: 'Approved founder/project websites and social profiles.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...[roles.founder, ...(roles.studio ? [roles.studio] : [])].map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    for (const [channelName, topic] of [[CHANNEL_NAMES.marketStructure, 'Founder-level market structure discussion.'], [CHANNEL_NAMES.founderResources, 'Founder resources and operating references.']]) await ensureTextChannel(guild, categories.founders, { name: channelName, topic }, foundersPrivate);
+    if (moduleEnabled('studio')) {
+      channels.liquidityStudio = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.liquidityStudio, topic: `${name} Studio capabilities, process and onboarding.` }, foundersPrivate);
+      await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.studioRequests, topic: 'Discuss Studio onboarding and next steps.' }, foundersPrivate);
+    }
+    await ensureVoiceChannel(guild, categories.founders, { name: '🎙️ Founder Roundtable', userLimit: 25 }, privateVoiceFor(everyone, [roles.founder, ...(roles.studio ? [roles.studio] : []), ...staff]));
+  
+  
+  }
 
-  channels.founderLobby = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderLobby, topic: 'Private discussion for verified founders and Studio clients.' }, foundersPrivate);
-  channels.founderDirectory = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.founderDirectory, topic: 'Approved founder/project websites and social profiles.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...[roles.founder, roles.studio].map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.liquidityStudio = await ensureTextChannel(guild, categories.founders, { name: CHANNEL_NAMES.liquidityStudio, topic: 'KlineO Liquidity Studio capabilities, process and onboarding.' }, foundersPrivate);
-  for (const [name, topic] of [[CHANNEL_NAMES.marketStructure, 'Founder-level market structure discussion.'], [CHANNEL_NAMES.founderResources, 'Founder resources and operating references.'], [CHANNEL_NAMES.studioRequests, 'Discuss Liquidity Studio onboarding and next steps.']]) await ensureTextChannel(guild, categories.founders, { name, topic }, foundersPrivate);
-  await ensureVoiceChannel(guild, categories.founders, { name: '🎙️ Founder Roundtable', userLimit: 25 }, privateVoiceFor(everyone, [roles.founder, roles.studio, ...staff]));
-
-  channels.studioAnnouncements = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.studioAnnouncements, topic: 'Private Liquidity Studio notices.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.studio.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.clientSupport = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.clientSupport, topic: 'General support for active Liquidity Studio clients.' }, studioPrivate);
+  if (moduleEnabled('studio') && categories.studio && roles.studio) {
+    channels.studioAnnouncements = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.studioAnnouncements, topic: `Private ${name} Studio notices.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.studio.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.clientSupport = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.clientSupport, topic: `General support for active ${name} Studio clients.` }, studioPrivate);
+  
+  
+  }
 
   channels.strategist = await ensureTextChannel(guild, categories.high, { name: CHANNEL_NAMES.strategist, topic: 'STRATEGIST+ room. Links are permitted here.' }, privateFor(everyone, l5plus));
   channels.vanguard = await ensureTextChannel(guild, categories.high, { name: CHANNEL_NAMES.vanguard, topic: 'VANGUARD+ community lounge.' }, privateFor(everyone, l6plus));
@@ -2523,129 +2908,129 @@ async function buildKlineO(guild) {
   await ensureVoiceChannel(guild, categories.high, { name: '🎙️ Strategy Room', userLimit: 25 }, privateVoiceFor(everyone, l5plus));
   await ensureVoiceChannel(guild, categories.high, { name: '🎙️ Vanguard Room', userLimit: 20 }, privateVoiceFor(everyone, l6plus));
 
-  const publicVoices = [['📈 Trading Floor', 50], ['🌐 Market Room', 50], ['🤖 AI Lab', 30], ['💻 Co-Working', 30], ['💬 Community Lounge', 50], ['🎙️ KlineO AMA', 99], ['💤 AFK', 99]];
-  for (const [name, limit] of publicVoices) {
-    const c = await ensureVoiceChannel(guild, categories.voice, { name, userLimit: limit, reuseDefaultVoice: name === '💬 Community Lounge' }, privateVoiceFor(everyone, [roles.verified, ...staff]));
-    if (name === '💤 AFK') await guild.setAFKChannel(c, 'LINKO setup').catch(() => {});
+  const publicVoices = isKlineo
+    ? [['📈 Trading Floor', 50], ['🌐 Market Room', 50], ['🤖 AI Lab', 30], ['💻 Co-Working', 30], ['💬 Community Lounge', 50], ['🎙️ KlineO AMA', 99], ['💤 AFK', 99]]
+    : [['💬 Community Lounge', 50], ['💻 Co-Working', 30], ...(moduleEnabled('events') ? [[`🎙️ ${name} AMA`, 99]] : []), ['💤 AFK', 99]];
+  for (const [voiceName, limit] of publicVoices) {
+    const c = await ensureVoiceChannel(guild, categories.voice, { name: voiceName, userLimit: limit, reuseDefaultVoice: voiceName === '💬 Community Lounge' }, privateVoiceFor(everyone, [roles.verified, ...staff]));
+    if (voiceName === '💤 AFK') await guild.setAFKChannel(c, 'LINKO setup').catch(() => {});
   }
 
-  setSetupPhase('07/11 · Create Languages access');
-  channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: 'Choose KlineO language communities with /language list and /language add.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**KlineO Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add role:@LANG...\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
+  setSetupPhase('07/11 · Create optional language access');
+  if (moduleEnabled('languages') && categories.languages) {
+    channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: `Choose ${name} language communities with /language list and /language add.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**${name} Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
+  }
 
   setSetupPhase('08/11 · Create staff operations channels');
   const staffChannels = [
-    ['teamChat', CHANNEL_NAMES.teamChat, 'Private KlineO team coordination.'],
+    ['teamChat', CHANNEL_NAMES.teamChat, `Private ${name} team coordination.`],
     ['modCommands', CHANNEL_NAMES.modCommands, 'LINKO moderator command center. Staff-only slash commands and diagnostics.'],
-    ['communityHealth', CHANNEL_NAMES.communityHealth, 'KlineO activation, engagement, growth and rank health dashboard.'],
+    ['communityHealth', CHANNEL_NAMES.communityHealth, `${name} activation, engagement, growth and rank health dashboard.`],
     ['modInbox', CHANNEL_NAMES.modInbox, 'Consolidated pending reviews and moderator workload.'],
-    ['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product suggestion review and status controls.'],
     ['verificationLog', CHANNEL_NAMES.verificationLog, 'Member verification activity.'],
-    ['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.'],
-    ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, 'KlineO social-post KXP review queue.'],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
-    ['kxpLog', CHANNEL_NAMES.kxpLog, 'KXP awards and deductions.'],
-    ['walletLog', CHANNEL_NAMES.walletLog, 'Masked wallet submissions and changes. Full addresses are never posted here.'],
+    ['kxpLog', CHANNEL_NAMES.kxpLog, `${label} awards and deductions.`],
     ['botLog', CHANNEL_NAMES.botLog, 'LINKO operations and bot logs.'],
   ];
-  for (const [key, name, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name, topic }, staffPrivate);
+  if (moduleEnabled('product')) staffChannels.push(['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product/community suggestion review and status controls.']);
+  if (moduleEnabled('founders')) staffChannels.push(['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.']);
+  if (moduleEnabled('kreator')) staffChannels.push(['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `${name} social-post ${label} review queue.`]);
+  if (moduleEnabled('wallets')) staffChannels.push(['walletLog', CHANNEL_NAMES.walletLog, 'Masked wallet submissions and changes. Full addresses are never posted here.']);
+  for (const [key, channelName, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name: channelName, topic }, staffPrivate);
 
   setSetupPhase('09/11 · Seed verification, rules, docs + command guides');
-  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel('VERIFY & ENTER KLINEO').setStyle(ButtonStyle.Success));
+  const verifyButton = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 30)}`).setStyle(ButtonStyle.Success),
+  );
   await seedMessage(channels.verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [verifyButton] });
   await seedMessage(channels.welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
-  await seedMessage(channels.rules, '[KLINEO-RULES]', { content: `**KlineO Community Rules**\n\n1. Never share seed phrases, private keys or recovery information.\n2. Never send funds because of an unsolicited Discord DM.\n3. Only trust official links in <#${channels.links.id}>.\n4. No phishing, wallet-drainers, impersonation or malicious files.\n5. **No user-posted links in public community channels.**\n6. In the ANALYST+ Signal Room, links unlock at **STRATEGIST**.\n7. Social posts about KlineO must be submitted through \`/submit-post\`; approved posts can earn KXP.\n8. No spam, unsolicited promotion or guaranteed-return claims.\n9. Do not redistribute private Founder or Liquidity Studio discussions.\n10. Respect other members and moderators.\n\n[KLINEO-RULES]` });
+
+  const ruleLines = [
+    `**${name} Community Rules**`,
+    '',
+    '1. Never share seed phrases, private keys or recovery information.',
+    '2. Never send funds because of an unsolicited Discord DM.',
+    `3. Only trust official links in <#${channels.links.id}>.`,
+    '4. No phishing, wallet-drainers, impersonation or malicious files.',
+    '5. No spam, unsolicited promotion or guaranteed-return claims.',
+    '6. Respect other members and moderators.',
+  ];
+  if (moduleEnabled('signals')) ruleLines.push('7. In private Signal rooms, follow rank-based link and access rules.');
+  if (moduleEnabled('kreator')) ruleLines.push(`${ruleLines.length + 1}. Social posts must use /submit-post when the KREATOR workflow applies.`);
+  if (moduleEnabled('founders') || moduleEnabled('studio')) ruleLines.push(`${ruleLines.length + 1}. Do not redistribute private Founder or Studio discussions.`);
+  ruleLines.push('', '[LINKO-RULES]');
+  await seedMessage(channels.rules, '[LINKO-RULES]', { content: ruleLines.join('\n') });
   await seedMessage(channels.links, '[KLINEO-OFFICIAL-LINKS]', { embeds: [buildOfficialLinksEmbed()] });
   await seedMessage(channels.howKxp, '[KLINEO-KXP]', { content: kxpRulesContent() });
-  await seedMessage(channels.productRoadmap, '[KLINEO-PRODUCT-ROADMAP]', { content: `**KlineO Product Suggestions**\n\nSubmit a structured idea with \`/suggest\`. LINKO publishes it here and keeps the status updated as staff move it through **Submitted → Reviewing → Planned → Building → Shipped / Declined**.\n\n[KLINEO-PRODUCT-ROADMAP]` });
-  await seedMessage(channels.botCommands, '[KLINEO-MEMBER-COMMANDS]', { content: `**LINKO Member Commands**
 
-Use this channel for KlineO slash commands:
-• \`/rank\` — your rank and progress
-• \`/points\` — your KXP balance
-• \`/leaderboard type:KXP Points\` — KXP points leaderboard
-• \`/leaderboard type:Referrals\` — referral leaderboard
-• \`/invite\` — create your tracked invite
-• \`/invites\` — your referral stats
-• \`/join-source\` — **required before verification**; select how you joined KlineO and, if applicable, the member who invited you\n• \`/confirm-invited @member\` — confirm a pending referral when another member says you invited them
-• \`/wallet view/set/remove/primary\` — submit X + Telegram + EVM/Solana wallet (no connect, no signing); first-time items earn KXP
-• \`/submit-post\` — submit KlineO social content for KXP review; KREATORs can optionally tag an active creator campaign
-• \`/leaderboard type:Kreators\` — lifetime KREATOR leaderboard
-• \`/leaderboard type:Creator Campaign campaign:<ID>\` — campaign leaderboard
-• \`/social-card\` — generate a shareable progress/referral/impact/Founder card
-• \`/apply-founder\` — request Founder Hub access
-• \`/onboarding\` — view your activation checklist
-• \`/interest add/remove/list\` — choose KlineO interests
-• \`/language add/remove/list\` — join language rooms
-• \`/suggest\` — submit a structured KlineO product idea
-• \`/events\` — view upcoming community events
-• \`/commands\` — show this guide privately
-
-Plain chat in this channel is automatically removed to keep it clean.
-
-[KLINEO-MEMBER-COMMANDS]` });
-  if (channels.modCommands) {
-    await seedMessage(channels.modCommands, '[KLINEO-MOD-COMMANDS]', { content: `**LINKO Moderator Command Center · 1/2**
-
-**KXP + referrals**
-• \`/user-kxp @member\` — detailed KXP breakdown
-• \`/give-xp @member amount reason\` — manually award KXP
-• \`/remove-xp @member amount reason\` — remove KXP
-• \`/approve-bug @member\` — approve a valid bug report
-• \`/referral-stats @member\` — inspect referrals
-• \`/confirm-referral @member @inviter\` — staff-confirm a genuine referral
-• \`/impact-status <message link>\` — inspect impact signals
-• \`/mark-impactful <message link>\` — confirm normal message KXP
-• \`/remove-message-xp <message link>\` — reverse message KXP
-• \`/impact-settings\` / \`/set-impact\` — inspect/tune impact rules
-• \`/kxp-settings\` / \`/set-kxp\` — inspect/change KXP rewards
-• \`/voice-event start/stop/status\` — official voice KXP
-
-**Leaderboards + wallets**
-• \`/leaderboard-settings\` — public/private leaderboard visibility
-• \`/creator-campaign create/list/close\` — manage KREATOR campaigns
-• \`/refresh-leaderboard\` — refresh persistent Top 50 boards
-• \`/export-leaderboard\` — export KXP/referral/community CSV
-• \`/wallet-admin @member\` — CORE: inspect submitted identity/wallet data
-• \`/export-wallets\` — CORE: export wallet/identity CSV
-
-[KLINEO-MOD-COMMANDS]` });
-
-    await seedMessage(channels.modCommands, '[KLINEO-MOD-COMMANDS-2]', { content: `**LINKO Moderator Command Center · 2/2**
-
-**Roles + spaces**
-• \`/grant-klineo-role\` — grant Founder / Studio / KREATOR / Partner / Ambassador
-• \`/create-client-space\` — create a private Liquidity Studio workspace
-• \`/refresh-stats\` — refresh Members / Online counters
-• \`/server-image set/clear/status\` — manage section images
-• \`/official-links\` — manage verified KlineO links
-• \`/team-profile\` — manage official founder/team profiles
-
-**Community operations**
-• \`/community-health\` / \`/refresh-health\` — health dashboard
-• \`/mod-inbox\` — consolidated review queue
-• \`/event\` — create/start/end/cancel/audit events
-• \`/suggestion\` — manage product-roadmap suggestions
-• \`/language-manager\` — create/archive language communities
-• \`/channel-manager\` — create/rename/archive managed channels
-• \`/mod-help\` — show the private staff guide
-
-All staff commands enforce LINKO role/permission checks.
-
-[KLINEO-MOD-COMMANDS-2]` });
+  if (channels.productRoadmap) {
+    await seedMessage(channels.productRoadmap, '[KLINEO-PRODUCT-ROADMAP]', { content: `**${name} Suggestions**\n\nSubmit a structured idea with /suggest. LINKO keeps its status updated as staff review it.\n\n[KLINEO-PRODUCT-ROADMAP]` });
   }
+
+  const memberGuide = [
+    '**LINKO Member Commands**',
+    '',
+    `Community: **${name}** · XP: **${label}**`,
+    '',
+    '• /rank — your rank and progress',
+    '• /points — your XP balance',
+    '• /leaderboard — community leaderboards',
+    '• /onboarding — your activation checklist',
+    '• /interest add/remove/list — choose interests',
+    '• /social-card — generate a shareable progress/referral/impact card',
+  ];
+  if (moduleEnabled('referrals')) memberGuide.push('• /invite / /invites / /join-source — referral and join-source tools');
+  if (moduleEnabled('wallets')) memberGuide.push('• /wallet — submitted public wallet/social details; LINKO never signs');
+  if (moduleEnabled('kreator')) memberGuide.push('• /submit-post — social review', '• /leaderboard type:Kreators — lifetime KREATOR leaderboard', '• /leaderboard type:Creator Campaign campaign:<ID> — campaign leaderboard');
+  if (moduleEnabled('founders')) memberGuide.push('• /apply-founder — request Founder Hub access');
+  if (moduleEnabled('languages')) memberGuide.push('• /language add/remove/list — language rooms');
+  if (moduleEnabled('product')) memberGuide.push('• /suggest — submit a structured suggestion');
+  if (moduleEnabled('events')) memberGuide.push('• /events — upcoming community events');
+  memberGuide.push('', 'Plain chat in this channel is automatically removed.', '', '[LINKO-MEMBER-COMMANDS]');
+  await seedMessage(channels.botCommands, '[LINKO-MEMBER-COMMANDS]', { content: memberGuide.join('\n') });
+
+  if (channels.modCommands) {
+    const modGuide = [
+      '**LINKO Moderator Command Center**',
+      '',
+      '**XP + moderation**',
+      '• /user-kxp @member — detailed XP breakdown',
+      '• /give-xp / /remove-xp — manual XP adjustments',
+      '• /impact-status / /mark-impactful / /remove-message-xp — impact controls',
+      '• /kxp-settings / /set-kxp — XP economy settings',
+      '• /leaderboard-settings / /refresh-leaderboard — leaderboard controls',
+      '',
+      '**Server operations**',
+      '• /server-settings — profile, XP label, preset and modules',
+      '• /channel-manager — create/rename/archive/batch-create managed channels',
+      '• /official-links / /team-profile — official identity',
+      '• /server-image — section images',
+      '• /community-health / /mod-inbox — operations dashboards',
+    ];
+    if (moduleEnabled('referrals')) modGuide.push('• /referral-stats / /confirm-referral — referrals');
+    if (moduleEnabled('events')) modGuide.push('• /event / /voice-event — events and voice XP');
+    if (moduleEnabled('kreator')) modGuide.push('• /creator-campaign — KREATOR campaigns');
+    if (moduleEnabled('wallets')) modGuide.push('• /wallet-admin / /export-wallets — wallet administration');
+    if (moduleEnabled('languages')) modGuide.push('• /language-manager — language communities');
+    if (moduleEnabled('product')) modGuide.push('• /suggestion / /approve-bug — suggestion and bug workflow');
+    if (moduleEnabled('studio')) modGuide.push('• /create-client-space — private Studio client workspace');
+    modGuide.push('', 'All staff commands enforce LINKO role/permission checks.', '', '[LINKO-MOD-COMMANDS]');
+    await seedMessage(channels.modCommands, '[LINKO-MOD-COMMANDS]', { content: modGuide.join('\n') });
+  }
+
   setSetupPhase('10/11 · Refresh leaderboards + staff dashboards');
   await updateAllLeaderboards(guild);
   await updateCommunityHealthDashboard(guild);
   await updateModInbox(guild);
 
-  setSetupPhase('11/11 · Refresh Social + Founder Hub content');
-  await seedMessage(channels.sharePost, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
-  await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
-  await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: '**KlineO Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]' });
+  setSetupPhase('11/11 · Refresh optional Social + Founder content');
+  if (channels.sharePost) await seedMessage(channels.sharePost, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
+  if (channels.founderLobby) await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
+  if (channels.founderDirectory) await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: `**${name} Founder Directory**\n\nApproved Founder Hub members and project profiles appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]` });
 
-  setSetupPhase('COMPLETE · KlineO structure synced successfully');
+  setSetupPhase(`COMPLETE · ${name} structure synced successfully`);
   return { roles, categories, channels };
 }
 
@@ -2695,7 +3080,11 @@ async function generateSocialCard(guild, member, type) {
   glow.addColorStop(0, 'rgba(184,240,58,0.18)'); glow.addColorStop(1, 'rgba(184,240,58,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#B8F03A'; ctx.fillRect(85, 75, 8, 100);
-  ctx.fillStyle = '#FFFFFF'; ctx.font = '800 42px sans-serif'; ctx.fillText('KLINEO', 125, 125);
+  const brandName = communityName();
+  const brandTitle = brandName.toUpperCase().slice(0, 28);
+  let footerBrand = 'Powered by LINKO';
+  try { const official = getSetting('official_website'); if (official) footerBrand = new URL(official).hostname.replace(/^www\./, ''); } catch {}
+  ctx.fillStyle = '#FFFFFF'; ctx.font = '800 42px sans-serif'; ctx.fillText(brandTitle, 125, 125);
   ctx.fillStyle = '#9CA3AF'; ctx.font = '500 24px monospace'; ctx.fillText('COMMUNITY IDENTITY // LINKO', 125, 162);
 
   const xp = getXp(member.id);
@@ -2720,7 +3109,7 @@ async function generateSocialCard(guild, member, type) {
     ctx.fillStyle = '#FFFFFF'; ctx.font = '800 46px monospace'; ctx.fillText(value, x, y + 58);
   };
   let title = 'PROGRESS CARD';
-  let caption = `I’m ${rank.name} in the KlineO community with ${xp.toLocaleString()} ${label}.`;
+  let caption = `I’m ${rank.name} in the ${brandName} community with ${xp.toLocaleString()} ${label}.`;
   if (type === 'progress') {
     metric(label, xp.toLocaleString(), 145, 475);
     metric(`${label} leaderboard`, kpos ? `#${kpos}` : '—', 560, 475);
@@ -2731,19 +3120,21 @@ async function generateSocialCard(guild, member, type) {
     ctx.fillStyle = '#B8F03A'; drawRoundRect(ctx, 145, 630, Math.max(24, 1180 * pct), 24, 12); ctx.fill();
     ctx.fillStyle = '#9CA3AF'; ctx.font = '500 22px monospace'; ctx.fillText(next ? `${(next.threshold - xp).toLocaleString()} ${label} to ${next.name}` : `PRIME reached · ${label} keeps growing`, 145, 700);
   } else if (type === 'referral') {
+    if (!moduleEnabled('referrals')) throw new Error('Referral cards are disabled because the Referrals module is off.');
     title = 'REFERRAL CARD';
     metric('Valid referrals', referrals.valid.toLocaleString(), 145, 475);
     metric('Total invited', referrals.total.toLocaleString(), 560, 475);
     metric('Referral leaderboard', rpos ? `#${rpos}` : '—', 1000, 475);
-    caption = `I’ve brought ${referrals.valid} verified members into the KlineO community. My referral rank: ${rpos ? `#${rpos}` : 'building'}.`;
+    caption = `I’ve brought ${referrals.valid} verified members into the ${brandName} community. My referral rank: ${rpos ? `#${rpos}` : 'building'}.`;
   } else if (type === 'impact') {
     title = 'COMMUNITY IMPACT';
     metric(label, xp.toLocaleString(), 145, 475);
     metric('Valid referrals', referrals.valid.toLocaleString(), 500, 475);
     metric('Approved posts', socialCount.toLocaleString(), 870, 475);
     metric('Valid bugs', bugs.toLocaleString(), 1230, 475);
-    caption = `My KlineO community impact: ${xp.toLocaleString()} ${label}, ${referrals.valid} valid referrals and ${socialCount} approved social posts.`;
+    caption = `My ${brandName} community impact: ${xp.toLocaleString()} ${label}, ${referrals.valid} valid referrals and ${socialCount} approved social posts.`;
   } else if (type === 'founder') {
+    if (!moduleEnabled('founders')) throw new Error('Founder cards are disabled because the Founder module is off.');
     const isFounder = member.roles.cache.some((r) => ['VERIFIED FOUNDER', 'STUDIO CLIENT'].includes(r.name));
     if (!isFounder) throw new Error('Founder cards are available only to VERIFIED FOUNDER or STUDIO CLIENT roles.');
     const app = db.prepare("SELECT * FROM founder_applications WHERE user_id = ? AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(member.id);
@@ -2751,11 +3142,11 @@ async function generateSocialCard(guild, member, type) {
     metric('Community rank', rank.name, 145, 475);
     metric(label, xp.toLocaleString(), 620, 475);
     metric('Project', app?.project_name ? app.project_name.slice(0, 18) : 'VERIFIED', 1000, 475);
-    caption = `Verified Founder in the KlineO community${app?.project_name ? `, building ${app.project_name}` : ''}.`;
+    caption = `Verified Founder in the ${brandName} community${app?.project_name ? `, building ${app.project_name}` : ''}.`;
   }
 
   ctx.fillStyle = '#9CA3AF'; ctx.font = '600 22px monospace'; ctx.fillText(title, 90, 815);
-  ctx.fillStyle = '#FFFFFF'; ctx.font = '600 22px sans-serif'; ctx.textAlign = 'right'; ctx.fillText('klineo.xyz', 1510, 815); ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF'; ctx.font = '600 22px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(footerBrand, 1510, 815); ctx.textAlign = 'left';
   return { buffer: canvas.toBuffer('image/png'), caption, title };
 }
 async function publishOfficialLinks(guild) {
@@ -2765,20 +3156,26 @@ async function publishOfficialLinks(guild) {
   return true;
 }
 async function createClientSpace(guild, projectName, member) {
-  const core = guild.roles.cache.find((r) => r.name === 'KLINEO CORE');
-  const team = guild.roles.cache.find((r) => r.name === 'KLINEO TEAM');
+  if (!moduleEnabled('studio')) throw new Error('The Studio module is disabled in this server.');
+  const core = coreRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).find(Boolean);
+  const team = teamRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).find(Boolean);
   const moderator = guild.roles.cache.find((r) => r.name === 'MODERATOR');
   const studio = guild.roles.cache.find((r) => r.name === 'STUDIO CLIENT');
-  if (!core || !team || !moderator || !studio) throw new Error('Run /setup-klineo first.');
-  await member.roles.add(studio, `KlineO Studio client for ${projectName}`);
+  if (!core || !team || !moderator || !studio) throw new Error('Run /setup-linko first.');
+  await member.roles.add(studio, `${communityName()} Studio client for ${projectName}`);
   const everyone = guild.roles.everyone;
   const allowed = [core, team, moderator];
   const perms = [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(member.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]), ...allowed.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))];
   const category = await ensureCategory(guild, `CLIENT・${projectName.toUpperCase()}`, perms);
   const created = {};
-  for (const [key, name, topic] of [['overview', '📋・overview', `${projectName} private KlineO Studio overview.`], ['liquidityOps', '💧・liquidity-ops', `${projectName} liquidity operations.`], ['reports', '📊・reports', `${projectName} reports and deliverables.`], ['support', '🆘・support', `${projectName} private support.`]]) created[key] = await ensureTextChannel(guild, category, { name, topic }, perms);
+  for (const [key, channelName, topic] of [
+    ['overview', '📋・overview', `${projectName} private Studio overview.`],
+    ['liquidityOps', '💧・liquidity-ops', `${projectName} liquidity operations.`],
+    ['reports', '📊・reports', `${projectName} reports and deliverables.`],
+    ['support', '🆘・support', `${projectName} private support.`],
+  ]) created[key] = await ensureTextChannel(guild, category, { name: channelName, topic }, perms);
   created.voice = await ensureVoiceChannel(guild, category, { name: `🎙️ ${projectName} Project Room`, userLimit: 20 }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect]), overwrite(member.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]), ...allowed.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]))]);
-  await seedMessage(created.overview, '[KLINEO-CLIENT-SPACE]', { content: `**${projectName} × KlineO Liquidity Studio**\n\nPrivate workspace for the client and KlineO team. Keep sensitive market, treasury, listing and operational information inside this category.\n\n[KLINEO-CLIENT-SPACE]` });
+  await seedMessage(created.overview, '[KLINEO-CLIENT-SPACE]', { content: `**${projectName} × ${communityName()} Studio**\n\nPrivate workspace for the client and authorized team. Keep sensitive market, treasury, listing and operational information inside this category.\n\n[KLINEO-CLIENT-SPACE]` });
   return category;
 }
 
@@ -2819,7 +3216,7 @@ async function checkPendingReferrals(guild) {
     const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
     if (log) await log.send(`🤝 **Referral validated** — <@${ref.inviter_id}> → <@${ref.member_id}> · source selected + inviter confirmed + verified + 7 days + active on **${activeDays} day(s)** (${activity} tracked activity event${activity === 1 ? '' : 's'}).`).catch(() => {});
     const inviterMember = await guild.members.fetch(ref.inviter_id).catch(() => null);
-    if (inviterMember) await inviterMember.send(`✅ Your KlineO referral <@${ref.member_id}> is now valid. **+${award} ${xpLabel()}** has been added to your account.`).catch(() => {});
+    if (inviterMember) await inviterMember.send(`✅ Your ${communityName()} referral <@${ref.member_id}> is now valid. **+${award} ${xpLabel()}** has been added to your account.`).catch(() => {});
   }
   scheduleLeaderboardUpdate(guild);
 }
@@ -2871,40 +3268,71 @@ async function processVoiceEventMinute(guild) {
 async function sendWelcomeDm(member) {
   const verify = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verify');
   const rules = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'rules');
-  const attribution = getJoinAttribution(member.id);
-  const detected = attribution?.detected_inviter_id ? `\n\nLINKO detected <@${attribution.detected_inviter_id}> as the invite creator. Confirm that by running \`/join-source source:Invited by a KlineO member\` (you can leave the member option empty), or choose the correct non-member source.` : '';
-  await member.send(`**Welcome to KlineO.**\n\n1. Read ${rules ? `<#${rules.id}>` : '#rules'}.\n2. Before verification, run **/join-source** and tell LINKO how you joined KlineO.${detected}\n3. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.\n\nIf a member invited you manually, select them in /join-source. They will need to confirm the referral, but you do **not** have to wait for that confirmation to enter KlineO.\n\nKlineO staff will never ask for your seed phrase, private key or funds via unsolicited DM.`).catch(() => {});
+  const name = communityName();
+  const lines = [
+    `**Welcome to ${name}.**`,
+    '',
+    `1. Read ${rules ? `<#${rules.id}>` : '#rules'}.`,
+  ];
+  if (moduleEnabled('referrals')) {
+    const attribution = getJoinAttribution(member.id);
+    const detected = attribution?.detected_inviter_id
+      ? ` LINKO detected <@${attribution.detected_inviter_id}> as the invite creator. If correct, use /join-source and select the member-invite source.`
+      : '';
+    lines.push(`2. Before verification, run **/join-source** and tell LINKO how you joined.${detected}`);
+    lines.push(`3. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.`);
+  } else {
+    lines.push(`2. Verify in ${verify ? `<#${verify.id}>` : '#verify'} to unlock the community.`);
+  }
+  lines.push('', `${name} staff will never ask for your seed phrase, private key or funds via unsolicited DM.`);
+  await member.send(lines.join('\n')).catch(() => {});
 }
 
 async function verifyMember(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (hasVerifiedRole(member)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
-  const attribution = getJoinAttribution(member.id);
-  if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
-    return interaction.reply({ content: 'Before you can enter KlineO, run **/join-source** in this server and select how you joined. If a member invited you, select that member. This keeps referral attribution accurate.', ephemeral: true });
+
+  let attribution = null;
+  if (moduleEnabled('referrals')) {
+    attribution = getJoinAttribution(member.id);
+    if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
+      return interaction.reply({ content: `Before you can enter **${communityName()}**, run **/join-source** and select how you joined. If a member invited you, select that member.`, ephemeral: true });
+    }
   }
+
   const ageHours = (now() - interaction.user.createdTimestamp) / 3600000;
   if (ageHours < MIN_ACCOUNT_AGE_HOURS) return interaction.reply({ content: `This Discord account is too new to verify yet. Please try again after it is ${MIN_ACCOUNT_AGE_HOURS} hours old.`, ephemeral: true });
+
   const verified = interaction.guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
   const l1 = interaction.guild.roles.cache.find((r) => r.name === 'OBSERVER');
-  if (!verified || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-klineo.', ephemeral: true });
-  await member.roles.add([verified, l1], 'KlineO self-verification');
+  if (!verified || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-linko.', ephemeral: true });
+
+  await member.roles.add([verified, l1], `${communityName()} self-verification`);
   ensureUserRow(member.id, member.joinedTimestamp ?? now());
   db.prepare('UPDATE users SET verified_at = ? WHERE user_id = ?').run(now(), member.id);
+
   const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verification-log' && c.isTextBased());
-  if (log) log.send(`✅ ${member} verified and entered KlineO as **OBSERVER**. Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.`).catch(() => {});
+  if (log) {
+    const source = attribution ? ` Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.` : '';
+    log.send(`✅ ${member} verified and entered **${communityName()}** as **OBSERVER**.${source}`).catch(() => {});
+  }
+
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   scheduleHealthUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-  return interaction.reply({ content: `✅ Verified. Welcome to KlineO. You now have **OBSERVER** access. Join source recorded as **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' && !Number(attribution.inviter_confirmed) ? ' Your referral remains pending until the inviter confirms it.' : ''} Run \`/onboarding\` to choose interests/languages and complete your activation checklist.`, ephemeral: true });
+
+  const referralTail = attribution?.source === 'member' && !Number(attribution.inviter_confirmed)
+    ? ' Your referral remains pending until the inviter confirms it.'
+    : '';
+  return interaction.reply({ content: `✅ Verified. Welcome to **${communityName()}**. You now have **OBSERVER** access.${referralTail} Run /onboarding to continue setup.`, ephemeral: true });
 }
 
 async function createFounderApplicationModal(interaction) {
-  const modal = new ModalBuilder().setCustomId('founder_application_modal').setTitle('KlineO Founder Verification');
+  const modal = new ModalBuilder().setCustomId('founder_application_modal').setTitle(`${communityName().slice(0, 28)} Founder Access`);
   const project = new TextInputBuilder().setCustomId('project').setLabel('Project name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80);
   const website = new TextInputBuilder().setCustomId('website').setLabel('Website').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(180);
   const social = new TextInputBuilder().setCustomId('social').setLabel('Project socials (X / TG / LinkedIn)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(180);
   const role = new TextInputBuilder().setCustomId('role').setLabel('Your socials + role/title').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(180);
-  const interest = new TextInputBuilder().setCustomId('interest').setLabel('Interested in Liquidity Studio? Why?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
+  const interest = new TextInputBuilder().setCustomId('interest').setLabel(moduleEnabled('studio') ? 'Interested in Studio? Why?' : 'Why are you applying?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
   modal.addComponents(...[project, website, social, role, interest].map((x) => new ActionRowBuilder().addComponents(x)));
   await interaction.showModal(modal);
 }
@@ -2933,7 +3361,7 @@ async function handleFounderModal(interaction) {
   const msg = await channel.send({ embeds: [embed], components: [row] });
   db.prepare('UPDATE founder_applications SET review_message_id = ? WHERE id = ?').run(msg.id, id);
   scheduleModInboxUpdate(interaction.guild);
-  await interaction.reply({ content: 'Founder application submitted. KlineO staff will review it.', ephemeral: true });
+  await interaction.reply({ content: 'Founder application submitted. Community staff will review it.', ephemeral: true });
 }
 
 async function handleFounderReview(interaction, action, id) {
@@ -2951,7 +3379,7 @@ async function handleFounderReview(interaction, action, id) {
   const embed = EmbedBuilder.from(interaction.message.embeds[0]).setColor(action === 'approve' ? BRAND.emerald : BRAND.rose).setFooter({ text: `${action === 'approve' ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
   await interaction.update({ embeds: [embed], components: [] });
   scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-  if (member) member.send(action === 'approve' ? '✅ Your KlineO Founder Hub application was approved.' : 'Your KlineO Founder Hub application was not approved at this time.').catch(() => {});
+  if (member) member.send(action === 'approve' ? `✅ Your ${communityName()} Founder Hub application was approved.` : `Your ${communityName()} Founder Hub application was not approved at this time.`).catch(() => {});
 }
 
 async function publishFounderProfile(guild, app) {
@@ -2962,7 +3390,7 @@ async function publishFounderProfile(guild, app) {
     { name: 'Project socials', value: app.social || 'Not provided' },
     { name: 'Founder socials + role', value: app.role_title || 'Not provided' },
     { name: 'Liquidity Studio interest', value: app.studio_interest || 'Not provided' },
-  ).setFooter({ text: 'Verified KlineO Founder' });
+  ).setFooter({ text: `Verified ${communityName()} Founder` });
   return channel.send({ embeds: [embed] });
 }
 
@@ -2984,7 +3412,7 @@ async function handleSocialSubmission(interaction) {
     const id = Number(result.lastInsertRowid);
     const review = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'social-submissions' && c.isTextBased());
     if (!review) return interaction.reply({ content: 'Social review channel is missing. Ask staff to run /setup-linko.', ephemeral: true });
-    const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`KlineO social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
+    const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${communityName()} social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
       { name: 'Platform', value: platform.toUpperCase(), inline: true },
       { name: 'Status', value: 'Pending', inline: true },
       { name: 'KREATOR', value: hasKreatorRole(member) ? 'Yes' : 'No', inline: true },
@@ -3014,7 +3442,7 @@ async function handleSocialReview(interaction, id, approved) {
     const daily = getDaily(sub.user_id);
     if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
-    await addXp(interaction.guild, sub.user_id, xp, `Approved KlineO social contribution #${id}`, interaction.user.id);
+    await addXp(interaction.guild, sub.user_id, xp, `Approved social contribution #${id}`, interaction.user.id);
     const creator = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
     const isKreator = !!creator && hasKreatorRole(creator);
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ?, creator_eligible = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, isKreator ? 1 : 0, id);
@@ -3023,7 +3451,7 @@ async function handleSocialReview(interaction, id, approved) {
       const campaign = sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
       const reactionLine = isKreator ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.` : '';
       const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
-      const posted = await share.send(`**Approved KlineO community post** — <@${sub.user_id}> earned **${xp} ${label}**${campaignLine}${reactionLine}\n${sub.url}`);
+      const posted = await share.send(`**Approved community post** — <@${sub.user_id}> earned **${xp} ${label}**${campaignLine}${reactionLine}\n${sub.url}`);
       db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, id);
     }
   } else {
@@ -3090,28 +3518,30 @@ client.once('clientReady', async () => {
         const guild = await client.guilds.fetch(guildId);
         const fullGuild = await guild.fetch();
         getGuildDb(fullGuild.id);
-        await fullGuild.commands.set(commands);
+        ensureServerProfile(fullGuild);
+        await fullGuild.commands.set(commandsForCurrentProfile());
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
-        await cacheInvites(fullGuild);
-        console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.7 multi-server features.');
+        if (moduleEnabled('referrals')) await cacheInvites(fullGuild);
+        console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · profile: ${serverTemplate()} · XP: ${xpLabel()} · modules: ${enabledModuleNames().join(', ') || 'core'}`);
+        console.log('Run /setup-linko confirm:true to sync the active server profile.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
-        setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
-        setInterval(recurring(processVoiceEventMinute), 60 * 1000);
+        const recurringWhen = (moduleName, fn) => () => runWithGuild(fullGuild.id, () => moduleEnabled(moduleName) ? fn(fullGuild).catch(console.error) : undefined);
+        setInterval(recurringWhen('referrals', checkPendingReferrals), 60 * 60 * 1000);
+        setInterval(recurringWhen('events', processVoiceEventMinute), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateServerStats(fullGuild, false).catch(console.error)), 5 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 5 * 60 * 1000);
         setInterval(recurring(evaluateImpactCandidates), 60 * 1000);
-        setInterval(recurring(processCommunityEvents), 60 * 1000);
+        setInterval(recurringWhen('events', processCommunityEvents), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 10 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 5 * 60 * 1000);
 
-        setTimeout(recurring(checkPendingReferrals), 15000);
+        setTimeout(recurringWhen('referrals', checkPendingReferrals), 15000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 20000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 25000);
         setTimeout(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 30000);
-        setTimeout(recurring(processCommunityEvents), 35000);
+        setTimeout(recurringWhen('events', processCommunityEvents), 35000);
       });
     } catch (error) {
       console.error(`Startup failed for guild ${guildId}:`, error);
@@ -3122,36 +3552,40 @@ client.once('clientReady', async () => {
 client.on('guildMemberAdd', async (member) => {
   if (!isAllowedGuild(member.guild.id) || member.user.bot) return;
   return runWithGuild(member.guild.id, async () => {
-  ensureUserRow(member.id, member.joinedTimestamp ?? now());
-  const used = await detectUsedInvite(member.guild);
-  let attributed = false;
-  if (used) {
-    const mapped = db.prepare('SELECT inviter_id FROM invite_codes WHERE code = ?').get(used.code);
-    const inviterId = mapped?.inviter_id ?? used.inviterId;
-    if (inviterId && inviterId !== member.id) {
-      db.prepare('INSERT OR REPLACE INTO referrals (member_id, inviter_id, invite_code, joined_at) VALUES (?, ?, ?, ?)').run(member.id, inviterId, used.code, now());
-      upsertJoinAttribution(member.id, { source: null, inviterId, detectedInviterId: inviterId, sourceConfirmed: 0, inviterConfirmed: 1 });
-      attributed = true;
-      const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-      if (log) await log.send(`🧭 **Pending referral detected** — <@${inviterId}> → ${member}. Source: ${mapped ? 'LINKO tracked invite' : 'standard Discord invite'}. It becomes valid only after verification + 7 days + community activity.`).catch(() => {});
-      const inviterMember = await member.guild.members.fetch(inviterId).catch(() => null);
-      if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending KlineO referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet. It becomes valid after they verify, remain in the server for 7 days, and show community activity.`).catch(() => {});
+    ensureUserRow(member.id, member.joinedTimestamp ?? now());
+
+    if (moduleEnabled('referrals')) {
+      const used = await detectUsedInvite(member.guild);
+      let attributed = false;
+      if (used) {
+        const mapped = db.prepare('SELECT inviter_id FROM invite_codes WHERE code = ?').get(used.code);
+        const inviterId = mapped?.inviter_id ?? used.inviterId;
+        if (inviterId && inviterId !== member.id) {
+          db.prepare('INSERT OR REPLACE INTO referrals (member_id, inviter_id, invite_code, joined_at) VALUES (?, ?, ?, ?)').run(member.id, inviterId, used.code, now());
+          upsertJoinAttribution(member.id, { source: null, inviterId, detectedInviterId: inviterId, sourceConfirmed: 0, inviterConfirmed: 1 });
+          attributed = true;
+          const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+          if (log) await log.send(`🧭 **Pending referral detected** — <@${inviterId}> → ${member}. It becomes valid only after verification + 7 days + community activity.`).catch(() => {});
+          const inviterMember = await member.guild.members.fetch(inviterId).catch(() => null);
+          if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending ${communityName()} referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet.`).catch(() => {});
+        }
+      }
+      if (!attributed) {
+        db.prepare('INSERT OR REPLACE INTO unattributed_joins (user_id, joined_at, resolved) VALUES (?, ?, 0)').run(member.id, member.joinedTimestamp ?? now());
+        upsertJoinAttribution(member.id, { source: null, inviterId: null, detectedInviterId: null, sourceConfirmed: 0, inviterConfirmed: 0 });
+        const inbox = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-inbox' && c.isTextBased());
+        const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+        const note = `🧭 **Unattributed join** — ${member}. LINKO could not safely identify an inviter. The member must run /join-source before verification.`;
+        if (inbox) await inbox.send(note).catch(() => {});
+        else if (log) await log.send(note).catch(() => {});
+      }
     }
-  }
-  if (!attributed) {
-    db.prepare('INSERT OR REPLACE INTO unattributed_joins (user_id, joined_at, resolved) VALUES (?, ?, 0)').run(member.id, member.joinedTimestamp ?? now());
-    upsertJoinAttribution(member.id, { source: null, inviterId: null, detectedInviterId: null, sourceConfirmed: 0, inviterConfirmed: 0 });
-    const inbox = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-inbox' && c.isTextBased());
-    const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-    const note = `🧭 **Unattributed join** — ${member}. Discord did not expose a unique inviter. LINKO cannot safely guess who invited them. The member must run \`/join-source\` before verification. If a member invited them, they select that member; staff can still use \`/confirm-referral\` for genuine exceptions.`;
-    if (inbox) await inbox.send(note).catch(() => {});
-    else if (log) await log.send(note).catch(() => {});
-    await member.send(`LINKO could not automatically identify your join source. Before you can verify, run **/join-source** in the KlineO server. If a KlineO member invited you, select them there. Referral credit becomes valid only after the inviter confirms, you verify, remain in the server for 7 days, and stay active across the qualification period.`).catch(() => {});
-  }
-  await sendWelcomeDm(member);
-  scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
+
+    await sendWelcomeDm(member);
+    scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
   });
 });
+
 client.on('guildMemberRemove', (member) => {
   if (!isAllowedGuild(member.guild.id)) return;
   return runWithGuild(member.guild.id, () => {
@@ -3164,11 +3598,15 @@ client.on('presenceUpdate', (_oldPresence, newPresence) => {
 });
 client.on('inviteCreate', (invite) => {
   if (!isAllowedGuild(invite.guild?.id)) return;
-  inviteCacheForGuild(invite.guild.id).set(invite.code, invite.uses ?? 0);
+  runWithGuild(invite.guild.id, () => {
+    if (moduleEnabled('referrals')) inviteCacheForGuild(invite.guild.id).set(invite.code, invite.uses ?? 0);
+  });
 });
 client.on('inviteDelete', (invite) => {
   if (!isAllowedGuild(invite.guild?.id)) return;
-  inviteCacheForGuild(invite.guild.id).delete(invite.code);
+  runWithGuild(invite.guild.id, () => {
+    if (moduleEnabled('referrals')) inviteCacheForGuild(invite.guild.id).delete(invite.code);
+  });
 });
 
 client.on('messageReactionAdd', async (reaction, user) => {
@@ -3179,7 +3617,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
     await runWithGuild(reaction.message.guild.id, async () => {
       await recordImpactEngagement(reaction.message.id, user.id, 'reaction');
-      await handleCreatorPostReaction(reaction, user, true);
+      if (moduleEnabled('kreator')) await handleCreatorPostReaction(reaction, user, true);
     });
   } catch (error) { logLinkoError('messageReactionAdd', error); }
 });
@@ -3190,7 +3628,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
     if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
-    await runWithGuild(reaction.message.guild.id, () => handleCreatorPostReaction(reaction, user, false));
+    await runWithGuild(reaction.message.guild.id, () => moduleEnabled('kreator') ? handleCreatorPostReaction(reaction, user, false) : undefined);
   } catch (error) { logLinkoError('messageReactionRemove', error); }
 });
 
@@ -3201,7 +3639,7 @@ client.on('messageCreate', async (message) => {
   const channelBase = baseChannelName(channelName);
   if (channelBase === 'bot-commands' && !hasStaffRole(message.member)) {
     await message.delete().catch(() => {});
-    await message.author.send('Use slash commands in **#bot-commands** (for example `/rank`, `/points`, `/leaderboard`, `/invite`, `/invites`, `/wallet`). Plain chat is removed to keep the command channel clean.').catch(() => {});
+    await message.author.send('Use slash commands in **#bot-commands** (for example `/rank`, `/points`, `/leaderboard`). Plain chat is removed to keep the command channel clean.').catch(() => {});
     return;
   }
   const isPublicBlocked = PUBLIC_NO_LINK_CHANNELS.has(channelBase);
@@ -3217,8 +3655,8 @@ client.on('messageCreate', async (message) => {
     const shouldDelete = (isPublicBlocked && !hasStaffRole(message.member)) || (isSignal && !canShareSignalLinks(message.member)) || (managedBlocked && !hasStaffRole(message.member));
     if (shouldDelete) {
       await message.delete().catch(() => {});
-      const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : 'Links are not permitted in public KlineO community channels.';
-      await message.author.send(`Your message in **#${channelName}** was removed. ${note}\nUse **/submit-post** for KlineO social content.`).catch(() => {});
+      const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : 'Links are not permitted in public community channels.';
+      await message.author.send(`Your message in **#${channelName}** was removed. ${note}\nUse **/submit-post** for approved social content.`).catch(() => {});
       return;
     }
   }
@@ -3244,18 +3682,22 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
       if (interaction.customId === 'klineo_verify') return verifyMember(interaction);
       if (interaction.customId.startsWith('social_approve:')) {
+        if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleSocialReview(interaction, Number(id), true);
       }
       if (interaction.customId.startsWith('social_reject:')) {
+        if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleSocialReview(interaction, Number(id), false);
       }
       if (interaction.customId.startsWith('founder_approve:')) {
+        if (!moduleEnabled('founders')) return interaction.reply({ content: 'The Founder module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleFounderReview(interaction, 'approve', Number(id));
       }
       if (interaction.customId.startsWith('founder_reject:')) {
+        if (!moduleEnabled('founders')) return interaction.reply({ content: 'The Founder module is disabled in this server.', ephemeral: true });
         const [, id] = interaction.customId.split(':');
         return handleFounderReview(interaction, 'reject', Number(id));
       }
@@ -3267,6 +3709,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.editReply(`✅ Suggestion #${id} → **${suggestionStatusLabel(status)}**.`);
       }
       if (interaction.customId.startsWith('event_rsvp:')) {
+        if (!moduleEnabled('events')) return interaction.reply({ content: 'The Events module is disabled in this server.', ephemeral: true });
         const [, id, status] = interaction.customId.split(':');
         const member = await interaction.guild.members.fetch(interaction.user.id);
         if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
@@ -3277,8 +3720,16 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
+    if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') {
+      if (!moduleEnabled('founders')) return interaction.reply({ content: 'The Founder module is disabled in this server.', ephemeral: true });
+      return handleFounderModal(interaction);
+    }
     if (!interaction.isChatInputCommand()) return;
+
+    const requiredModule = commandModule(interaction.commandName);
+    if (requiredModule && !moduleEnabled(requiredModule)) {
+      return interaction.reply({ content: `The **${requiredModule}** module is disabled in this server.`, ephemeral: true });
+    }
 
     // Acknowledge long-running setup immediately. Discord requires an initial
     // interaction response within ~3 seconds; command logging must never block it.
@@ -3291,9 +3742,9 @@ client.on('interactionCreate', async (interaction) => {
       logCommandUse(interaction).catch(() => {});
       setSetupPhase('starting');
       try {
-        await buildKlineO(interaction.guild);
+        await buildLinko(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.7 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.7 synced for **${communityName()}**. Template: **${serverTemplate()}** · XP: **${xpLabel()}** · Modules: **${enabledModuleNames().join(', ') || 'core only'}**.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -3315,7 +3766,9 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'leaderboard') {
       const type = interaction.options.getString('type') ?? 'kxp';
-      if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: 'This leaderboard is currently private to KlineO staff.', ephemeral: true });
+      if (type === 'referrals' && !moduleEnabled('referrals')) return interaction.reply({ content: 'The Referrals module is disabled in this server.', ephemeral: true });
+      if ((type === 'creators' || type === 'campaign') && !moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
+      if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: 'This leaderboard is currently private to staff.', ephemeral: true });
       const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
       if (type === 'referrals') return interaction.reply({ embeds: buildReferralLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
       if (type === 'creators') return interaction.reply({ embeds: buildCreatorLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
@@ -3324,7 +3777,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!campaignId) {
           const active = creatorCampaigns('active');
           const text = active.length ? active.map((c) => `**#${c.id}** · ${c.name}`).join('\n') : 'No active creator campaigns.';
-          return interaction.reply({ content: `**Active KlineO Creator Campaigns**\n${text}\n\nUse \`/leaderboard type:Creator Campaign campaign:<ID>\`.`, ephemeral: !leaderboardIsPublic(type) });
+          return interaction.reply({ content: `**Active ${communityName()} Creator Campaigns**\n${text}\n\nUse /leaderboard type:Creator Campaign campaign:<ID>.`, ephemeral: !leaderboardIsPublic(type) });
         }
         return interaction.reply({ embeds: buildCampaignLeaderboardEmbeds(interaction.guild, campaignId, limit), ephemeral: !leaderboardIsPublic(type) });
       }
@@ -3332,36 +3785,41 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n`/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', ephemeral: true });
+      const names = commandsForCurrentProfile()
+        .map((command) => command.name)
+        .filter((commandName) => !['setup-linko','setup-klineo','server-settings','mod-help'].includes(commandName));
+      const memberPreferred = ['rank','points','leaderboard','invite','invites','join-source','wallet','submit-post','social-card','apply-founder','onboarding','interest','language','suggest','events'];
+      const visible = memberPreferred.filter((name) => names.includes(name));
+      return interaction.reply({ content: `**LINKO Member Commands · ${communityName()}**\n${visible.map((name) => `/${name}`).join(' · ')}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
       const channel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'welcome' && c.type === ChannelType.GuildText) ?? interaction.channel;
-      const invite = await channel.createInvite({ maxAge: 0, maxUses: 0, unique: true, reason: `Tracked KlineO invite for ${interaction.user.tag}` });
+      const invite = await channel.createInvite({ maxAge: 0, maxUses: 0, unique: true, reason: `Tracked ${communityName()} invite for ${interaction.user.tag}` });
       db.prepare('INSERT OR REPLACE INTO invite_codes (code, inviter_id, created_at) VALUES (?, ?, ?)').run(invite.code, interaction.user.id, now());
       inviteCacheForGuild(interaction.guildId).set(invite.code, invite.uses ?? 0);
-      return interaction.reply({ content: `Your tracked KlineO invite:\n${invite.url}\n\nA referral becomes valid after **7 days** if the member remains in the server and verifies.`, ephemeral: true });
+      return interaction.reply({ content: `Your tracked ${communityName()} invite:\n${invite.url}\n\nA referral becomes valid after **7 days** if the member remains in the server and verifies.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'invites') {
       const stats = getReferralStats(interaction.user.id);
-      return interaction.reply({ content: `**Your KlineO referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
+      return interaction.reply({ content: `**Your ${communityName()} referrals**\nInvited: **${stats.total}**\nValid: **${stats.valid}**\nTracked invite: **${stats.tracked}**\nMember-declared valid: **${stats.claimed}**\nModerator-confirmed: **${stats.manual}**\nAwaiting inviter confirmation: **${stats.awaitingConfirmation}**\nPending total: **${stats.pending}**\nReferral ${xpLabel()} logged: **${stats.earned}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'join-source') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
-      if (hasVerifiedRole(member)) return interaction.reply({ content: 'Your KlineO join source is locked after verification. Ask staff if a correction is required.', ephemeral: true });
+      if (hasVerifiedRole(member)) return interaction.reply({ content: `Your ${communityName()} join source is locked after verification. Ask staff if a correction is required.`, ephemeral: true });
       const source = interaction.options.getString('source', true);
       const selectedUser = interaction.options.getUser('member');
       const existingAttribution = getJoinAttribution(member.id);
       const joinedAt = member.joinedTimestamp ?? db.prepare('SELECT joined_at FROM users WHERE user_id=?').get(member.id)?.joined_at ?? now();
 
       if (source !== 'member') {
-        if (selectedUser) return interaction.reply({ content: 'Only select a member when your source is **Invited by a KlineO member**.', ephemeral: true });
+        if (selectedUser) return interaction.reply({ content: 'Only select a member when your source is **Invited by a community member**.', ephemeral: true });
         if (existingAttribution?.detected_inviter_id) {
-          return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. If that is correct, choose **Invited by a KlineO member**. If it is genuinely incorrect, ask a moderator to resolve the attribution.`, ephemeral: true });
+          return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. If that is correct, choose **Invited by a community member**. If it is genuinely incorrect, ask a moderator to resolve the attribution.`, ephemeral: true });
         }
         upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: existingAttribution?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
         db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
@@ -3371,15 +3829,15 @@ client.on('interactionCreate', async (interaction) => {
 
       let inviterUser = selectedUser;
       if (!inviterUser && existingAttribution?.detected_inviter_id) inviterUser = await client.users.fetch(existingAttribution.detected_inviter_id).catch(() => null);
-      if (!inviterUser) return interaction.reply({ content: 'Select the KlineO member who invited you. If LINKO detected an invite creator, you may leave the member option empty and LINKO will use that detected inviter.', ephemeral: true });
+      if (!inviterUser) return interaction.reply({ content: `Select the ${communityName()} member who invited you. If LINKO detected an invite creator, you may leave the member option empty and LINKO will use that detected inviter.`, ephemeral: true });
       if (inviterUser.id === interaction.user.id) return interaction.reply({ content: 'You cannot select yourself as your inviter.', ephemeral: true });
       if (inviterUser.bot) return interaction.reply({ content: 'Bots cannot receive referral credit.', ephemeral: true });
       if (existingAttribution?.detected_inviter_id && inviterUser.id !== existingAttribution.detected_inviter_id) {
         return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. Staff must resolve that attribution before a different inviter can be selected.`, ephemeral: true });
       }
       const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: 'The inviter must currently be a verified KlineO member.', ephemeral: true });
-      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: 'The selected inviter must have been a KlineO member before you joined.', ephemeral: true });
+      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: `The inviter must currently be a verified ${communityName()} member.`, ephemeral: true });
+      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: `The selected inviter must have been a ${communityName()} member before you joined.`, ephemeral: true });
 
       const existingReferral = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(member.id);
       if (existingReferral && existingReferral.inviter_id !== inviter.id) return interaction.reply({ content: `LINKO already has a different pending inviter: <@${existingReferral.inviter_id}>. Ask staff to resolve the attribution.`, ephemeral: true });
@@ -3394,15 +3852,15 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${detectedMatch ? 'LINKO invite detection already confirms the inviter.' : 'Awaiting inviter confirmation.'}`).catch(() => {});
       if (!detectedMatch) {
-        await inviter.send(`🤝 **KlineO referral confirmation**\n${member.user.username} says you personally invited them to KlineO. If correct, go to the KlineO server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
+        await inviter.send(`🤝 **${communityName()} referral confirmation**\n${member.user.username} says you personally invited them to ${communityName()}. If correct, return to the server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
       }
       scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter KlineO.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
+      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${communityName()}.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'confirm-invited') {
       const inviter = await interaction.guild.members.fetch(interaction.user.id);
-      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: 'Only verified KlineO members can confirm referrals.', ephemeral: true });
+      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `Only verified ${communityName()} members can confirm referrals.`, ephemeral: true });
       const referredUser = interaction.options.getUser('member', true);
       if (referredUser.id === interaction.user.id) return interaction.reply({ content: 'You cannot confirm yourself as a referral.', ephemeral: true });
       const attribution = getJoinAttribution(referredUser.id);
@@ -3414,14 +3872,14 @@ client.on('interactionCreate', async (interaction) => {
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🤝 **Inviter confirmed** — ${interaction.user} confirmed they invited ${referredUser}. Referral remains pending until verification + 7 days + activity requirements are met.`).catch(() => {});
       const referred = await interaction.guild.members.fetch(referredUser.id).catch(() => null);
-      if (referred) await referred.send(`✅ ${interaction.user.username} confirmed that they invited you to KlineO. Referral credit is still pending until you are verified, remain for 7 days, and meet activity requirements.`).catch(() => {});
+      if (referred) await referred.send(`✅ ${interaction.user.username} confirmed that they invited you to ${communityName()}. Referral credit is still pending until you are verified, remain for 7 days, and meet activity requirements.`).catch(() => {});
       scheduleModInboxUpdate(interaction.guild);
       return interaction.reply({ content: `✅ Confirmed. ${referredUser}'s referral is now attributed to you and will validate automatically after the remaining qualification rules are met.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'referred-by') {
       const member = interaction.options.getUser('member', true);
-      return interaction.reply({ content: `Please use the new required onboarding command: **/join-source source:Invited by a KlineO member member:${member.username}**. LINKO now requires every new member to select a join source before verification.`, ephemeral: true });
+      return interaction.reply({ content: `Please use the new required onboarding command: **/join-source source:Invited by a community member member:${member.username}**. LINKO now requires every new member to select a join source before verification.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'wallet') {
@@ -3452,7 +3910,7 @@ client.on('interactionCreate', async (interaction) => {
         const duplicate = network === 'evm'
           ? db.prepare('SELECT user_id FROM wallets WHERE network = ? AND LOWER(address) = LOWER(?) LIMIT 1').get(network, address)
           : db.prepare('SELECT user_id FROM wallets WHERE network = ? AND address = ? LIMIT 1').get(network, address);
-        if (duplicate && duplicate.user_id !== interaction.user.id) return interaction.reply({ content: 'That public address is already submitted by another KlineO member. Ask KLINEO CORE if this is a legitimate shared address.', ephemeral: true });
+        if (duplicate && duplicate.user_id !== interaction.user.id) return interaction.reply({ content: 'That public address is already submitted by another community member. Ask a CORE administrator if this is a legitimate shared address.', ephemeral: true });
         const priorHistory = db.prepare('SELECT id FROM wallet_history WHERE user_id = ? AND network = ? LIMIT 1').get(interaction.user.id, network);
         const changedAt = now();
         const lockHours = Math.max(0, getSettingInt('wallet_change_lock_hours'));
@@ -3513,7 +3971,7 @@ client.on('interactionCreate', async (interaction) => {
         ['Introduce yourself', !!a.introduced_at], ['First qualified contribution', !!a.first_impact_at],
       ];
       const done = steps.filter((x) => x[1]).length;
-      return interaction.reply({ content: `**KlineO Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse \`/interest add\`, \`/language list\`, and introduce yourself in #introductions.`, ephemeral: true });
+      return interaction.reply({ content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse \`/interest add\`, \`/language list\`, and introduce yourself in #introductions.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'interest') {
@@ -3530,10 +3988,10 @@ client.on('interactionCreate', async (interaction) => {
       const role = interaction.guild.roles.cache.find((r) => r.name === `${INTEREST_ROLE_PREFIX}${def?.[1]}`);
       if (!def || !role) return interaction.reply({ content: 'Interest role missing. Ask staff to run /setup-klineo.', ephemeral: true });
       if (action === 'add') {
-        await member.roles.add(role, 'KlineO self-selected interest');
+        await member.roles.add(role, 'community self-selected interest');
         db.prepare('INSERT OR IGNORE INTO user_interests (user_id, interest, created_at) VALUES (?, ?, ?)').run(member.id, key, now());
       } else {
-        await member.roles.remove(role, 'KlineO interest removed');
+        await member.roles.remove(role, 'community interest removed');
         db.prepare('DELETE FROM user_interests WHERE user_id=? AND interest=?').run(member.id, key);
       }
       const count = Number(db.prepare('SELECT COUNT(*) AS c FROM user_interests WHERE user_id=?').get(member.id)?.c ?? 0);
@@ -3548,17 +4006,17 @@ client.on('interactionCreate', async (interaction) => {
       const action = interaction.options.getSubcommand();
       if (action === 'list') {
         const rows = languageRows();
-        return interaction.reply({ content: rows.length ? `**Available KlineO languages**\n${rows.map((r) => `${r.emoji || '🌐'} <@&${r.role_id}>${r.channel_id ? ` → <#${r.channel_id}>` : ''}`).join('\n')}\n\nUse \`/language add role:@LANG...\`.` : 'No language communities have been created yet.', ephemeral: true });
+        return interaction.reply({ content: rows.length ? `**Available ${communityName()} languages**\n${rows.map((r) => `${r.emoji || '🌐'} <@&${r.role_id}>${r.channel_id ? ` → <#${r.channel_id}>` : ''}`).join('\n')}\n\nUse \`/language add role:@LANG...\`.` : 'No language communities have been created yet.', ephemeral: true });
       }
       await interaction.deferReply({ ephemeral: true });
       const role = interaction.options.getRole('role', true);
       const row = db.prepare('SELECT * FROM language_roles WHERE role_id=? AND archived=0').get(role.id);
       if (!row) return interaction.editReply('That is not an active LINKO language role.');
       if (action === 'add') {
-        await member.roles.add(role, 'KlineO language self-selection');
+        await member.roles.add(role, 'community language self-selection');
         db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
       } else {
-        await member.roles.remove(role, 'KlineO language removed');
+        await member.roles.remove(role, 'community language removed');
         db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
       }
       const count = Number(db.prepare('SELECT COUNT(*) AS c FROM member_languages WHERE user_id=?').get(member.id)?.c ?? 0);
@@ -3592,7 +4050,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'events') {
       const rows = db.prepare("SELECT * FROM community_events WHERE status IN ('planned','live') ORDER BY start_at ASC LIMIT 10").all();
-      return interaction.reply({ content: rows.length ? `**Upcoming KlineO Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : 'No upcoming KlineO events are scheduled.', ephemeral: true });
+      return interaction.reply({ content: rows.length ? `**Upcoming ${communityName()} Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : `No upcoming ${communityName()} events are scheduled.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'community-health' || interaction.commandName === 'refresh-health') {
@@ -3752,11 +4210,11 @@ client.on('interactionCreate', async (interaction) => {
         if (!role) role = await interaction.guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${interaction.user.tag}` });
         let category = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAMES.languages);
         if (!category) category = await ensureCategory(interaction.guild, CATEGORY_NAMES.languages, [overwrite(interaction.guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
-        const staff = ['KLINEO CORE','KLINEO TEAM','MODERATOR'].map((n) => interaction.guild.roles.cache.find((r) => r.name===n)).filter(Boolean);
+        const staff = staffRoleNames().map((n) => interaction.guild.roles.cache.find((r) => r.name===n)).filter(Boolean);
         const perms = privateFor(interaction.guild.roles.everyone, [role, ...staff]);
         const chName = `${emoji}・${slug}`;
         let channel = interaction.guild.channels.cache.find((c) => c.parentId===category.id && c.name===chName && c.type===ChannelType.GuildText);
-        if (!channel) channel = await interaction.guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${name}-speaking KlineO community.`, permissionOverwrites: perms, reason: 'LINKO language manager' });
+        if (!channel) channel = await interaction.guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${name}-speaking ${communityName()} community.`, permissionOverwrites: perms, reason: 'LINKO language manager' });
         db.prepare(`INSERT INTO language_roles (role_id,name,emoji,channel_id,created_by,created_at,archived) VALUES (?,?,?,?,?,?,0) ON CONFLICT(role_id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, channel_id=excluded.channel_id, archived=0`).run(role.id, name, emoji, channel.id, interaction.user.id, now());
         db.prepare(`INSERT INTO managed_channels (channel_id,category_name,access,links_allowed,kxp_enabled,created_by,created_at,archived) VALUES (?,?,?,?,?,?,?,0)
           ON CONFLICT(channel_id) DO UPDATE SET links_allowed=0, kxp_enabled=0, archived=0`).run(channel.id, CATEGORY_NAMES.languages, 'language', 0, 0, interaction.user.id, now());
@@ -3830,7 +4288,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.editReply(`📦 Archived **${channel.name}**. It is now staff-only.`);
       }
       if (action === 'delete') {
-        if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.editReply('Only KLINEO CORE / administrators can permanently delete managed channels.');
+        if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.editReply('Only CORE / administrators can permanently delete managed channels.');
         db.prepare('DELETE FROM managed_channels WHERE channel_id=?').run(channel.id);
         await channel.delete(`LINKO permanent delete by ${interaction.user.tag}`);
         return interaction.editReply('🗑️ Managed channel permanently deleted.');
@@ -3882,7 +4340,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: `Removed **${amount} ${xpLabel()}** from ${user}. New total: **${total} ${xpLabel()}**.`, ephemeral: true });
     }
 
-    if (interaction.commandName === 'user-kxp') {
+    if (interaction.commandName === 'user-kxp' || interaction.commandName === 'user-xp') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       const b = getKxpBreakdown(user.id);
@@ -3905,20 +4363,20 @@ client.on('interactionCreate', async (interaction) => {
       if (referredUser.bot || inviterUser.bot) return interaction.reply({ content: 'Bot accounts cannot be used for referral credit.', ephemeral: true });
       const referred = await interaction.guild.members.fetch(referredUser.id).catch(() => null);
       const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!referred || !inviter) return interaction.reply({ content: 'Both members must still be in the KlineO server.', ephemeral: true });
+      if (!referred || !inviter) return interaction.reply({ content: `Both members must still be in the ${communityName()} server.`, ephemeral: true });
       if (!hasVerifiedRole(referred)) return interaction.reply({ content: `${referredUser} must be verified before a manual referral can be confirmed.`, ephemeral: true });
-      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `${inviterUser} must be a verified KlineO member.`, ephemeral: true });
+      if (!hasVerifiedRole(inviter) && !hasStaffRole(inviter)) return interaction.reply({ content: `${inviterUser} must be a verified ${communityName()} member.`, ephemeral: true });
       const joinedAt = referred.joinedTimestamp ?? db.prepare('SELECT joined_at FROM users WHERE user_id = ?').get(referred.id)?.joined_at ?? now();
       const ageMs = now() - Number(joinedAt);
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
       if (ageMs < sevenDays) {
         const remainingDays = Math.ceil((sevenDays - ageMs) / (24 * 60 * 60 * 1000));
-        return interaction.reply({ content: `${referredUser} has not been in KlineO for 7 days yet. About **${remainingDays} day(s)** remain.`, ephemeral: true });
+        return interaction.reply({ content: `${referredUser} has not been in ${communityName()} for 7 days yet. About **${remainingDays} day(s)** remain.`, ephemeral: true });
       }
       const activity = referralActivityCount(referred.id, joinedAt);
       const activeDays = referralActivityDays(referred.id, joinedAt);
       if (activity < Math.max(1, getSettingInt('referral_activity_min_events')) || activeDays < Math.max(1, getSettingInt('referral_activity_min_days'))) {
-        return interaction.reply({ content: `${referredUser} has been in KlineO for 7 days and is verified, but LINKO still requires activity on at least **${Math.max(1, getSettingInt('referral_activity_min_days'))} different day(s)** before referral validation. Current active days: **${activeDays}**.`, ephemeral: true });
+        return interaction.reply({ content: `${referredUser} has been in ${communityName()} for 7 days and is verified, but LINKO still requires activity on at least **${Math.max(1, getSettingInt('referral_activity_min_days'))} different day(s)** before referral validation. Current active days: **${activeDays}**.`, ephemeral: true });
       }
       const existing = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(referred.id);
       if (existing?.valid_awarded) return interaction.reply({ content: `${referredUser} already has valid referral credit assigned to <@${existing.inviter_id}>. LINKO will not double-credit referrals.`, ephemeral: true });
@@ -4028,7 +4486,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'wallet-admin') {
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'KLINEO CORE / Administrator only.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'CORE / Administrator only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       const rows = walletRows(user.id);
       const primary = walletPrimary(user.id);
@@ -4051,7 +4509,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
     }
 
     if (interaction.commandName === 'export-wallets') {
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'KLINEO CORE / Administrator only.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'CORE / Administrator only.', ephemeral: true });
       await interaction.deferReply({ ephemeral: true });
       await interaction.guild.members.fetch().catch(() => null);
       const network = interaction.options.getString('network', true);
@@ -4072,22 +4530,63 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
       const action = interaction.options.getSubcommand();
       if (action === 'view') {
+        const modules = Object.keys(PROFILE_MODULES).map((m) => `${moduleEnabled(m) ? '✅' : '⬜'} ${m}`).join('\n');
         return interaction.reply({
-          content: `**LINKO SERVER SETTINGS**\nServer: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\nAllowed-server mode: **ON**`,
+          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nTemplate: **${serverTemplate()}**\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Modules**\n${modules}\n\nModule changes are non-destructive. Run \`/setup-linko confirm:true\` after changing a preset/module to create or sync the enabled spaces.`,
           ephemeral: true,
         });
+      }
+      if (action === 'name') {
+        const requested = interaction.options.getString('name', true).trim();
+        const previous = communityName();
+        setSetting('server_name', requested);
+        if (!isKlineoTemplate()) {
+          const oldCategoryName = `💬・${String(previous).toUpperCase().slice(0, 28)} COMMUNITY`;
+          const newCategoryName = `💬・${communityNameUpper()} COMMUNITY`;
+          const oldCategory = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === oldCategoryName);
+          const target = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === newCategoryName);
+          if (oldCategory && !target && oldCategory.name !== newCategoryName) await oldCategory.setName(newCategoryName, 'LINKO community name update').catch(() => {});
+        }
+        await refreshBrandMessages(interaction.guild).catch(() => {});
+        await updateAllLeaderboards(interaction.guild).catch(() => {});
+        return interaction.reply({ content: `✅ LINKO now identifies this community as **${requested}**. Run \`/setup-linko confirm:true\` to sync remaining presentation if needed.`, ephemeral: true });
       }
       if (action === 'xp-name') {
         const requested = interaction.options.getString('name', true);
         const label = normalizeXpLabel(requested);
         if (!label) return interaction.reply({ content: 'XP name must contain **1 to 6 letters only**. Examples: `KXP`, `DOTXP`, `XP`.', ephemeral: true });
+        const oldLabel = xpLabel();
         setSetting('xp_label', label);
+        const xpCategory = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === `⚡・${oldLabel}`);
+        if (xpCategory && oldLabel !== label) await xpCategory.setName(`⚡・${label}`, 'LINKO XP label update').catch(() => {});
+        const oldLbBase = `${oldLabel.toLowerCase()}-leaderboard`;
+        const lb = interaction.guild.channels.cache.find((c) => c.isTextBased() && baseChannelName(c.name) === oldLbBase);
+        if (lb && oldLabel !== label) await lb.setName(xpLeaderboardChannelName(), 'LINKO XP label update').catch(() => {});
+        const oldHowBase = `how-to-earn-${oldLabel.toLowerCase()}`;
+        const how = interaction.guild.channels.cache.find((c) => c.isTextBased() && baseChannelName(c.name) === oldHowBase);
+        if (how && oldLabel !== label) await how.setName(howToEarnXpChannelName(), 'LINKO XP label update').catch(() => {});
         await updatePublicKxpDocs(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
-        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged; only the display name changed.`, ephemeral: true });
+        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing balances and rank history are unchanged.`, ephemeral: true });
+      }
+      if (action === 'preset') {
+        const preset = interaction.options.getString('preset', true);
+        applyProfilePreset(preset, interaction.guild);
+        await migrateProfileStructureNames(interaction.guild).catch(() => {});
+        if (moduleEnabled('referrals')) await cacheInvites(interaction.guild).catch(() => {});
+        await interaction.guild.commands.set(commandsForCurrentProfile()).catch(() => {});
+        return interaction.reply({ content: `✅ Applied the **${serverTemplate()}** preset. Community: **${communityName()}** · XP: **${xpLabel()}** · Modules: **${enabledModuleNames().join(', ') || 'core only'}**.\n\nRun \`/setup-linko confirm:true\` to sync the structure. Existing channels are not destructively deleted.`, ephemeral: true });
+      }
+      if (action === 'module') {
+        const moduleName = interaction.options.getString('module', true);
+        const enabled = interaction.options.getBoolean('enabled', true);
+        setModuleEnabled(moduleName, enabled);
+        if (moduleName === 'referrals' && enabled) await cacheInvites(interaction.guild).catch(() => {});
+        await interaction.guild.commands.set(commandsForCurrentProfile()).catch(() => {});
+        return interaction.reply({ content: `✅ **${moduleName}** is now **${moduleEnabled(moduleName) ? 'ENABLED' : 'DISABLED'}**.\nRun \`/setup-linko confirm:true\` to create/sync enabled module spaces. Disabling a module hides its commands but does not automatically delete existing Discord channels or historical data.`, ephemeral: true });
       }
     }
-    if (interaction.commandName === 'kxp-settings') {
+    if (interaction.commandName === 'kxp-settings' || interaction.commandName === 'xp-settings') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const active = getActiveVoiceEvent();
       const label = xpLabel();
@@ -4106,7 +4605,7 @@ Message impact threshold: **${getSettingInt('impact_min_score')}** (evaluated af
 Voice event: ${active ? `**ACTIVE** — ${active.name} in <#${active.channel_id}>` : '**OFF**'}`, ephemeral: true });
     }
 
-    if (interaction.commandName === 'set-kxp') {
+    if (interaction.commandName === 'set-kxp' || interaction.commandName === 'set-xp') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const key = interaction.options.getString('event', true);
       const amount = interaction.options.getInteger('amount', true);
@@ -4185,7 +4684,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       if (attachment.contentType && !attachment.contentType.startsWith('image/')) return interaction.reply({ content: 'Please upload an image file (PNG/JPG/WEBP).', ephemeral: true });
       setSetting(IMAGE_SLOTS[slot], attachment.url);
       await refreshBrandMessages(interaction.guild);
-      return interaction.reply({ content: `✅ Updated the **${slot}** image and refreshed the live KlineO message.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Updated the **${slot}** image and refreshed the live ${communityName()} message.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'social-card') {
@@ -4195,7 +4694,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       await interaction.deferReply({ ephemeral: true });
       const card = await generateSocialCard(interaction.guild, member, type);
       const file = new AttachmentBuilder(card.buffer, { name: `klineo-${type}-${interaction.user.id}.png` });
-      return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials. If the post is about KlineO, submit the post URL with \`/submit-post\` for review.`, files: [file] });
+      return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials.${moduleEnabled('kreator') ? ` If the post is about ${communityName()}, submit the post URL with /submit-post for review.` : ''}`, files: [file] });
     }
 
     if (interaction.commandName === 'official-links') {
@@ -4208,7 +4707,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
         await publishOfficialLinks(interaction.guild);
         return interaction.reply({ content: '✅ Official Links card refreshed.', ephemeral: true });
       }
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only KLINEO CORE / server administrators can change official links.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only CORE / server administrators can change official links.', ephemeral: true });
       const type = interaction.options.getString('type', true);
       const key = officialLinkKey(type);
       if (!key) return interaction.reply({ content: 'Unknown official link type.', ephemeral: true });
@@ -4232,7 +4731,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
         const text = rows.length ? rows.map((r) => `<@${r.user_id}> — **${r.role_title}**`).join('\n') : 'No official founder/team profiles configured yet.';
         return interaction.reply({ content: text, ephemeral: true });
       }
-      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only KLINEO CORE / server administrators can change official team profiles.', ephemeral: true });
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Only CORE / server administrators can change official team profiles.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       if (action === 'remove') {
         db.prepare('DELETE FROM team_profiles WHERE user_id = ?').run(user.id);
@@ -4265,7 +4764,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
       return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
     }
 
-    if (interaction.commandName === 'grant-klineo-role') {
+    if (interaction.commandName === 'grant-klineo-role' || interaction.commandName === 'grant-linko-role') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
       const roleName = interaction.options.getString('role', true);

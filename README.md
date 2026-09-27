@@ -12,6 +12,51 @@ LINKO v10.7 adds a lightweight multi-server foundation on top of the v10.6 KREAT
 - The same Discord user can therefore have different XP balances, ranks and campaign history in different servers.
 - Railway should keep the persistent volume mounted at `/app/data`, so per-server databases live under `/app/data/guilds/`.
 
+## Server profiles, presets and optional modules
+
+LINKO now separates the **engine** from each community's **profile**.
+
+The server identified by `PRIMARY_GUILD_ID` starts with the **KlineO full preset**:
+- community name: `KlineO`
+- XP label: `KXP`
+- all current LINKO modules enabled
+- KlineO-specific CORE / TEAM naming and full KlineO operating structure retained
+
+Every other allowlisted server starts with the **generic community preset**:
+- community name defaults to the Discord server name
+- XP label defaults to `XP`
+- `LINKO CORE` / `LINKO TEAM` instead of KlineO-branded staff roles
+- Referrals + Events enabled by default
+- optional KREATOR, Signals, Founders, Studio, Wallets, Languages, and Product modules disabled until explicitly enabled
+- generic setup creates only the core community/rank/staff structure plus enabled modules
+
+Administrators can inspect and change the profile from Discord:
+
+```text
+/server-settings view
+/server-settings name name:Polkadot
+/server-settings xp-name name:DOTXP
+/server-settings preset preset:community
+/server-settings module module:kreator enabled:true
+```
+
+Available modules:
+- `referrals`
+- `events`
+- `kreator`
+- `signals`
+- `founders`
+- `studio`
+- `wallets`
+- `languages`
+- `product`
+
+Studio automatically enables Founders. Disabling Founders disables Studio.
+
+Module and preset changes are **non-destructive**. LINKO re-registers the appropriate command set and a subsequent `/setup-linko confirm:true` creates/syncs enabled spaces, but disabling a module does not automatically delete its historical database records or previously created Discord channels.
+
+Generic servers receive profile-neutral command aliases such as `/user-xp`, `/xp-settings`, `/set-xp`, and `/grant-linko-role`. KlineO keeps its existing command names for backwards compatibility.
+
 ## Per-server XP name
 
 Each server can name its own points system with **1 to 6 letters**.
@@ -60,7 +105,7 @@ KlineO's current production data is intentionally small/early. For the v10.7 cut
 
 No destructive deletion of the old database is required.
 
-> v10.7 is still allowlist-based multi-server infrastructure. The full Discord template and many role/channel names remain KlineO-branded; this release isolates servers and customizes XP naming without attempting a complete white-label community-template rewrite.
+> v10.7 remains allowlist-based. KlineO keeps its full branded preset, while additional servers use a profile-neutral generic template and can enable only the LINKO modules they need.
 
 ---
 
