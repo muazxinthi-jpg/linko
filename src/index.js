@@ -2535,11 +2535,11 @@ async function buildKlineO(guild) {
 
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
-  channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: 'Welcome to KlineO. Start here.' }, startReadOnly);
-  channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: 'KlineO community and security rules.' }, startReadOnly);
-  channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: 'Verify yourself to unlock KlineO.' }, startReadOnly);
-  channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: 'Only trust official KlineO links listed here.' }, startReadOnly);
-  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: 'Official KlineO announcements.' }, startReadOnly);
+  channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: `${communityName()} welcome and onboarding. Start here.` }, startReadOnly);
+  channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${communityName()} community and security rules.` }, startReadOnly);
+  channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `${communityName()} verification and access.` }, startReadOnly);
+  channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: `${communityName()} official links only.` }, startReadOnly);
+  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `${communityName()} official announcements.` }, startReadOnly);
 
   for (const [key, name, topic, slowmode] of [
     ['general', CHANNEL_NAMES.general, 'General KlineO discussion. Public links are blocked.', 2],
@@ -2560,14 +2560,14 @@ async function buildKlineO(guild) {
   channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: 'Structured KlineO product suggestions and status updates. Submit with /suggest.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
-  channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.howKxp, topic: 'How KXP, referrals and rank progression work.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.howKxp, topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Use LINKO member commands here: /rank /points /leaderboard /invite /invites /join-source /confirm-invited /wallet /submit-post /social-card /apply-founder.' }, verifiedBase);
-  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.leaderboard, topic: 'Live KlineO Top 50 KXP leaderboard. Auto-refreshes; visibility is controlled by moderators.' }, staffPrivate);
-  channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: 'Live KlineO Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.' }, staffPrivate);
+  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.leaderboard, topic: `${communityName()} Top 50 ${xpLabel()} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
+  channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `${communityName()} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   await setLeaderboardChannelVisibility(guild, 'kxp', getSetting('kxp_leaderboard_visibility'));
   await setLeaderboardChannelVisibility(guild, 'referrals', getSetting('referral_leaderboard_visibility'));
-  channels.rankUps = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.rankUps, topic: 'KlineO community rank progression.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.referrals = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referrals, topic: 'Use /invite and /invites. Valid referrals earn KXP.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.rankUps = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.rankUps, topic: `${communityName()} community rank progression.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.referrals = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referrals, topic: `Use /invite and /invites. Valid referrals earn ${xpLabel()}.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.events = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.events, topic: 'Official community events, AMAs and campaigns.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('06/11 · Create optional modules + higher-level + voice spaces');
@@ -2735,12 +2735,12 @@ All staff commands enforce LINKO role/permission checks.
   await updateCommunityHealthDashboard(guild);
   await updateModInbox(guild);
 
-  setSetupPhase('11/11 · Refresh Social + Founder Hub content');
-  await seedMessage(channels.sharePost, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
-  await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
-  await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: '**KlineO Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]' });
+  setSetupPhase('11/11 · Refresh optional module content');
+  if (channels.sharePost) await seedMessage(channels.sharePost, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
+  if (channels.founderLobby) await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
+  if (channels.founderDirectory) await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: `**${communityName()} Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]` });
 
-  setSetupPhase('COMPLETE · KlineO structure synced successfully');
+  setSetupPhase(`COMPLETE · ${communityName()} structure synced successfully`);
   return { roles, categories, channels };
 }
 
@@ -3185,6 +3185,7 @@ client.once('clientReady', async () => {
         const guild = await client.guilds.fetch(guildId);
         const fullGuild = await guild.fetch();
         getGuildDb(fullGuild.id);
+        if (!String(getSetting('community_name') ?? '').trim()) setSetting('community_name', fullGuild.name);
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
