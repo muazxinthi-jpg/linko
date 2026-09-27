@@ -697,8 +697,13 @@ const LEGACY_CHANNEL_NAMES = new Map([
 
 const commands = [
   new SlashCommandBuilder()
+    .setName('setup-linko')
+    .setDescription('Build or sync LINKO in this Discord server.')
+    .addBooleanOption((o) => o.setName('confirm').setDescription('Set true to build/sync.').setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('setup-klineo')
-    .setDescription('Build or sync the complete KlineO Discord structure.')
+    .setDescription('KlineO alias: build or sync LINKO in this Discord server.')
     .addBooleanOption((o) => o.setName('confirm').setDescription('Set true to build/sync.').setRequired(true)),
 
   new SlashCommandBuilder().setName('rank').setDescription('Show your KlineO rank and progress.')
@@ -898,7 +903,14 @@ const commands = [
   new SlashCommandBuilder().setName('refresh-stats').setDescription('Staff: refresh live server counters now.'),
   new SlashCommandBuilder().setName('mod-help').setDescription('Staff: show the LINKO moderator command guide.'),
 
-  new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current KXP earning settings.'),
+  new SlashCommandBuilder()
+    .setName('server-settings')
+    .setDescription('Administrator: view or change this server\'s LINKO settings.')
+    .addSubcommand((sc) => sc.setName('view').setDescription('View server-level LINKO settings.'))
+    .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
+      .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6))),
+
+  new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
   new SlashCommandBuilder()
     .setName('set-kxp')
     .setDescription('Staff: change a KXP reward value from Discord.')
@@ -1068,6 +1080,19 @@ const commands = [
       .addStringOption((o) => o.setName('topic').setDescription('Optional topic').setMaxLength(300))
       .addBooleanOption((o) => o.setName('links').setDescription('Allow links in this channel?'))
       .addBooleanOption((o) => o.setName('kxp').setDescription('Allow impact-scored message KXP here?'))
+      .addIntegerOption((o) => o.setName('slowmode').setDescription('Text-channel slowmode seconds').setMinValue(0).setMaxValue(21600)))
+    .addSubcommand((sc) => sc.setName('batch-create').setDescription('Create up to 10 managed channels with the same rules.')
+      .addStringOption((o) => o.setName('names').setDescription('Comma-separated channel names, max 10').setRequired(true).setMaxLength(500))
+      .addStringOption((o) => o.setName('category').setDescription('Category name').setRequired(true).setMaxLength(50))
+      .addStringOption((o) => o.setName('type').setDescription('Channel type').setRequired(true).addChoices({ name: 'Text', value: 'text' }, { name: 'Voice', value: 'voice' }))
+      .addStringOption((o) => o.setName('access').setDescription('Who can see/use them').setRequired(true).addChoices(
+        { name: 'Verified Members', value: 'verified' }, { name: 'ANALYST+', value: 'analyst' }, { name: 'STRATEGIST+', value: 'strategist' },
+        { name: 'Verified Founders', value: 'founders' }, { name: 'Studio Clients', value: 'studio' }, { name: 'Kreators', value: 'creators' }, { name: 'Staff Only', value: 'staff' },
+      ))
+      .addStringOption((o) => o.setName('emoji').setDescription('Optional emoji prefix').setMaxLength(12))
+      .addStringOption((o) => o.setName('topic').setDescription('Optional topic for text channels').setMaxLength(300))
+      .addBooleanOption((o) => o.setName('links').setDescription('Allow links in these channels?'))
+      .addBooleanOption((o) => o.setName('kxp').setDescription('Allow impact-scored XP in these channels?'))
       .addIntegerOption((o) => o.setName('slowmode').setDescription('Text-channel slowmode seconds').setMinValue(0).setMaxValue(21600)))
     .addSubcommand((sc) => sc.setName('rename').setDescription('Rename a managed channel.')
       .addChannelOption((o) => o.setName('channel').setDescription('Managed channel').setRequired(true))
