@@ -2421,7 +2421,9 @@ Use this channel for KlineO slash commands:
 • \`/invites\` — your referral stats
 • \`/join-source\` — **required before verification**; select how you joined KlineO and, if applicable, the member who invited you\n• \`/confirm-invited @member\` — confirm a pending referral when another member says you invited them
 • \`/wallet view/set/remove/primary\` — submit X + Telegram + EVM/Solana wallet (no connect, no signing); first-time items earn KXP
-• \`/submit-post\` — submit KlineO social content for KXP review
+• \`/submit-post\` — submit KlineO social content for KXP review; KREATORs can optionally tag an active creator campaign
+• \`/leaderboard type:Kreators\` — lifetime KREATOR leaderboard
+• \`/leaderboard type:Creator Campaign campaign:<ID>\` — campaign leaderboard
 • \`/social-card\` — generate a shareable progress/referral/impact/Founder card
 • \`/apply-founder\` — request Founder Hub access
 • \`/onboarding\` — view your activation checklist
@@ -2453,6 +2455,7 @@ Plain chat in this channel is automatically removed to keep it clean.
 
 **Leaderboards + wallets**
 • \`/leaderboard-settings\` — public/private leaderboard visibility
+• \`/creator-campaign create/list/close\` — manage KREATOR campaigns
 • \`/refresh-leaderboard\` — refresh persistent Top 50 boards
 • \`/export-leaderboard\` — export KXP/referral/community CSV
 • \`/wallet-admin @member\` — CORE: inspect submitted identity/wallet data
@@ -2463,7 +2466,7 @@ Plain chat in this channel is automatically removed to keep it clean.
     await seedMessage(channels.modCommands, '[KLINEO-MOD-COMMANDS-2]', { content: `**LINKO Moderator Command Center · 2/2**
 
 **Roles + spaces**
-• \`/grant-klineo-role\` — grant Founder / Studio / Creator / Partner / Ambassador
+• \`/grant-klineo-role\` — grant Founder / Studio / KREATOR / Partner / Ambassador
 • \`/create-client-space\` — create a private Liquidity Studio workspace
 • \`/refresh-stats\` — refresh Members / Online counters
 • \`/server-image set/clear/status\` — manage section images
