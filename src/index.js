@@ -2817,13 +2817,25 @@ async function handleSocialSubmission(interaction) {
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first in #verify.', ephemeral: true });
   const platform = interaction.options.getString('platform', true);
   const url = interaction.options.getString('url', true).trim();
+  const campaignId = interaction.options.getInteger('campaign');
   if (!platformUrlValid(platform, url)) return interaction.reply({ content: 'That URL does not match the selected platform or is not a valid HTTPS post URL.', ephemeral: true });
+  let campaign = null;
+  if (campaignId) {
+    if (!hasKreatorRole(member)) return interaction.reply({ content: 'Only members with the **KREATOR** role can submit posts to a creator campaign.', ephemeral: true });
+    campaign = creatorCampaignById(campaignId);
+    if (!campaign || campaign.status !== 'active') return interaction.reply({ content: `Creator campaign #${campaignId} is not active or does not exist.`, ephemeral: true });
+  }
   try {
-    const result = db.prepare('INSERT INTO social_submissions (user_id, url, platform, submitted_at) VALUES (?, ?, ?, ?)').run(member.id, url, platform, now());
+    const result = db.prepare('INSERT INTO social_submissions (user_id, url, platform, submitted_at, campaign_id) VALUES (?, ?, ?, ?, ?)').run(member.id, url, platform, now(), campaignId ?? null);
     const id = Number(result.lastInsertRowid);
     const review = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'social-submissions' && c.isTextBased());
     if (!review) return interaction.reply({ content: 'Social review channel is missing. Ask staff to run /setup-klineo.', ephemeral: true });
-    const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`KlineO social submission #${id}`).setDescription(`${member}\n${url}`).addFields({ name: 'Platform', value: platform.toUpperCase(), inline: true }, { name: 'Status', value: 'Pending', inline: true }).setTimestamp();
+    const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`KlineO social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
+      { name: 'Platform', value: platform.toUpperCase(), inline: true },
+      { name: 'Status', value: 'Pending', inline: true },
+      { name: 'KREATOR', value: hasKreatorRole(member) ? 'Yes' : 'No', inline: true },
+      ...(campaign ? [{ name: 'Campaign', value: `#${campaign.id} · ${campaign.name}`, inline: false }] : []),
+    ).setTimestamp();
     const configuredAward = getSettingInt('kxp_social_post');
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`social_approve:${id}`).setLabel(`Approve +${configuredAward} KXP`).setStyle(ButtonStyle.Success),
@@ -2832,7 +2844,7 @@ async function handleSocialSubmission(interaction) {
     const msg = await review.send({ embeds: [embed], components: [row] });
     db.prepare('UPDATE social_submissions SET review_message_id = ? WHERE id = ?').run(msg.id, id);
     scheduleModInboxUpdate(interaction.guild);
-    return interaction.reply({ content: 'Submitted for KlineO review. Approved posts can earn KXP.', ephemeral: true });
+    return interaction.reply({ content: `Submitted for KlineO review.${campaign ? ` Campaign: **#${campaign.id} · ${campaign.name}**.` : ''} Approved posts can earn KXP.`, ephemeral: true });
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) return interaction.reply({ content: 'That post URL has already been submitted.', ephemeral: true });
     throw e;
@@ -2849,18 +2861,72 @@ async function handleSocialReview(interaction, id, approved) {
     if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
     await addXp(interaction.guild, sub.user_id, xp, `Approved KlineO social contribution #${id}`, interaction.user.id);
-    db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
+    const creator = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
+    const isKreator = !!creator && hasKreatorRole(creator);
+    db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ?, creator_eligible = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, isKreator ? 1 : 0, id);
     const share = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
-    if (share) await share.send(`**Approved KlineO community post** — <@${sub.user_id}> earned **${xp} KXP**\n${sub.url}`);
+    if (share) {
+      const campaign = sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
+      const reactionLine = isKreator ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} KXP**, up to ${getSettingInt('creator_reaction_cap')} milestones.` : '';
+      const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
+      const posted = await share.send(`**Approved KlineO community post** — <@${sub.user_id}> earned **${xp} KXP**${campaignLine}${reactionLine}\n${sub.url}`);
+      db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, id);
+    }
   } else {
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?').run('rejected', interaction.user.id, now(), id);
   }
   const embed = EmbedBuilder.from(interaction.message.embeds[0]).setColor(xp > 0 ? BRAND.emerald : BRAND.rose).setFields(
     { name: 'Platform', value: sub.platform.toUpperCase(), inline: true },
     { name: 'Status', value: xp > 0 ? `Approved · +${xp} KXP` : 'Rejected', inline: true },
+    ...(sub.campaign_id ? [{ name: 'Campaign', value: `#${sub.campaign_id}`, inline: true }] : []),
   ).setFooter({ text: `${xp > 0 ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
   await interaction.update({ embeds: [embed], components: [] });
-  scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
+  scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild); scheduleLeaderboardUpdate(interaction.guild);
+}
+
+function creatorEmojiKey(reaction) {
+  return reaction.emoji.id ? `${reaction.emoji.name ?? 'emoji'}:${reaction.emoji.id}` : String(reaction.emoji.name ?? 'emoji');
+}
+
+async function reconcileCreatorReactionRewards(guild, submissionId) {
+  const sub = db.prepare('SELECT * FROM social_submissions WHERE id = ?').get(submissionId);
+  if (!sub || sub.status !== 'approved' || !Number(sub.creator_eligible)) return;
+  const creator = await guild.members.fetch(sub.user_id).catch(() => null);
+  if (!creator || !hasKreatorRole(creator)) return;
+  if (sub.campaign_id) {
+    const campaign = creatorCampaignById(Number(sub.campaign_id));
+    if (!campaign || campaign.status !== 'active') return;
+  }
+  const threshold = Math.max(1, getSettingInt('creator_reaction_threshold'));
+  const cap = Math.max(0, getSettingInt('creator_reaction_cap'));
+  const perMilestone = Math.max(0, getSettingInt('creator_reaction_kxp'));
+  const count = creatorReactionCount(submissionId);
+  const targetMilestones = Math.min(cap, Math.floor(count / threshold));
+  const currentMilestones = Number(sub.reaction_milestones_awarded ?? 0);
+  if (targetMilestones <= currentMilestones || !perMilestone) return;
+  const deltaMilestones = targetMilestones - currentMilestones;
+  const deltaXp = deltaMilestones * perMilestone;
+  await addXp(guild, sub.user_id, deltaXp, `Creator reaction reward #${submissionId}: ${count} unique verified reactions`);
+  db.prepare('UPDATE social_submissions SET reaction_milestones_awarded = ?, reaction_xp_awarded = COALESCE(reaction_xp_awarded, 0) + ? WHERE id = ?').run(targetMilestones, deltaXp, submissionId);
+  scheduleLeaderboardUpdate(guild);
+}
+
+async function handleCreatorPostReaction(reaction, user, added) {
+  if (user.bot) return;
+  const guild = reaction.message.guild;
+  if (!guild || guild.id !== GUILD_ID) return;
+  const sub = db.prepare('SELECT * FROM social_submissions WHERE share_message_id = ? AND status = ?').get(reaction.message.id, 'approved');
+  if (!sub) return;
+  if (user.id === sub.user_id) return;
+  const emojiKey = creatorEmojiKey(reaction);
+  if (added) {
+    const member = await guild.members.fetch(user.id).catch(() => null);
+    if (!member || member.user.bot || !hasVerifiedRole(member)) return;
+    db.prepare('INSERT OR IGNORE INTO creator_post_reactions (submission_id, user_id, emoji_key, created_at) VALUES (?, ?, ?, ?)').run(sub.id, user.id, emojiKey, now());
+  } else {
+    db.prepare('DELETE FROM creator_post_reactions WHERE submission_id = ? AND user_id = ? AND emoji_key = ?').run(sub.id, user.id, emojiKey);
+  }
+  await reconcileCreatorReactionRewards(guild, sub.id);
 }
 
 client.once('clientReady', async () => {
