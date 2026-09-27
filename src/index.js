@@ -982,7 +982,7 @@ const commands = [
         { name: 'Founder Hub', value: 'founder_hub' },
         { name: 'Liquidity Studio', value: 'liquidity_studio' },
       ))
-      .addBooleanOption((o) => o.setName('enabled').setDescription('Enable or disable').setRequired(true)))
+      .addBooleanOption((o) => o.setName('enabled').setDescription('Enable or disable').setRequired(true))),
 
   new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
   new SlashCommandBuilder()
