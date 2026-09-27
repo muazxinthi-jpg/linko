@@ -2482,51 +2482,46 @@ async function seedMessage(channel, marker, payload) {
 
 function kxpRulesContent() {
   const label = xpLabel();
-  return `**${label} — Experience Points**
-
-Ranks:
-• OBSERVER — 0 ${label}
-• SCOUT — 150 ${label}
-• ANALYST — 500 ${label}
-• OPERATOR — 1,200 ${label}
-• STRATEGIST — 2,500 ${label}
-• VANGUARD — 5,000 ${label}
-• PRIME — 10,000+ ${label} (highest rank; ${label} continues with no maximum)
-
-**Current earning rules**
-• Qualifying message: **+${getSettingInt('kxp_message')} ${label}**
-• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**
-• Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
-• Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
-• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
-• Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**
-• First-time X submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time Telegram submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time EVM wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time Solana wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-
-**${label} never caps.** PRIME unlocks at 10,000 ${label}, but members can keep earning lifetime ${label} indefinitely. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
-
-Voice time only earns ${label} while staff have an **official voice event** active.
-
-**Message ${label} is impact-scored.** LINKO first rejects short/trivial/repeated/duplicate/link-spam messages. Candidate messages are then scored using content quality/relevance plus real community response (meaningful replies or distinct reactions). A moderator can confirm or reverse edge cases. LINKO stores only message IDs + scores/metadata for this system, not the message body.
-
-Use `/rank`, `/points`, `/invite`, `/invites`, and `/leaderboard`.
-
-[KLINEO-KXP]`;
+  const lines = [
+    `**${label} — Experience Points**`,
+    '',
+    'Ranks:',
+    `• OBSERVER — 0 ${label}`,
+    `• SCOUT — 150 ${label}`,
+    `• ANALYST — 500 ${label}`,
+    `• OPERATOR — 1,200 ${label}`,
+    `• STRATEGIST — 2,500 ${label}`,
+    `• VANGUARD — 5,000 ${label}`,
+    `• PRIME — 10,000+ ${label} (highest rank; ${label} continues with no maximum)`,
+    '',
+    '**Current earning rules**',
+    `• Qualifying message: **+${getSettingInt('kxp_message')} ${label}**`,
+  ];
+  if (moduleEnabled('events')) lines.push(`• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**`);
+  if (moduleEnabled('referrals')) lines.push(`• Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after verification + 7 days + qualifying activity`);
+  if (moduleEnabled('kreator')) {
+    lines.push(`• Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**`);
+    lines.push(`• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post`);
+  }
+  if (moduleEnabled('product')) lines.push(`• Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**`);
+  if (moduleEnabled('wallets')) lines.push(`• First-time eligible profile/wallet submissions: **+${getSettingInt('kxp_profile_submission')} ${label}** per eligible item`);
+  lines.push(
+    '',
+    `**${label} never caps.** PRIME unlocks at 10,000 ${label}, but members can keep earning lifetime ${label} indefinitely.`,
+    '',
+    `**Message ${label} is impact-scored.** LINKO rejects short/trivial/repeated/duplicate/link-spam messages and scores qualifying participation using content quality plus genuine community response.`,
+    '',
+    'Use /rank, /points and /leaderboard.',
+    '',
+    '[KLINEO-KXP]',
+  );
+  return lines.join('\n');
 }
 
 function socialRulesContent() {
   const label = xpLabel();
-  return `**Share KlineO. Earn ${label} for genuine contributions.**
-
-Use \`/submit-post\` and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
-
-Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
-
-Approved posts are published here by LINKO. KREATOR posts can also earn reaction-based ${label}, and campaign-tagged posts count toward a campaign leaderboard.
-
-[KLINEO-SOCIAL]`;
+  const name = communityName();
+  return `**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse /submit-post and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.\n\nModerators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.\n\nApproved KREATOR posts can also earn reaction-based ${label}, and campaign-tagged posts count toward a campaign leaderboard.\n\n[KLINEO-SOCIAL]`;
 }
 async function updatePublicKxpDocs(guild) {
   const how = guild.channels.cache.find((c) => baseChannelName(c.name) === howToEarnXpBase() && c.isTextBased());
