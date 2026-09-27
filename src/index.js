@@ -660,6 +660,44 @@ const ROLE_SPECS = [
   ...[...RANKS].reverse().map((rank) => ({ ...rank, hoist: false, permissions: [] })),
 ];
 
+function genericRoleSpecs() {
+  const specs = [
+    { key: 'core', name: genericCoreRoleName(), color: BRAND.white, hoist: true, permissions: [PermissionFlagsBits.Administrator] },
+    { key: 'team', name: genericTeamRoleName(), color: BRAND.lime, hoist: true, permissions: [] },
+    {
+      key: 'moderator',
+      name: 'MODERATOR',
+      color: BRAND.cyan,
+      hoist: true,
+      permissions: [
+        PermissionFlagsBits.ViewAuditLog,
+        PermissionFlagsBits.KickMembers,
+        PermissionFlagsBits.BanMembers,
+        PermissionFlagsBits.ModerateMembers,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.ManageThreads,
+        PermissionFlagsBits.ManageNicknames,
+        PermissionFlagsBits.MuteMembers,
+        PermissionFlagsBits.DeafenMembers,
+        PermissionFlagsBits.MoveMembers,
+        PermissionFlagsBits.ManageEvents,
+      ],
+    },
+    { key: 'verified', name: 'VERIFIED MEMBER', color: BRAND.gray, hoist: false, permissions: [] },
+    { key: 'partner', name: 'PARTNER', color: BRAND.blue, hoist: true, permissions: [] },
+    { key: 'ambassador', name: 'AMBASSADOR', color: BRAND.limeSoft, hoist: true, permissions: [] },
+  ];
+  if (moduleEnabled('kreator')) specs.push({ key: 'creator', name: 'KREATOR', color: 0xA855F7, hoist: true, permissions: [] });
+  if (moduleEnabled('founders')) specs.push({ key: 'founder', name: 'VERIFIED FOUNDER', color: BRAND.emerald, hoist: true, permissions: [] });
+  if (moduleEnabled('studio')) specs.push({ key: 'studio', name: 'STUDIO CLIENT', color: 0xF59E0B, hoist: true, permissions: [] });
+  specs.push(...[...RANKS].reverse().map((rank) => ({ ...rank, hoist: false, permissions: [] })));
+  return specs;
+}
+
+function profileRoleSpecs() {
+  return isKlineoTemplate() ? ROLE_SPECS : genericRoleSpecs();
+}
+
 const PUBLIC_NO_LINK_CHANNELS = new Set([
   'general', 'market-chat', 'trade-setups', 'ai-agent-lab', 'product-feedback', 'bug-reports', 'help',
   'introductions', 'wins-and-learnings',
