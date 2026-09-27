@@ -1779,7 +1779,13 @@ async function ensureCounterChannel(guild, category, kind, label, value, emoji) 
 
 async function updateServerStats(guild, fetchPresences = false) {
   if (!guild) return;
-  if (fetchPresences) await guild.members.fetch({ withPresences: true }).catch(() => guild.members.fetch().catch(() => null));
+  if (fetchPresences) {
+    const timedFetch = (promise, ms = 15000) => Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Discord member fetch timed out after ${ms}ms`)), ms)),
+    ]);
+    await timedFetch(guild.members.fetch({ withPresences: true })).catch(() => timedFetch(guild.members.fetch()).catch(() => null));
+  }
   const category = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAMES.stats);
   if (!category) return;
   const humans = guild.members.cache.filter((m) => !m.user.bot);
@@ -2545,6 +2551,7 @@ async function buildKlineO(guild) {
   const positions = movable.map((r, i) => ({ role: r.id, position: Math.max(1, ceiling - 1 - i) }));
   if (positions.length) await guild.roles.setPositions(positions).catch((e) => console.warn('Role order warning:', e.message));
 
+  setSetupPhase('03/11 · Build permission model + categories');
   const everyone = guild.roles.everyone;
   const staff = [roles.core, roles.team, roles.moderator];
   const verifiedBase = privateFor(everyone, [roles.verified, ...staff]);
@@ -2585,7 +2592,7 @@ async function buildKlineO(guild) {
   categories.staff = await ensureCategory(guild, CATEGORY_NAMES.staff, staffPrivate);
   await categories.stats.setPosition(0).catch(() => {});
   await categories.start.setPosition(1).catch(() => {});
-  await updateServerStats(guild, true);
+  await updateServerStats(guild, false);
 
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
