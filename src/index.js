@@ -3026,9 +3026,10 @@ async function generateHealthCard(guild, days = 7) {
   const g = (rgb >> 8) & 255;
   const b = rgb & 255;
   const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  const ink = luminance > 0.52 ? '#070707' : '#FFFFFF';
-  const softInk = luminance > 0.52 ? 'rgba(7,7,7,0.70)' : 'rgba(255,255,255,0.72)';
-  const faintInk = luminance > 0.52 ? 'rgba(7,7,7,0.14)' : 'rgba(255,255,255,0.16)';
+  const useDarkInk = luminance > 0.34;
+  const ink = useDarkInk ? '#070707' : '#FFFFFF';
+  const softInk = useDarkInk ? 'rgba(7,7,7,0.72)' : 'rgba(255,255,255,0.74)';
+  const faintInk = useDarkInk ? 'rgba(7,7,7,0.14)' : 'rgba(255,255,255,0.16)';
 
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, W, H);
@@ -3074,7 +3075,7 @@ async function generateHealthCard(guild, days = 7) {
     ctx.save();
     ctx.translate(1360, 235);
     ctx.rotate(-0.63);
-    ctx.strokeStyle = luminance > 0.52 ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.24)';
+    ctx.strokeStyle = useDarkInk ? 'rgba(7,7,7,0.24)' : 'rgba(255,255,255,0.24)';
     ctx.lineWidth = 34;
     drawRoundRect(ctx, -185, -64, 245, 128, 64);
     ctx.stroke();
@@ -3086,7 +3087,7 @@ async function generateHealthCard(guild, days = 7) {
       for (let x = 1210; x < 1570; x += 15) {
         const dx = x - 1390, dy = y - 210;
         if ((dx * dx) / 52000 + (dy * dy) / 27000 < 1) {
-          ctx.fillStyle = luminance > 0.52 ? 'rgba(255,255,255,0.34)' : 'rgba(255,255,255,0.17)';
+          ctx.fillStyle = useDarkInk ? 'rgba(7,7,7,0.20)' : 'rgba(255,255,255,0.17)';
           ctx.fillRect(x, y, 5, 5);
         }
       }
@@ -3094,7 +3095,7 @@ async function generateHealthCard(guild, days = 7) {
   }
 
   // Brand / server identity.
-  await drawGuildIdentity(ctx, guild, 62, 48, 76, luminance > 0.52 ? '#090909' : '#FFFFFF');
+  await drawGuildIdentity(ctx, guild, 62, 48, 76, ink);
   ctx.fillStyle = ink;
   ctx.font = '900 38px sans-serif';
   ctx.fillText('LinkO', 158, 91);
@@ -3105,14 +3106,14 @@ async function generateHealthCard(guild, days = 7) {
   ctx.font = '800 18px monospace';
   ctx.fillText(`LAST ${days} DAYS`, 800, 82);
   ctx.fillStyle = softInk;
-  ctx.font = '650 14px monospace';
+  ctx.font = '600 14px monospace';
   ctx.fillText(dateLabel, 800, 108);
   ctx.textAlign = 'left';
 
   // Editorial headline.
   ctx.fillStyle = ink;
   const headlineSize = fitText(ctx, 'COMMUNITY HEALTH.', 1160, 92, 72);
-  ctx.font = `950 ${headlineSize}px sans-serif`;
+  ctx.font = `900 ${headlineSize}px sans-serif`;
   ctx.fillText('COMMUNITY HEALTH.', 62, 252);
 
   const serverTitle = communityNameUpper();
@@ -3148,7 +3149,7 @@ async function generateHealthCard(guild, days = 7) {
     }
 
     drawRoundRect(ctx, x, 493, 70, 64, 13);
-    ctx.fillStyle = luminance > 0.52 ? 'rgba(255,255,255,0.84)' : 'rgba(0,0,0,0.22)';
+    ctx.fillStyle = useDarkInk ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.22)';
     ctx.fill();
     ctx.fillStyle = ink;
     ctx.font = '900 27px sans-serif';
@@ -3157,10 +3158,10 @@ async function generateHealthCard(guild, days = 7) {
     ctx.textAlign = 'left';
 
     const lines = item.label.split('\n');
-    ctx.font = '750 20px sans-serif';
+    ctx.font = '700 20px sans-serif';
     lines.forEach((line, li) => ctx.fillText(line, x + 92, 517 + li * 24));
 
-    ctx.font = '950 78px monospace';
+    ctx.font = '900 78px monospace';
     ctx.fillText(item.value, x, 646);
   });
 
@@ -3187,12 +3188,12 @@ async function generateHealthCard(guild, days = 7) {
 
     const lines = label.split('\n');
     ctx.fillStyle = ink;
-    ctx.font = '750 18px sans-serif';
+    ctx.font = '700 18px sans-serif';
     lines.forEach((line, li) => ctx.fillText(line, x, 744 + li * 21));
-    ctx.font = '950 48px monospace';
+    ctx.font = '900 48px monospace';
     ctx.fillText(value, x, 812);
     ctx.fillStyle = softInk;
-    ctx.font = '650 13px sans-serif';
+    ctx.font = '600 13px sans-serif';
     ctx.fillText(note, x, 836);
   });
 
