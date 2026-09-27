@@ -3020,6 +3020,19 @@ async function generateHealthCard(guild, days = 7) {
   const endDate = new Date(current.end);
   const dateLabel = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()} - ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}`;
 
+  const generatedAt = new Date();
+  const generatedDate = generatedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
+  const generatedTime = `${String(generatedAt.getUTCHours()).padStart(2, '0')}:${String(generatedAt.getUTCMinutes()).padStart(2, '0')} UTC`;
+
+  const previousActivated = Number(db.prepare(`SELECT COUNT(*) AS c
+    FROM users u
+    LEFT JOIN member_activation a ON a.user_id=u.user_id
+    WHERE u.verified_at >= ? AND u.verified_at < ?
+      AND (a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL)`).get(previous.start, previous.end)?.c ?? 0);
+  const previousActivationRate = previous.verifications
+    ? Math.min(100, Math.round((previousActivated / previous.verifications) * 100))
+    : null;
+
   const hex = normalizeBrandAccent(accent) ?? '#FF5A1F';
   const rgb = Number.parseInt(hex.slice(1), 16);
   const r = (rgb >> 16) & 255;
@@ -3028,14 +3041,16 @@ async function generateHealthCard(guild, days = 7) {
   const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   const useDarkInk = luminance > 0.34;
   const ink = useDarkInk ? '#070707' : '#FFFFFF';
-  const softInk = useDarkInk ? 'rgba(7,7,7,0.72)' : 'rgba(255,255,255,0.74)';
-  const faintInk = useDarkInk ? 'rgba(7,7,7,0.14)' : 'rgba(255,255,255,0.16)';
+  const softInk = useDarkInk ? 'rgba(7,7,7,0.72)' : 'rgba(255,255,255,0.75)';
+  const divider = useDarkInk ? 'rgba(7,7,7,0.82)' : 'rgba(255,255,255,0.72)';
+  const tileFill = useDarkInk ? 'rgba(255,246,238,0.82)' : 'rgba(255,255,255,0.16)';
+  const tileInk = useDarkInk ? '#090909' : '#FFFFFF';
+  const pillFill = useDarkInk ? 'rgba(255,246,238,0.54)' : 'rgba(255,255,255,0.12)';
 
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, W, H);
 
-  // Pull the Discord server banner into the composition when one exists.
-  // It is deliberately subtle so metrics remain readable and public-share friendly.
+  // Server banner becomes a subtle branded texture. If absent, LINKO's chain motif is used.
   const bannerUrl = guild.bannerURL({ extension: 'png', size: 2048 });
   let bannerDrawn = false;
   if (bannerUrl) {
@@ -3043,7 +3058,7 @@ async function generateHealthCard(guild, days = 7) {
       const response = await fetch(bannerUrl);
       if (response.ok) {
         const image = await loadImage(Buffer.from(await response.arrayBuffer()));
-        const boxX = 1030, boxY = 0, boxW = 570, boxH = 520;
+        const boxX = 1100, boxY = 0, boxW = 500, boxH = 390;
         const sourceRatio = image.width / image.height;
         const boxRatio = boxW / boxH;
         let sx = 0, sy = 0, sw = image.width, sh = image.height;
@@ -3055,155 +3070,246 @@ async function generateHealthCard(guild, days = 7) {
           sy = (image.height - sh) / 2;
         }
         ctx.save();
-        ctx.globalAlpha = 0.19;
+        ctx.globalAlpha = 0.17;
         ctx.drawImage(image, sx, sy, sw, sh, boxX, boxY, boxW, boxH);
         ctx.restore();
-
-        const wash = ctx.createLinearGradient(960, 0, 1580, 0);
-        wash.addColorStop(0, accentRgba(accent, 0.96));
-        wash.addColorStop(0.42, accentRgba(accent, 0.62));
+        const wash = ctx.createLinearGradient(1040, 0, 1600, 0);
+        wash.addColorStop(0, accentRgba(accent, 0.98));
+        wash.addColorStop(0.5, accentRgba(accent, 0.58));
         wash.addColorStop(1, accentRgba(accent, 0.18));
         ctx.fillStyle = wash;
-        ctx.fillRect(930, 0, 670, 535);
+        ctx.fillRect(1010, 0, 590, 410);
         bannerDrawn = true;
       }
     } catch {}
   }
 
-  // Fallback visual motif, inspired by LINKO's connected-chain identity.
   if (!bannerDrawn) {
     ctx.save();
-    ctx.translate(1360, 235);
-    ctx.rotate(-0.63);
-    ctx.strokeStyle = useDarkInk ? 'rgba(7,7,7,0.24)' : 'rgba(255,255,255,0.24)';
-    ctx.lineWidth = 34;
-    drawRoundRect(ctx, -185, -64, 245, 128, 64);
+    ctx.translate(1400, 212);
+    ctx.rotate(-0.62);
+    ctx.strokeStyle = useDarkInk ? 'rgba(7,7,7,0.23)' : 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 35;
+    drawRoundRect(ctx, -175, -62, 230, 124, 62);
     ctx.stroke();
-    drawRoundRect(ctx, -25, -64, 245, 128, 64);
+    drawRoundRect(ctx, -20, -62, 230, 124, 62);
     ctx.stroke();
     ctx.restore();
-
-    for (let y = 30; y < 410; y += 15) {
+    for (let y = 42; y < 348; y += 15) {
       for (let x = 1210; x < 1570; x += 15) {
-        const dx = x - 1390, dy = y - 210;
-        if ((dx * dx) / 52000 + (dy * dy) / 27000 < 1) {
-          ctx.fillStyle = useDarkInk ? 'rgba(7,7,7,0.20)' : 'rgba(255,255,255,0.17)';
+        const dx = x - 1400, dy = y - 195;
+        if ((dx * dx) / 51000 + (dy * dy) / 22000 < 1) {
+          ctx.fillStyle = useDarkInk ? 'rgba(7,7,7,0.18)' : 'rgba(255,255,255,0.15)';
           ctx.fillRect(x, y, 5, 5);
         }
       }
     }
   }
 
-  // Brand / server identity.
-  await drawGuildIdentity(ctx, guild, 62, 48, 76, ink);
+  const drawIconTile = (x, y, kind, size = 70) => {
+    drawRoundRect(ctx, x, y, size, size, Math.round(size * 0.19));
+    ctx.fillStyle = tileFill;
+    ctx.fill();
+    ctx.strokeStyle = useDarkInk ? 'rgba(7,7,7,0.05)' : 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = tileInk;
+    ctx.fillStyle = tileInk;
+    ctx.lineWidth = Math.max(3, Math.round(size * 0.055));
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (kind === 'people') {
+      ctx.beginPath(); ctx.arc(size * 0.42, size * 0.34, size * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.61, size * 0.38, size * 0.09, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.42, size * 0.72, size * 0.23, Math.PI, 0); ctx.stroke();
+      ctx.beginPath(); ctx.arc(size * 0.64, size * 0.71, size * 0.17, Math.PI, 0); ctx.stroke();
+    } else if (kind === 'message') {
+      drawRoundRect(ctx, size * 0.24, size * 0.25, size * 0.52, size * 0.40, size * 0.08);
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size * 0.38, size * 0.64); ctx.lineTo(size * 0.29, size * 0.76); ctx.lineTo(size * 0.48, size * 0.65); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size * 0.34, size * 0.39); ctx.lineTo(size * 0.66, size * 0.39); ctx.moveTo(size * 0.34, size * 0.50); ctx.lineTo(size * 0.57, size * 0.50); ctx.stroke();
+    } else if (kind === 'join') {
+      ctx.beginPath(); ctx.arc(size * 0.38, size * 0.34, size * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.38, size * 0.73, size * 0.23, Math.PI, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size * 0.69, size * 0.34); ctx.lineTo(size * 0.69, size * 0.58); ctx.moveTo(size * 0.57, size * 0.46); ctx.lineTo(size * 0.81, size * 0.46); ctx.stroke();
+    } else if (kind === 'bars') {
+      const bars = [[0.27,0.58,0.10,0.20],[0.45,0.43,0.10,0.35],[0.63,0.28,0.10,0.50]];
+      for (const [bx,by,bw,bh] of bars) { drawRoundRect(ctx, size*bx, size*by, size*bw, size*bh, 3); ctx.fill(); }
+    } else if (kind === 'shield') {
+      ctx.beginPath();
+      ctx.moveTo(size*0.50,size*0.20); ctx.lineTo(size*0.72,size*0.29); ctx.lineTo(size*0.69,size*0.58);
+      ctx.quadraticCurveTo(size*0.64,size*0.75,size*0.50,size*0.82);
+      ctx.quadraticCurveTo(size*0.36,size*0.75,size*0.31,size*0.58); ctx.lineTo(size*0.28,size*0.29); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.39,size*0.50); ctx.lineTo(size*0.47,size*0.58); ctx.lineTo(size*0.63,size*0.40); ctx.stroke();
+    } else if (kind === 'social') {
+      ctx.beginPath(); ctx.moveTo(size*0.25,size*0.47); ctx.lineTo(size*0.58,size*0.33); ctx.lineTo(size*0.58,size*0.67); ctx.closePath(); ctx.stroke();
+      ctx.strokeRect(size*0.20,size*0.43,size*0.08,size*0.16);
+      ctx.beginPath(); ctx.moveTo(size*0.31,size*0.60); ctx.lineTo(size*0.36,size*0.76); ctx.stroke();
+      ctx.beginPath(); ctx.arc(size*0.63,size*0.50,size*0.18,-0.8,0.8); ctx.stroke();
+    } else if (kind === 'calendar') {
+      drawRoundRect(ctx,size*0.24,size*0.28,size*0.52,size*0.48,size*0.05); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.24,size*0.41); ctx.lineTo(size*0.76,size*0.41); ctx.moveTo(size*0.37,size*0.22); ctx.lineTo(size*0.37,size*0.34); ctx.moveTo(size*0.63,size*0.22); ctx.lineTo(size*0.63,size*0.34); ctx.stroke();
+      ctx.fillRect(size*0.34,size*0.50,size*0.07,size*0.07); ctx.fillRect(size*0.47,size*0.50,size*0.07,size*0.07); ctx.fillRect(size*0.60,size*0.50,size*0.07,size*0.07);
+    } else if (kind === 'link') {
+      ctx.save(); ctx.translate(size*0.50,size*0.50); ctx.rotate(-0.65);
+      drawRoundRect(ctx,-size*0.29,-size*0.11,size*0.34,size*0.22,size*0.11); ctx.stroke();
+      drawRoundRect(ctx,-size*0.05,-size*0.11,size*0.34,size*0.22,size*0.11); ctx.stroke();
+      ctx.restore();
+    } else if (kind === 'bulb') {
+      ctx.beginPath(); ctx.arc(size*0.50,size*0.42,size*0.18,Math.PI*0.82,Math.PI*2.18); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.41,size*0.57); ctx.lineTo(size*0.44,size*0.67); ctx.lineTo(size*0.56,size*0.67); ctx.lineTo(size*0.59,size*0.57); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.44,size*0.73); ctx.lineTo(size*0.56,size*0.73); ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  // Community-first identity, LINKO as the infrastructure brand.
+  await drawGuildIdentity(ctx, guild, 58, 44, 92, ink);
   ctx.fillStyle = ink;
-  ctx.font = '900 38px sans-serif';
-  ctx.fillText('LinkO', 158, 91);
-  ctx.font = '700 16px monospace';
-  ctx.fillText(communityNameUpper(), 160, 119);
+  const serverName = communityNameUpper();
+  const serverNameSize = fitText(ctx, serverName, 430, 46, 28);
+  ctx.font = `900 ${serverNameSize}px sans-serif`;
+  ctx.fillText(serverName, 176, 91);
+  ctx.font = '800 17px monospace';
+  ctx.fillText('POWERED BY LINKO', 178, 120);
 
   ctx.textAlign = 'center';
   ctx.font = '800 18px monospace';
-  ctx.fillText(`LAST ${days} DAYS`, 800, 82);
+  ctx.fillText(`LAST ${days} DAYS`, 800, 78);
   ctx.fillStyle = softInk;
-  ctx.font = '600 14px monospace';
-  ctx.fillText(dateLabel, 800, 108);
+  ctx.font = '700 14px monospace';
+  ctx.fillText(dateLabel, 800, 106);
   ctx.textAlign = 'left';
 
-  // Editorial headline.
+  // Main editorial headline.
   ctx.fillStyle = ink;
-  const headlineSize = fitText(ctx, 'COMMUNITY HEALTH.', 1160, 92, 72);
+  const headlineSize = fitText(ctx, 'COMMUNITY HEALTH.', 1100, 86, 68);
   ctx.font = `900 ${headlineSize}px sans-serif`;
-  ctx.fillText('COMMUNITY HEALTH.', 62, 252);
+  ctx.fillText('COMMUNITY HEALTH.', 58, 270);
 
-  const serverTitle = communityNameUpper();
-  const serverSize = fitText(ctx, serverTitle, 920, 58, 38);
-  ctx.font = `900 ${serverSize}px sans-serif`;
-  ctx.fillText(serverTitle, 64, 326);
-
+  // Insight always fits in two lines. Reduce type before truncating.
+  let insightSize = 22;
+  let insightLines = [];
+  const wrapFull = (text, maxWidth) => {
+    const words = String(text).split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (!line || ctx.measureText(test).width <= maxWidth) line = test;
+      else { lines.push(line); line = word; }
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  while (insightSize >= 16) {
+    ctx.font = `700 ${insightSize}px sans-serif`;
+    insightLines = wrapFull(insight, 1080);
+    if (insightLines.length <= 2) break;
+    insightSize -= 1;
+  }
   ctx.fillStyle = softInk;
-  ctx.font = '600 22px sans-serif';
-  const tagline = insight || 'People connect. Communities compound.';
-  const tagLines = wrapCanvasText(ctx, tagline, 970, 2);
-  tagLines.forEach((line, index) => ctx.fillText(line, 65, 370 + index * 28));
+  insightLines.slice(0,2).forEach((line, index) => ctx.fillText(line, 60, 326 + index * (insightSize + 8)));
 
-  const lineY = 455;
-  ctx.fillStyle = ink;
-  ctx.fillRect(64, lineY, 1470, 3);
+  ctx.fillStyle = divider;
+  ctx.fillRect(58, 418, 1484, 3);
 
+  const trendLabel = (trend) => {
+    if (!trend) return 'NO CHANGE';
+    if (trend.label === 'New vs prior') return 'NEW';
+    if (trend.direction === 'flat') return 'NO CHANGE';
+    return trend.label.toUpperCase();
+  };
   const primary = [
-    { label: 'Active\nContributors', value: compactMetric(m.contributors), symbol: '●' },
-    { label: 'Qualified\nMessages', value: compactMetric(m.qualifiedMessages), symbol: '▣' },
-    { label: 'New\nJoins', value: compactMetric(m.joins), symbol: '+' },
-    { label: 'Activation', value: m.activationRate == null ? '—' : `${m.activationRate}%`, symbol: '▥' },
+    { label: ['Active','Contributors'], value: compactMetric(m.contributors), icon: 'people', trend: metricTrend(current.contributors, previous.contributors) },
+    { label: ['Qualified','Messages'], value: compactMetric(m.qualifiedMessages), icon: 'message', trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages) },
+    { label: ['New','Joins'], value: compactMetric(m.joins), icon: 'join', trend: metricTrend(current.joins, previous.joins) },
+    { label: ['Activation'], value: m.activationRate == null ? 'N/A' : `${m.activationRate}%`, icon: 'bars', trend: m.activationRate == null || previousActivationRate == null ? null : metricTrend(m.activationRate, previousActivationRate), note: m.activationRate == null ? 'No verified joins yet' : `${m.activated} of ${m.verifications} activated` },
   ];
 
-  const primaryX = [64, 435, 805, 1175];
+  const columnX = [58, 428, 798, 1168];
+  const columnW = 340;
+  const drawPill = (x, y, label, direction) => {
+    ctx.font = '800 13px monospace';
+    const w = Math.max(128, ctx.measureText(label).width + 48);
+    drawRoundRect(ctx, x, y, w, 34, 17);
+    ctx.fillStyle = pillFill; ctx.fill();
+    ctx.fillStyle = direction === 'down' ? (useDarkInk ? '#7A1D16' : '#FFD0CA') : softInk;
+    ctx.beginPath(); ctx.arc(x + 18, y + 17, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.fillText(label, x + 36, y + 22);
+  };
+
   primary.forEach((item, index) => {
-    const x = primaryX[index];
+    const x = columnX[index];
     if (index > 0) {
-      ctx.fillStyle = ink;
-      ctx.globalAlpha = 0.75;
-      ctx.fillRect(x - 36, 492, 3, 166);
+      ctx.fillStyle = divider;
+      ctx.globalAlpha = 0.72;
+      ctx.fillRect(x - 28, 450, 2, 168);
       ctx.globalAlpha = 1;
     }
-
-    drawRoundRect(ctx, x, 493, 70, 64, 13);
-    ctx.fillStyle = useDarkInk ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.22)';
-    ctx.fill();
+    drawIconTile(x, 448, item.icon, 70);
     ctx.fillStyle = ink;
-    ctx.font = '900 27px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(item.symbol, x + 35, 535);
-    ctx.textAlign = 'left';
-
-    const lines = item.label.split('\n');
-    ctx.font = '700 20px sans-serif';
-    lines.forEach((line, li) => ctx.fillText(line, x + 92, 517 + li * 24));
-
-    ctx.font = '900 78px monospace';
-    ctx.fillText(item.value, x, 646);
+    ctx.font = '800 20px sans-serif';
+    item.label.forEach((line, li) => ctx.fillText(line, x + 94, 474 + li * 24));
+    ctx.font = `900 ${item.value === 'N/A' ? 58 : 72}px monospace`;
+    ctx.fillText(item.value, x, 588);
+    if (item.note) {
+      ctx.font = '700 14px sans-serif';
+      ctx.fillText(item.note, x + 3, 616);
+    }
+    const tLabel = trendLabel(item.trend);
+    drawPill(x + 92, 608, tLabel, item.trend?.direction ?? 'flat');
   });
 
-  ctx.fillStyle = ink;
-  ctx.fillRect(64, 687, 1470, 3);
+  ctx.fillStyle = divider;
+  ctx.fillRect(58, 660, 1484, 3);
 
   const secondary = [
-    ['Verified\nMembers', compactMetric(m.verified), `${verifiedRate}% verified`],
-    ['Social\nPosts', compactMetric(m.social), 'approved'],
-    ['Event\nAttendees', compactMetric(m.eventAttendees), `last ${days}d`],
-    ['Referrals', compactMetric(m.validReferrals), 'valid'],
-    ['Suggestions', compactMetric(m.suggestions), 'submitted'],
+    { label:['Verified','Members'], value:compactMetric(m.verified), note:`${verifiedRate}% verified`, icon:'shield' },
+    { label:['Social','Posts'], value:compactMetric(m.social), note:'approved', icon:'social' },
+    { label:['Event','Attendees'], value:compactMetric(m.eventAttendees), note:`last ${days}d`, icon:'calendar' },
+    { label:['Referrals'], value:compactMetric(m.validReferrals), note:'valid', icon:'link' },
+    { label:['Suggestions'], value:compactMetric(m.suggestions), note:'submitted', icon:'bulb' },
   ];
-  const secondaryW = 294;
+  const secX = [58, 365, 672, 979, 1286];
 
-  secondary.forEach(([label, value, note], index) => {
-    const x = 64 + index * secondaryW;
+  secondary.forEach((item, index) => {
+    const x = secX[index];
     if (index > 0) {
+      ctx.fillStyle = divider;
       ctx.globalAlpha = 0.62;
-      ctx.fillStyle = ink;
-      ctx.fillRect(x - 19, 719, 2, 118);
+      ctx.fillRect(x - 24, 689, 2, 125);
       ctx.globalAlpha = 1;
     }
-
-    const lines = label.split('\n');
+    drawIconTile(x, 688, item.icon, 58);
     ctx.fillStyle = ink;
-    ctx.font = '700 18px sans-serif';
-    lines.forEach((line, li) => ctx.fillText(line, x, 744 + li * 21));
-    ctx.font = '900 48px monospace';
-    ctx.fillText(value, x, 812);
+    ctx.font = '800 17px sans-serif';
+    item.label.forEach((line, li) => ctx.fillText(line, x + 82, 710 + li * 21));
+    ctx.font = '900 43px monospace';
+    ctx.fillText(item.value, x + 82, 785);
     ctx.fillStyle = softInk;
-    ctx.font = '600 13px sans-serif';
-    ctx.fillText(note, x, 836);
+    ctx.font = '700 13px sans-serif';
+    ctx.fillText(item.note, x + 82, 810);
   });
 
+  ctx.fillStyle = divider;
+  ctx.fillRect(58, 835, 1484, 2);
+
   ctx.fillStyle = ink;
-  ctx.font = '700 16px sans-serif';
-  ctx.fillText('Generated by LINKO', 64, 878);
+  ctx.font = '700 15px sans-serif';
+  ctx.fillText('Generated by LINKO', 58, 875);
+
+  ctx.textAlign = 'center';
+  ctx.font = '700 13px monospace';
+  ctx.fillText(`UPDATED ${generatedDate} · ${generatedTime}`, 800, 875);
 
   ctx.textAlign = 'right';
-  ctx.font = '800 14px monospace';
-  ctx.fillText('PEOPLE CONNECT. PROGRESS.', 1535, 878);
+  ctx.font = '800 13px monospace';
+  ctx.fillText('PEOPLE CONNECT. PROGRESS.', 1542, 875);
   ctx.textAlign = 'left';
 
   const activationCaption = m.activationRate == null ? 'no new verifications yet' : `${m.activationRate}% activation among new verifications`;
