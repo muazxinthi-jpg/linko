@@ -557,7 +557,7 @@ function migrateLegacyKlineoDatabase(guildId, guildName) {
     }
 
     if (tableExists(legacy, 'xp_log')) {
-      const existsLog = target.prepare('SELECT 1 FROM xp_log WHERE user_id=? AND amount=? AND reason=? AND created_at=? AND COALESCE(actor_id,"")=COALESCE(?,"") LIMIT 1');
+      const existsLog = target.prepare("SELECT 1 FROM xp_log WHERE user_id=? AND amount=? AND reason=? AND created_at=? AND COALESCE(actor_id,'')=COALESCE(?,'') LIMIT 1");
       const insertLog = target.prepare('INSERT INTO xp_log (user_id,amount,reason,created_at,actor_id) VALUES (?,?,?,?,?)');
       for (const row of legacy.prepare('SELECT user_id,amount,reason,created_at,actor_id FROM xp_log ORDER BY id').all()) {
         if (existsLog.get(row.user_id,row.amount,row.reason,row.created_at,row.actor_id)) continue;
