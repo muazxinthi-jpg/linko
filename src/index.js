@@ -778,43 +778,43 @@ const commands = [
     .setDescription('KlineO alias: build or sync LINKO in this Discord server.')
     .addBooleanOption((o) => o.setName('confirm').setDescription('Set true to build/sync.').setRequired(true)),
 
-  new SlashCommandBuilder().setName('rank').setDescription('Show your KlineO rank and progress.')
+  new SlashCommandBuilder().setName('rank').setDescription('Show your community rank and progress.')
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
   new SlashCommandBuilder().setName('points').setDescription('Show your server XP balance.')
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
-  new SlashCommandBuilder().setName('leaderboard').setDescription('Show a KlineO leaderboard.')
+  new SlashCommandBuilder().setName('leaderboard').setDescription('Show a community leaderboard.')
     .addStringOption((o) => o.setName('type').setDescription('Leaderboard type').addChoices(
       { name: 'XP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
       { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaign', value: 'campaign' },
     ))
     .addIntegerOption((o) => o.setName('campaign').setDescription('Campaign ID when viewing a campaign leaderboard').setMinValue(1)),
-  new SlashCommandBuilder().setName('invite').setDescription('Create your tracked KlineO invite link.'),
-  new SlashCommandBuilder().setName('invites').setDescription('Show your KlineO referral stats.'),
+  new SlashCommandBuilder().setName('invite').setDescription('Create your tracked community invite link.'),
+  new SlashCommandBuilder().setName('invites').setDescription('Show your community referral stats.'),
   new SlashCommandBuilder()
     .setName('join-source')
-    .setDescription('Required before verification: tell LINKO how you joined KlineO.')
-    .addStringOption((o) => o.setName('source').setDescription('How did you find/join KlineO?').setRequired(true).addChoices(
-      { name: 'Invited by a KlineO member', value: 'member' },
-      { name: 'Found KlineO myself', value: 'organic' },
+    .setDescription('Required before verification: tell LINKO how you joined community.')
+    .addStringOption((o) => o.setName('source').setDescription('How did you find/join community?').setRequired(true).addChoices(
+      { name: 'Invited by a community member', value: 'member' },
+      { name: 'Found community myself', value: 'organic' },
       { name: 'X / social media', value: 'x' },
       { name: 'Telegram', value: 'telegram' },
       { name: 'Event / AMA', value: 'event' },
       { name: 'Partner / creator', value: 'partner' },
     ))
-    .addUserOption((o) => o.setName('member').setDescription('Required only if a KlineO member invited you.')),
+    .addUserOption((o) => o.setName('member').setDescription('Required only if a community member invited you.')),
   new SlashCommandBuilder()
     .setName('confirm-invited')
-    .setDescription('Confirm that you personally invited a pending KlineO member.')
+    .setDescription('Confirm that you personally invited a pending community member.')
     .addUserOption((o) => o.setName('member').setDescription('The member you invited').setRequired(true)),
   new SlashCommandBuilder()
     .setName('referred-by')
     .setDescription('Legacy shortcut: tell LINKO who invited you.')
-    .addUserOption((o) => o.setName('member').setDescription('The KlineO member who invited you').setRequired(true)),
-  new SlashCommandBuilder().setName('commands').setDescription('Show the KlineO member command guide.'),
+    .addUserOption((o) => o.setName('member').setDescription('The community member who invited you').setRequired(true)),
+  new SlashCommandBuilder().setName('commands').setDescription('Show the community member command guide.'),
 
   new SlashCommandBuilder()
     .setName('wallet')
-    .setDescription('Manage your submitted KlineO payout wallet addresses. LINKO never connects or signs.')
+    .setDescription('Manage your submitted community payout wallet addresses. LINKO never connects or signs.')
     .addSubcommand((sc) => sc.setName('view').setDescription('Privately view your submitted EVM and Solana wallets.'))
     .addSubcommand((sc) => sc.setName('set').setDescription('Add or change a submitted wallet address.')
       .addStringOption((o) => o.setName('network').setDescription('Wallet network').setRequired(true).addChoices(
@@ -844,7 +844,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('creator-campaign')
-    .setDescription('Staff: manage KlineO creator campaigns.')
+    .setDescription('Staff: manage community creator campaigns.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a creator campaign.')
       .addStringOption((o) => o.setName('name').setDescription('Campaign name').setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName('description').setDescription('Short campaign brief').setMaxLength(300)))
@@ -854,7 +854,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('social-card')
-    .setDescription('Generate a shareable KlineO social card.')
+    .setDescription('Generate a shareable community social card.')
     .addStringOption((o) => o.setName('type').setDescription('Card type').setRequired(true).addChoices(
       { name: 'Progress', value: 'progress' }, { name: 'Referral', value: 'referral' },
       { name: 'Community Impact', value: 'impact' }, { name: 'Founder', value: 'founder' },
@@ -862,17 +862,17 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('official-links')
-    .setDescription('Staff: manage verified KlineO official links.')
+    .setDescription('Staff: manage verified community official links.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View configured official links.'))
     .addSubcommand((sc) => sc.setName('publish').setDescription('Refresh the public Official Links card.'))
-    .addSubcommand((sc) => sc.setName('set').setDescription('Core: set an official KlineO link.')
+    .addSubcommand((sc) => sc.setName('set').setDescription('Core: set an official community link.')
       .addStringOption((o) => o.setName('type').setDescription('Official link type').setRequired(true).addChoices(
         { name: 'Website', value: 'website' }, { name: 'Liquidity Studio', value: 'liquidity_studio' },
         { name: 'X', value: 'x' }, { name: 'Telegram', value: 'telegram' }, { name: 'LinkedIn', value: 'linkedin' },
         { name: 'Docs', value: 'docs' }, { name: 'Support', value: 'support' },
       ))
       .addStringOption((o) => o.setName('url').setDescription('Verified https:// URL').setRequired(true).setMaxLength(300)))
-    .addSubcommand((sc) => sc.setName('remove').setDescription('Core: remove an official KlineO link.')
+    .addSubcommand((sc) => sc.setName('remove').setDescription('Core: remove an official community link.')
       .addStringOption((o) => o.setName('type').setDescription('Official link type').setRequired(true).addChoices(
         { name: 'Website', value: 'website' }, { name: 'Liquidity Studio', value: 'liquidity_studio' },
         { name: 'X', value: 'x' }, { name: 'Telegram', value: 'telegram' }, { name: 'LinkedIn', value: 'linkedin' },
@@ -881,10 +881,10 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('team-profile')
-    .setDescription('Staff: manage official KlineO founder/team profiles.')
+    .setDescription('Staff: manage official community founder/team profiles.')
     .addSubcommand((sc) => sc.setName('list').setDescription('List configured team profiles.'))
     .addSubcommand((sc) => sc.setName('set').setDescription('Core: add or update an official team profile.')
-      .addUserOption((o) => o.setName('member').setDescription('Official KlineO team member').setRequired(true))
+      .addUserOption((o) => o.setName('member').setDescription('Official community team member').setRequired(true))
       .addStringOption((o) => o.setName('role').setDescription('Role/title, e.g. Founder & CEO').setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName('website').setDescription('Website URL').setMaxLength(300))
       .addStringOption((o) => o.setName('x').setDescription('X profile URL').setMaxLength(300))
@@ -980,7 +980,7 @@ const commands = [
     .setDescription('Administrator: view or change this server\'s LINKO profile.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View server-level LINKO settings.'))
     .addSubcommand((sc) => sc.setName('community-name').setDescription('Set the community/project display name.')
-      .addStringOption((o) => o.setName('name').setDescription('Example: KlineO, Polkadot').setRequired(true).setMinLength(2).setMaxLength(40)))
+      .addStringOption((o) => o.setName('name').setDescription('Example: community, Polkadot').setRequired(true).setMinLength(2).setMaxLength(40)))
     .addSubcommand((sc) => sc.setName('xp-name').setDescription('Set the server XP label (1-6 letters).')
       .addStringOption((o) => o.setName('name').setDescription('Example: KXP, DOTXP, XP').setRequired(true).setMinLength(1).setMaxLength(6)))
     .addSubcommand((sc) => sc.setName('preset').setDescription('Apply a safe module preset before setup.')
@@ -1053,8 +1053,8 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('server-image')
-    .setDescription('Staff: manage KlineO welcome and section images.')
-    .addSubcommand((sc) => sc.setName('set').setDescription('Upload/set an image for a KlineO section.')
+    .setDescription('Staff: manage community welcome and section images.')
+    .addSubcommand((sc) => sc.setName('set').setDescription('Upload/set an image for a community section.')
       .addStringOption((o) => o.setName('slot').setDescription('Image slot').setRequired(true).addChoices(
         { name: 'Welcome', value: 'welcome' }, { name: 'Verification', value: 'verify' }, { name: 'Official Links', value: 'official' }, { name: 'Social', value: 'social' }, { name: 'Founder Hub', value: 'founder' },
       ))
@@ -1063,11 +1063,11 @@ const commands = [
       .addStringOption((o) => o.setName('slot').setDescription('Image slot').setRequired(true).addChoices(
         { name: 'Welcome', value: 'welcome' }, { name: 'Verification', value: 'verify' }, { name: 'Official Links', value: 'official' }, { name: 'Social', value: 'social' }, { name: 'Founder Hub', value: 'founder' },
       )))
-    .addSubcommand((sc) => sc.setName('status').setDescription('Show which KlineO section images are configured.')),
+    .addSubcommand((sc) => sc.setName('status').setDescription('Show which community section images are configured.')),
 
   new SlashCommandBuilder()
     .setName('grant-klineo-role')
-    .setDescription('Staff: grant a KlineO access role.')
+    .setDescription('Staff: grant a community access role.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
     .addStringOption((o) => o.setName('role').setDescription('Role').setRequired(true).addChoices(
       { name: 'Verified Founder', value: 'VERIFIED FOUNDER' },
@@ -1083,11 +1083,11 @@ const commands = [
     .addStringOption((o) => o.setName('project').setDescription('Project name').setRequired(true).setMaxLength(40))
     .addUserOption((o) => o.setName('member').setDescription('Primary client representative').setRequired(true)),
 
-  new SlashCommandBuilder().setName('onboarding').setDescription('Show your KlineO activation checklist.'),
+  new SlashCommandBuilder().setName('onboarding').setDescription('Show your community activation checklist.'),
 
   new SlashCommandBuilder()
     .setName('interest')
-    .setDescription('Manage your KlineO interest roles.')
+    .setDescription('Manage your community interest roles.')
     .addSubcommand((sc) => sc.setName('add').setDescription('Add an interest.')
       .addStringOption((o) => o.setName('interest').setDescription('Interest').setRequired(true).addChoices(
         { name: 'Trading', value: 'trading' }, { name: 'AI', value: 'ai' }, { name: 'Markets', value: 'markets' },
@@ -1102,32 +1102,32 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('language')
-    .setDescription('Manage your KlineO language channels.')
+    .setDescription('Manage your community language channels.')
     .addSubcommand((sc) => sc.setName('add').setDescription('Join a language community.')
       .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
     .addSubcommand((sc) => sc.setName('remove').setDescription('Leave a language community.')
       .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
-    .addSubcommand((sc) => sc.setName('list').setDescription('List available KlineO languages.')),
+    .addSubcommand((sc) => sc.setName('list').setDescription('List available community languages.')),
 
   new SlashCommandBuilder()
     .setName('suggest')
-    .setDescription('Submit a KlineO product suggestion.')
+    .setDescription('Submit a community product suggestion.')
     .addStringOption((o) => o.setName('title').setDescription('Short suggestion title').setRequired(true).setMaxLength(80))
     .addStringOption((o) => o.setName('details').setDescription('What should change and why?').setRequired(true).setMaxLength(1200)),
 
-  new SlashCommandBuilder().setName('events').setDescription('Show upcoming KlineO community events.'),
+  new SlashCommandBuilder().setName('events').setDescription('Show upcoming community community events.'),
 
   new SlashCommandBuilder()
     .setName('community-health')
-    .setDescription('Staff: show KlineO community health metrics.')
+    .setDescription('Staff: show community community health metrics.')
     .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
   new SlashCommandBuilder().setName('refresh-health').setDescription('Staff: refresh the persistent community-health dashboard.'),
   new SlashCommandBuilder().setName('mod-inbox').setDescription('Staff: show the consolidated LINKO moderation inbox.'),
 
   new SlashCommandBuilder()
     .setName('event')
-    .setDescription('Staff: manage KlineO community events.')
-    .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a KlineO event.')
+    .setDescription('Staff: manage community community events.')
+    .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a community event.')
       .addStringOption((o) => o.setName('title').setDescription('Event title').setRequired(true).setMaxLength(100))
       .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
@@ -1145,7 +1145,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('suggestion')
-    .setDescription('Staff: manage KlineO product suggestions.')
+    .setDescription('Staff: manage community product suggestions.')
     .addSubcommand((sc) => sc.setName('list').setDescription('List recent open suggestions.'))
     .addSubcommand((sc) => sc.setName('status').setDescription('Change a suggestion status.')
       .addIntegerOption((o) => o.setName('id').setDescription('Suggestion ID').setRequired(true).setMinValue(1))
@@ -1157,7 +1157,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('language-manager')
-    .setDescription('Staff: create or manage KlineO language communities.')
+    .setDescription('Staff: create or manage community language communities.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a language role + private language channel.')
       .addStringOption((o) => o.setName('name').setDescription('Language name, e.g. Deutsch').setRequired(true).setMaxLength(30))
       .addStringOption((o) => o.setName('emoji').setDescription('Flag/emoji, e.g. 🇩🇪').setRequired(true).setMaxLength(12))
@@ -1168,7 +1168,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('channel-manager')
-    .setDescription('Staff: safely create, edit or archive extra KlineO channels.')
+    .setDescription('Staff: safely create, edit or archive extra community channels.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a managed text or voice channel.')
       .addStringOption((o) => o.setName('name').setDescription('Channel name').setRequired(true).setMaxLength(50))
       .addStringOption((o) => o.setName('category').setDescription('Category name').setRequired(true).setMaxLength(50))
