@@ -60,10 +60,46 @@ KlineO's current production data is intentionally small/early. For the v10.7 cut
 
 No destructive deletion of the old database is required.
 
-> v10.7 is still allowlist-based multi-server infrastructure. The full Discord template and many role/channel names remain KlineO-branded; this release isolates servers and customizes XP naming without attempting a complete white-label community-template rewrite.
+## Per-server community profile
+
+LINKO now has a server profile layer, so a second Discord server does not need to behave like a copy of KlineO.
+
+Administrators can configure:
+
+```text
+/server-settings community-name name:Polkadot
+/server-settings xp-name name:DOTXP
+/server-settings preset type:Core Community
+/server-settings module name:KREATOR enabled:true
+/server-settings view
+```
+
+Two presets are available:
+
+- **KlineO Full**: Signal Room, KREATOR, Founder Hub and Liquidity Studio enabled.
+- **Core Community**: core XP/referrals/events plus Signal Room enabled; KREATOR, Founder Hub and Liquidity Studio disabled until explicitly enabled.
+
+For a brand-new guild, LINKO uses a safe default automatically:
+- a server named **KlineO** starts with the KlineO Full preset and **KXP**;
+- any other server starts with the Core Community preset and generic **XP**.
+
+The profile controls the community display name, XP label, core/team role names, branded community/social/XP categories, onboarding copy, public cards and optional module spaces. Disabling a module hides its existing category from members instead of deleting history. Re-enabling it and running `/setup-linko confirm:true` restores/syncs the module.
+
+Recommended setup for a new external community:
+
+```text
+/server-settings community-name name:<COMMUNITY>
+/server-settings xp-name name:<1-6 LETTER XP NAME>
+/server-settings preset type:Core Community
+/server-settings module name:<OPTIONAL MODULE> enabled:true
+/setup-linko confirm:true
+```
+
+KlineO can keep the full preset and KXP defaults.
+
+Internal compatibility identifiers such as legacy `kxp_*` setting keys and `[KLINEO-*]` seed markers remain intentionally unchanged. They are implementation details, not cross-server branding.
 
 ---
-
 # LINKO v10.6.0
 
 LINKO v10.6 adds the **KREATOR economy** on top of the existing KXP system. KREATOR points are attribution, not a separate currency: approved creator-content KXP and reaction-milestone KXP also increase the member's normal overall KXP balance and rank progression.
