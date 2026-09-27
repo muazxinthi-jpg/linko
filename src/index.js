@@ -708,11 +708,11 @@ const commands = [
 
   new SlashCommandBuilder().setName('rank').setDescription('Show your KlineO rank and progress.')
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
-  new SlashCommandBuilder().setName('points').setDescription('Show your KXP balance.')
+  new SlashCommandBuilder().setName('points').setDescription('Show your server XP balance.')
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
   new SlashCommandBuilder().setName('leaderboard').setDescription('Show a KlineO leaderboard.')
     .addStringOption((o) => o.setName('type').setDescription('Leaderboard type').addChoices(
-      { name: 'KXP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
+      { name: 'XP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
       { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaign', value: 'campaign' },
     ))
     .addIntegerOption((o) => o.setName('campaign').setDescription('Campaign ID when viewing a campaign leaderboard').setMinValue(1)),
@@ -762,7 +762,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('submit-post')
-    .setDescription('Submit a social post about KlineO for KXP review.')
+    .setDescription('Submit a social post for XP review.')
     .addStringOption((o) => o.setName('platform').setDescription('Platform').setRequired(true).addChoices(
       { name: 'X', value: 'x' }, { name: 'LinkedIn', value: 'linkedin' }, { name: 'YouTube', value: 'youtube' },
       { name: 'TikTok', value: 'tiktok' }, { name: 'Instagram', value: 'instagram' },
@@ -825,21 +825,21 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('give-xp')
-    .setDescription('Staff: award or deduct KXP.')
+    .setDescription('Staff: award or deduct XP.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
-    .addIntegerOption((o) => o.setName('amount').setDescription('Positive or negative KXP').setRequired(true).setMinValue(-10000).setMaxValue(10000))
+    .addIntegerOption((o) => o.setName('amount').setDescription('Positive or negative XP').setRequired(true).setMinValue(-10000).setMaxValue(10000))
     .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(180)),
 
   new SlashCommandBuilder()
     .setName('remove-xp')
-    .setDescription('Staff: remove KXP from a member.')
+    .setDescription('Staff: remove XP from a member.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
-    .addIntegerOption((o) => o.setName('amount').setDescription('KXP to remove').setRequired(true).setMinValue(1).setMaxValue(10000))
+    .addIntegerOption((o) => o.setName('amount').setDescription('XP to remove').setRequired(true).setMinValue(1).setMaxValue(10000))
     .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(180)),
 
   new SlashCommandBuilder()
     .setName('user-kxp')
-    .setDescription('Staff: show a detailed KXP report for a member.')
+    .setDescription('Staff: show a detailed XP report for a member.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true)),
 
   new SlashCommandBuilder()
@@ -860,12 +860,12 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('mark-impactful')
-    .setDescription('Staff: confirm a message as impactful and award normal message KXP.')
+    .setDescription('Staff: confirm a message as impactful and award normal message XP.')
     .addStringOption((o) => o.setName('message').setDescription('Discord message link').setRequired(true).setMaxLength(300)),
 
   new SlashCommandBuilder()
     .setName('remove-message-xp')
-    .setDescription('Staff: reverse KXP previously awarded to a qualified community message.')
+    .setDescription('Staff: reverse XP previously awarded to a qualified community message.')
     .addStringOption((o) => o.setName('message').setDescription('Discord message link').setRequired(true).setMaxLength(300)),
 
   new SlashCommandBuilder().setName('impact-settings').setDescription('Staff: view LINKO message-impact qualification settings.'),
@@ -886,7 +886,7 @@ const commands = [
     .setName('export-leaderboard')
     .setDescription('Staff: export the complete leaderboard/community ranking as CSV.')
     .addStringOption((o) => o.setName('type').setDescription('CSV export type').setRequired(true).addChoices(
-      { name: 'KXP Leaderboard', value: 'kxp' },
+      { name: 'XP Leaderboard', value: 'kxp' },
       { name: 'Referral Leaderboard', value: 'referrals' },
       { name: 'Full Community', value: 'full' },
     )),
@@ -913,8 +913,8 @@ const commands = [
   new SlashCommandBuilder().setName('kxp-settings').setDescription('Staff: view current XP earning settings.'),
   new SlashCommandBuilder()
     .setName('set-kxp')
-    .setDescription('Staff: change a KXP reward value from Discord.')
-    .addStringOption((o) => o.setName('event').setDescription('KXP event').setRequired(true).addChoices(
+    .setDescription('Staff: change an XP reward value from Discord.')
+    .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
       { name: 'Qualifying message', value: 'kxp_message' },
       { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
       { name: 'Valid referral', value: 'kxp_valid_referral' },
@@ -923,12 +923,12 @@ const commands = [
       { name: 'Valid bug report', value: 'kxp_bug_report' },
       { name: 'Profile / wallet first-time submission', value: 'kxp_profile_submission' },
     ))
-    .addIntegerOption((o) => o.setName('amount').setDescription('KXP amount').setRequired(true).setMinValue(0).setMaxValue(100)),
+    .addIntegerOption((o) => o.setName('amount').setDescription('XP amount').setRequired(true).setMinValue(0).setMaxValue(100)),
 
   new SlashCommandBuilder()
     .setName('leaderboard-settings')
     .setDescription('Staff: view or change leaderboard visibility.')    .addStringOption((o) => o.setName('board').setDescription('Leaderboard').addChoices(
-      { name: 'KXP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
+      { name: 'XP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
       { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaigns', value: 'campaign' },
     ))
     .addStringOption((o) => o.setName('visibility').setDescription('Visibility').addChoices(
@@ -937,16 +937,16 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('voice-event')
-    .setDescription('Staff: control official voice events that can earn KXP.')
-    .addSubcommand((s) => s.setName('start').setDescription('Start voice KXP for an official event.')
+    .setDescription('Staff: control official voice events that can earn XP.')
+    .addSubcommand((s) => s.setName('start').setDescription('Start voice XP for an official event.')
       .addChannelOption((o) => o.setName('channel').setDescription('Event voice channel').setRequired(true).addChannelTypes(ChannelType.GuildVoice))
       .addStringOption((o) => o.setName('name').setDescription('Event name').setRequired(true).setMaxLength(80)))
-    .addSubcommand((s) => s.setName('stop').setDescription('Stop the currently active voice KXP event.'))
-    .addSubcommand((s) => s.setName('status').setDescription('Show the currently active voice KXP event.')),
+    .addSubcommand((s) => s.setName('stop').setDescription('Stop the currently active voice XP event.'))
+    .addSubcommand((s) => s.setName('status').setDescription('Show the currently active voice XP event.')),
 
   new SlashCommandBuilder()
     .setName('approve-bug')
-    .setDescription('Staff: award the configured KXP for a valid bug report.')
+    .setDescription('Staff: award the configured XP for a valid bug report.')
     .addUserOption((o) => o.setName('member').setDescription('Member who reported the bug').setRequired(true))
     .addStringOption((o) => o.setName('reference').setDescription('Bug/message reference').setRequired(false).setMaxLength(180)),
 
@@ -1033,7 +1033,7 @@ const commands = [
       .addStringOption((o) => o.setName('description').setDescription('Event description').setMaxLength(1000))
       .addChannelOption((o) => o.setName('voice').setDescription('Optional voice room').addChannelTypes(ChannelType.GuildVoice)))
     .addSubcommand((sc) => sc.setName('list').setDescription('List upcoming/live events.'))
-    .addSubcommand((sc) => sc.setName('start').setDescription('Start an event and its official voice-KXP window.')
+    .addSubcommand((sc) => sc.setName('start').setDescription('Start an event and its official voice-XP window.')
       .addIntegerOption((o) => o.setName('id').setDescription('Event ID').setRequired(true).setMinValue(1)))
     .addSubcommand((sc) => sc.setName('end').setDescription('End an event.')
       .addIntegerOption((o) => o.setName('id').setDescription('Event ID').setRequired(true).setMinValue(1)))
@@ -1079,7 +1079,7 @@ const commands = [
       .addStringOption((o) => o.setName('emoji').setDescription('Optional emoji prefix').setMaxLength(12))
       .addStringOption((o) => o.setName('topic').setDescription('Optional topic').setMaxLength(300))
       .addBooleanOption((o) => o.setName('links').setDescription('Allow links in this channel?'))
-      .addBooleanOption((o) => o.setName('kxp').setDescription('Allow impact-scored message KXP here?'))
+      .addBooleanOption((o) => o.setName('kxp').setDescription('Allow impact-scored message XP here?'))
       .addIntegerOption((o) => o.setName('slowmode').setDescription('Text-channel slowmode seconds').setMinValue(0).setMaxValue(21600)))
     .addSubcommand((sc) => sc.setName('batch-create').setDescription('Create up to 10 managed channels with the same rules.')
       .addStringOption((o) => o.setName('names').setDescription('Comma-separated channel names, max 10').setRequired(true).setMaxLength(500))
