@@ -2187,7 +2187,7 @@ async function updateCampaignLeaderboardMessages(guild) {
   if (!campaigns.length) {
     const marker = '[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]';
     const existing = recent?.find((m) => m.author.id === client.user.id && m.content?.includes(marker));
-    const content = `**KlineO Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
+    const content = `**${communityName()} Creator Campaign Leaderboards**\n\nNo active or recently closed creator campaigns. Staff can use \`/creator-campaign create\`. Closed campaign boards remain visible for **${getSettingInt('campaign_leaderboard_retention_days')} days**.\n\n${marker}`;
     if (existing) await existing.edit({ content, embeds: [] }).catch(() => {});
     else await channel.send({ content }).catch(() => {});
     return;
@@ -3207,12 +3207,12 @@ async function verifyMember(interaction) {
 }
 
 async function createFounderApplicationModal(interaction) {
-  const modal = new ModalBuilder().setCustomId('founder_application_modal').setTitle('KlineO Founder Verification');
+  const modal = new ModalBuilder().setCustomId('founder_application_modal').setTitle(`${communityName().slice(0, 28)} Founder Access`);
   const project = new TextInputBuilder().setCustomId('project').setLabel('Project name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80);
   const website = new TextInputBuilder().setCustomId('website').setLabel('Website').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(180);
   const social = new TextInputBuilder().setCustomId('social').setLabel('Project socials (X / TG / LinkedIn)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(180);
   const role = new TextInputBuilder().setCustomId('role').setLabel('Your socials + role/title').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(180);
-  const interest = new TextInputBuilder().setCustomId('interest').setLabel('Interested in Liquidity Studio? Why?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
+  const interest = new TextInputBuilder().setCustomId('interest').setLabel(moduleEnabled('studio') ? 'Interested in Studio? Why?' : 'Why are you applying?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
   modal.addComponents(...[project, website, social, role, interest].map((x) => new ActionRowBuilder().addComponents(x)));
   await interaction.showModal(modal);
 }
@@ -3241,7 +3241,7 @@ async function handleFounderModal(interaction) {
   const msg = await channel.send({ embeds: [embed], components: [row] });
   db.prepare('UPDATE founder_applications SET review_message_id = ? WHERE id = ?').run(msg.id, id);
   scheduleModInboxUpdate(interaction.guild);
-  await interaction.reply({ content: 'Founder application submitted. KlineO staff will review it.', ephemeral: true });
+  await interaction.reply({ content: 'Founder application submitted. Community staff will review it.', ephemeral: true });
 }
 
 async function handleFounderReview(interaction, action, id) {
@@ -3259,7 +3259,7 @@ async function handleFounderReview(interaction, action, id) {
   const embed = EmbedBuilder.from(interaction.message.embeds[0]).setColor(action === 'approve' ? BRAND.emerald : BRAND.rose).setFooter({ text: `${action === 'approve' ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
   await interaction.update({ embeds: [embed], components: [] });
   scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-  if (member) member.send(action === 'approve' ? '✅ Your KlineO Founder Hub application was approved.' : 'Your KlineO Founder Hub application was not approved at this time.').catch(() => {});
+  if (member) member.send(action === 'approve' ? `✅ Your ${communityName()} Founder Hub application was approved.` : `Your ${communityName()} Founder Hub application was not approved at this time.`).catch(() => {});
 }
 
 async function publishFounderProfile(guild, app) {
@@ -3270,7 +3270,7 @@ async function publishFounderProfile(guild, app) {
     { name: 'Project socials', value: app.social || 'Not provided' },
     { name: 'Founder socials + role', value: app.role_title || 'Not provided' },
     { name: 'Liquidity Studio interest', value: app.studio_interest || 'Not provided' },
-  ).setFooter({ text: 'Verified KlineO Founder' });
+  ).setFooter({ text: `Verified ${communityName()} Founder` });
   return channel.send({ embeds: [embed] });
 }
 
@@ -3292,7 +3292,7 @@ async function handleSocialSubmission(interaction) {
     const id = Number(result.lastInsertRowid);
     const review = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'social-submissions' && c.isTextBased());
     if (!review) return interaction.reply({ content: 'Social review channel is missing. Ask staff to run /setup-linko.', ephemeral: true });
-    const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`KlineO social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
+    const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${communityName()} social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
       { name: 'Platform', value: platform.toUpperCase(), inline: true },
       { name: 'Status', value: 'Pending', inline: true },
       { name: 'KREATOR', value: hasKreatorRole(member) ? 'Yes' : 'No', inline: true },
@@ -3322,7 +3322,7 @@ async function handleSocialReview(interaction, id, approved) {
     const daily = getDaily(sub.user_id);
     if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
-    await addXp(interaction.guild, sub.user_id, xp, `Approved KlineO social contribution #${id}`, interaction.user.id);
+    await addXp(interaction.guild, sub.user_id, xp, `Approved social contribution #${id}`, interaction.user.id);
     const creator = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
     const isKreator = !!creator && hasKreatorRole(creator);
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ?, creator_eligible = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, isKreator ? 1 : 0, id);
@@ -3331,7 +3331,7 @@ async function handleSocialReview(interaction, id, approved) {
       const campaign = sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
       const reactionLine = isKreator ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.` : '';
       const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
-      const posted = await share.send(`**Approved KlineO community post** — <@${sub.user_id}> earned **${xp} ${label}**${campaignLine}${reactionLine}\n${sub.url}`);
+      const posted = await share.send(`**Approved community post** — <@${sub.user_id}> earned **${xp} ${label}**${campaignLine}${reactionLine}\n${sub.url}`);
       db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, id);
     }
   } else {
