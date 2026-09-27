@@ -2819,98 +2819,94 @@ async function buildLinko(guild) {
   for (const [key, channelName, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name: channelName, topic }, staffPrivate);
 
   setSetupPhase('09/11 · Seed verification, rules, docs + command guides');
-  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel('VERIFY & ENTER KLINEO').setStyle(ButtonStyle.Success));
+  const verifyButton = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 30)}`).setStyle(ButtonStyle.Success),
+  );
   await seedMessage(channels.verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [verifyButton] });
   await seedMessage(channels.welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
-  await seedMessage(channels.rules, '[KLINEO-RULES]', { content: `**KlineO Community Rules**\n\n1. Never share seed phrases, private keys or recovery information.\n2. Never send funds because of an unsolicited Discord DM.\n3. Only trust official links in <#${channels.links.id}>.\n4. No phishing, wallet-drainers, impersonation or malicious files.\n5. **No user-posted links in public community channels.**\n6. In the ANALYST+ Signal Room, links unlock at **STRATEGIST**.\n7. Social posts about KlineO must be submitted through \`/submit-post\`; approved posts can earn KXP.\n8. No spam, unsolicited promotion or guaranteed-return claims.\n9. Do not redistribute private Founder or Liquidity Studio discussions.\n10. Respect other members and moderators.\n\n[KLINEO-RULES]` });
+
+  const ruleLines = [
+    `**${name} Community Rules**`,
+    '',
+    '1. Never share seed phrases, private keys or recovery information.',
+    '2. Never send funds because of an unsolicited Discord DM.',
+    `3. Only trust official links in <#${channels.links.id}>.`,
+    '4. No phishing, wallet-drainers, impersonation or malicious files.',
+    '5. No spam, unsolicited promotion or guaranteed-return claims.',
+    '6. Respect other members and moderators.',
+  ];
+  if (moduleEnabled('signals')) ruleLines.push('7. In private Signal rooms, follow rank-based link and access rules.');
+  if (moduleEnabled('kreator')) ruleLines.push(`${ruleLines.length + 1}. Social posts must use /submit-post when the KREATOR workflow applies.`);
+  if (moduleEnabled('founders') || moduleEnabled('studio')) ruleLines.push(`${ruleLines.length + 1}. Do not redistribute private Founder or Studio discussions.`);
+  ruleLines.push('', '[LINKO-RULES]');
+  await seedMessage(channels.rules, '[LINKO-RULES]', { content: ruleLines.join('\n') });
   await seedMessage(channels.links, '[KLINEO-OFFICIAL-LINKS]', { embeds: [buildOfficialLinksEmbed()] });
   await seedMessage(channels.howKxp, '[KLINEO-KXP]', { content: kxpRulesContent() });
-  await seedMessage(channels.productRoadmap, '[KLINEO-PRODUCT-ROADMAP]', { content: `**KlineO Product Suggestions**\n\nSubmit a structured idea with \`/suggest\`. LINKO publishes it here and keeps the status updated as staff move it through **Submitted → Reviewing → Planned → Building → Shipped / Declined**.\n\n[KLINEO-PRODUCT-ROADMAP]` });
-  await seedMessage(channels.botCommands, '[KLINEO-MEMBER-COMMANDS]', { content: `**LINKO Member Commands**
 
-Use this channel for KlineO slash commands:
-• \`/rank\` — your rank and progress
-• \`/points\` — your KXP balance
-• \`/leaderboard type:KXP Points\` — KXP points leaderboard
-• \`/leaderboard type:Referrals\` — referral leaderboard
-• \`/invite\` — create your tracked invite
-• \`/invites\` — your referral stats
-• \`/join-source\` — **required before verification**; select how you joined KlineO and, if applicable, the member who invited you\n• \`/confirm-invited @member\` — confirm a pending referral when another member says you invited them
-• \`/wallet view/set/remove/primary\` — submit X + Telegram + EVM/Solana wallet (no connect, no signing); first-time items earn KXP
-• \`/submit-post\` — submit KlineO social content for KXP review; KREATORs can optionally tag an active creator campaign
-• \`/leaderboard type:Kreators\` — lifetime KREATOR leaderboard
-• \`/leaderboard type:Creator Campaign campaign:<ID>\` — campaign leaderboard
-• \`/social-card\` — generate a shareable progress/referral/impact/Founder card
-• \`/apply-founder\` — request Founder Hub access
-• \`/onboarding\` — view your activation checklist
-• \`/interest add/remove/list\` — choose KlineO interests
-• \`/language add/remove/list\` — join language rooms
-• \`/suggest\` — submit a structured KlineO product idea
-• \`/events\` — view upcoming community events
-• \`/commands\` — show this guide privately
-
-Plain chat in this channel is automatically removed to keep it clean.
-
-[KLINEO-MEMBER-COMMANDS]` });
-  if (channels.modCommands) {
-    await seedMessage(channels.modCommands, '[KLINEO-MOD-COMMANDS]', { content: `**LINKO Moderator Command Center · 1/2**
-
-**KXP + referrals**
-• \`/user-kxp @member\` — detailed KXP breakdown
-• \`/give-xp @member amount reason\` — manually award KXP
-• \`/remove-xp @member amount reason\` — remove KXP
-• \`/approve-bug @member\` — approve a valid bug report
-• \`/referral-stats @member\` — inspect referrals
-• \`/confirm-referral @member @inviter\` — staff-confirm a genuine referral
-• \`/impact-status <message link>\` — inspect impact signals
-• \`/mark-impactful <message link>\` — confirm normal message KXP
-• \`/remove-message-xp <message link>\` — reverse message KXP
-• \`/impact-settings\` / \`/set-impact\` — inspect/tune impact rules
-• \`/kxp-settings\` / \`/set-kxp\` — inspect/change KXP rewards
-• \`/voice-event start/stop/status\` — official voice KXP
-
-**Leaderboards + wallets**
-• \`/leaderboard-settings\` — public/private leaderboard visibility
-• \`/creator-campaign create/list/close\` — manage KREATOR campaigns
-• \`/refresh-leaderboard\` — refresh persistent Top 50 boards
-• \`/export-leaderboard\` — export KXP/referral/community CSV
-• \`/wallet-admin @member\` — CORE: inspect submitted identity/wallet data
-• \`/export-wallets\` — CORE: export wallet/identity CSV
-
-[KLINEO-MOD-COMMANDS]` });
-
-    await seedMessage(channels.modCommands, '[KLINEO-MOD-COMMANDS-2]', { content: `**LINKO Moderator Command Center · 2/2**
-
-**Roles + spaces**
-• \`/grant-klineo-role\` — grant Founder / Studio / KREATOR / Partner / Ambassador
-• \`/create-client-space\` — create a private Liquidity Studio workspace
-• \`/refresh-stats\` — refresh Members / Online counters
-• \`/server-image set/clear/status\` — manage section images
-• \`/official-links\` — manage verified KlineO links
-• \`/team-profile\` — manage official founder/team profiles
-
-**Community operations**
-• \`/community-health\` / \`/refresh-health\` — health dashboard
-• \`/mod-inbox\` — consolidated review queue
-• \`/event\` — create/start/end/cancel/audit events
-• \`/suggestion\` — manage product-roadmap suggestions
-• \`/language-manager\` — create/archive language communities
-• \`/channel-manager\` — create/rename/archive managed channels
-• \`/mod-help\` — show the private staff guide
-
-All staff commands enforce LINKO role/permission checks.
-
-[KLINEO-MOD-COMMANDS-2]` });
+  if (channels.productRoadmap) {
+    await seedMessage(channels.productRoadmap, '[KLINEO-PRODUCT-ROADMAP]', { content: `**${name} Suggestions**\n\nSubmit a structured idea with /suggest. LINKO keeps its status updated as staff review it.\n\n[KLINEO-PRODUCT-ROADMAP]` });
   }
+
+  const memberGuide = [
+    '**LINKO Member Commands**',
+    '',
+    `Community: **${name}** · XP: **${label}**`,
+    '',
+    '• /rank — your rank and progress',
+    '• /points — your XP balance',
+    '• /leaderboard — community leaderboards',
+    '• /onboarding — your activation checklist',
+    '• /interest add/remove/list — choose interests',
+    '• /social-card — generate a shareable progress/referral/impact card',
+  ];
+  if (moduleEnabled('referrals')) memberGuide.push('• /invite / /invites / /join-source — referral and join-source tools');
+  if (moduleEnabled('wallets')) memberGuide.push('• /wallet — submitted public wallet/social details; LINKO never signs');
+  if (moduleEnabled('kreator')) memberGuide.push('• /submit-post — social review', '• /leaderboard type:Kreators — lifetime KREATOR leaderboard', '• /leaderboard type:Creator Campaign campaign:<ID> — campaign leaderboard');
+  if (moduleEnabled('founders')) memberGuide.push('• /apply-founder — request Founder Hub access');
+  if (moduleEnabled('languages')) memberGuide.push('• /language add/remove/list — language rooms');
+  if (moduleEnabled('product')) memberGuide.push('• /suggest — submit a structured suggestion');
+  if (moduleEnabled('events')) memberGuide.push('• /events — upcoming community events');
+  memberGuide.push('', 'Plain chat in this channel is automatically removed.', '', '[LINKO-MEMBER-COMMANDS]');
+  await seedMessage(channels.botCommands, '[LINKO-MEMBER-COMMANDS]', { content: memberGuide.join('\n') });
+
+  if (channels.modCommands) {
+    const modGuide = [
+      '**LINKO Moderator Command Center**',
+      '',
+      '**XP + moderation**',
+      '• /user-kxp @member — detailed XP breakdown',
+      '• /give-xp / /remove-xp — manual XP adjustments',
+      '• /impact-status / /mark-impactful / /remove-message-xp — impact controls',
+      '• /kxp-settings / /set-kxp — XP economy settings',
+      '• /leaderboard-settings / /refresh-leaderboard — leaderboard controls',
+      '',
+      '**Server operations**',
+      '• /server-settings — profile, XP label, preset and modules',
+      '• /channel-manager — create/rename/archive/batch-create managed channels',
+      '• /official-links / /team-profile — official identity',
+      '• /server-image — section images',
+      '• /community-health / /mod-inbox — operations dashboards',
+    ];
+    if (moduleEnabled('referrals')) modGuide.push('• /referral-stats / /confirm-referral — referrals');
+    if (moduleEnabled('events')) modGuide.push('• /event / /voice-event — events and voice XP');
+    if (moduleEnabled('kreator')) modGuide.push('• /creator-campaign — KREATOR campaigns');
+    if (moduleEnabled('wallets')) modGuide.push('• /wallet-admin / /export-wallets — wallet administration');
+    if (moduleEnabled('languages')) modGuide.push('• /language-manager — language communities');
+    if (moduleEnabled('product')) modGuide.push('• /suggestion / /approve-bug — suggestion and bug workflow');
+    if (moduleEnabled('studio')) modGuide.push('• /create-client-space — private Studio client workspace');
+    modGuide.push('', 'All staff commands enforce LINKO role/permission checks.', '', '[LINKO-MOD-COMMANDS]');
+    await seedMessage(channels.modCommands, '[LINKO-MOD-COMMANDS]', { content: modGuide.join('\n') });
+  }
+
   setSetupPhase('10/11 · Refresh leaderboards + staff dashboards');
   await updateAllLeaderboards(guild);
   await updateCommunityHealthDashboard(guild);
   await updateModInbox(guild);
 
-  setSetupPhase('11/11 · Refresh Social + Founder Hub content');
-  await seedMessage(channels.sharePost, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
-  await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
-  await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: '**KlineO Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]' });
+  setSetupPhase('11/11 · Refresh optional Social + Founder content');
+  if (channels.sharePost) await seedMessage(channels.sharePost, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
+  if (channels.founderLobby) await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
+  if (channels.founderDirectory) await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: `**${name} Founder Directory**\n\nApproved Founder Hub members and project profiles appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]` });
 
   setSetupPhase(`COMPLETE · ${name} structure synced successfully`);
   return { roles, categories, channels };
