@@ -3477,11 +3477,15 @@ client.on('presenceUpdate', (_oldPresence, newPresence) => {
 });
 client.on('inviteCreate', (invite) => {
   if (!isAllowedGuild(invite.guild?.id)) return;
-  inviteCacheForGuild(invite.guild.id).set(invite.code, invite.uses ?? 0);
+  runWithGuild(invite.guild.id, () => {
+    if (moduleEnabled('referrals')) inviteCacheForGuild(invite.guild.id).set(invite.code, invite.uses ?? 0);
+  });
 });
 client.on('inviteDelete', (invite) => {
   if (!isAllowedGuild(invite.guild?.id)) return;
-  inviteCacheForGuild(invite.guild.id).delete(invite.code);
+  runWithGuild(invite.guild.id, () => {
+    if (moduleEnabled('referrals')) inviteCacheForGuild(invite.guild.id).delete(invite.code);
+  });
 });
 
 client.on('messageReactionAdd', async (reaction, user) => {
@@ -3492,7 +3496,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
     await runWithGuild(reaction.message.guild.id, async () => {
       await recordImpactEngagement(reaction.message.id, user.id, 'reaction');
-      await handleCreatorPostReaction(reaction, user, true);
+      if (moduleEnabled('kreator')) await handleCreatorPostReaction(reaction, user, true);
     });
   } catch (error) { logLinkoError('messageReactionAdd', error); }
 });
@@ -3503,7 +3507,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
     if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
-    await runWithGuild(reaction.message.guild.id, () => handleCreatorPostReaction(reaction, user, false));
+    await runWithGuild(reaction.message.guild.id, () => moduleEnabled('kreator') ? handleCreatorPostReaction(reaction, user, false) : undefined);
   } catch (error) { logLinkoError('messageReactionRemove', error); }
 });
 
@@ -3514,7 +3518,7 @@ client.on('messageCreate', async (message) => {
   const channelBase = baseChannelName(channelName);
   if (channelBase === 'bot-commands' && !hasStaffRole(message.member)) {
     await message.delete().catch(() => {});
-    await message.author.send('Use slash commands in **#bot-commands** (for example `/rank`, `/points`, `/leaderboard`, `/invite`, `/invites`, `/wallet`). Plain chat is removed to keep the command channel clean.').catch(() => {});
+    await message.author.send('Use slash commands in **#bot-commands** (for example `/rank`, `/points`, `/leaderboard`). Plain chat is removed to keep the command channel clean.').catch(() => {});
     return;
   }
   const isPublicBlocked = PUBLIC_NO_LINK_CHANNELS.has(channelBase);
