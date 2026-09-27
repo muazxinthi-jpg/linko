@@ -1400,7 +1400,7 @@ function buildSuggestionEmbed(row) {
       { name: 'Status', value: `**${suggestionStatusLabel(row.status)}**`, inline: true },
       { name: 'Submitted by', value: `<@${row.user_id}>`, inline: true },
       ...(row.staff_note ? [{ name: 'Staff note', value: row.staff_note.slice(0, 1024) }] : []),
-    ).setFooter({ text: `KlineO Product Suggestion #${row.id}` }).setTimestamp(new Date(row.updated_at || row.created_at));
+    ).setFooter({ text: `${communityName()} Product Suggestion #${row.id}` }).setTimestamp(new Date(row.updated_at || row.created_at));
 }
 async function updateSuggestionMessages(guild, id) {
   const row = db.prepare('SELECT * FROM product_suggestions WHERE id = ?').get(id);
@@ -1431,7 +1431,7 @@ async function setSuggestionStatus(guild, id, status, actorId, note = '') {
   db.prepare('UPDATE product_suggestions SET status = ?, updated_at = ?, updated_by = ?, staff_note = ? WHERE id = ?').run(status, now(), actorId, note || row.staff_note || '', id);
   await updateSuggestionMessages(guild, id);
   const member = await guild.members.fetch(row.user_id).catch(() => null);
-  if (member) await member.send(`💡 Your KlineO suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
+  if (member) await member.send(`💡 Your ${communityName()} suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
   scheduleModInboxUpdate(guild); scheduleHealthUpdate(guild);
 }
 function parseEventStart(raw) {
@@ -1454,14 +1454,14 @@ function buildEventEmbed(row) {
   const endSec = Math.floor((Number(row.start_at) + Number(row.duration_minutes) * 60000) / 1000);
   const e = new EmbedBuilder().setColor(row.status === 'live' ? BRAND.lime : row.status === 'cancelled' ? BRAND.rose : row.status === 'ended' ? BRAND.gray : BRAND.cyan)
     .setTitle(`${row.status === 'live' ? '🔴 ' : '📅 '}#${row.id} · ${row.title}`)
-    .setDescription(row.description || 'KlineO community event')
+    .setDescription(row.description || `${communityName()} community event`)
     .addFields(
       { name: 'Status', value: `**${eventStatusLabel(row.status)}**`, inline: true },
       { name: 'Starts', value: `<t:${startSec}:F>\n<t:${startSec}:R>`, inline: true },
       { name: 'Ends', value: `<t:${endSec}:t>`, inline: true },
       { name: 'RSVP', value: `✅ Going: **${counts.going}**\n⭐ Interested: **${counts.interested}**`, inline: true },
       ...(row.voice_channel_id ? [{ name: 'Voice room', value: `<#${row.voice_channel_id}>`, inline: true }] : []),
-    ).setFooter({ text: `KlineO Event #${row.id}` });
+    ).setFooter({ text: `${communityName()} Event #${row.id}` });
   return e;
 }
 function eventButtons(id, status) {
@@ -1504,7 +1504,7 @@ async function endCommunityEvent(guild, id, actorId = null, automatic = false) {
     const totalAttendees = Number(db.prepare('SELECT COUNT(*) AS c FROM event_attendance WHERE event_id=?').get(id)?.c ?? 0);
     const rsvp = eventRsvpCounts(id);
     const recap = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`✅ Event Recap · ${row.title}`)
-      .setDescription(`${automatic ? 'LINKO closed this event automatically at the scheduled end time.' : 'This KlineO event has ended.'}`)
+      .setDescription(`${automatic ? 'LINKO closed this event automatically at the scheduled end time.' : `This ${communityName()} event has ended.`}`)
       .addFields(
         { name: 'Attendance', value: `Voice attendees: **${totalAttendees}**\nRSVP Going: **${rsvp.going}**\nInterested: **${rsvp.interested}**`, inline: true },
         ...(attendance.length ? [{ name: 'Top attendance', value: attendance.slice(0,5).map((a) => `<@${a.user_id}> — **${a.minutes} min**`).join('\n') }] : []),
@@ -1558,7 +1558,7 @@ function healthMetrics(guild, days = 7) {
 function buildHealthEmbed(guild, days = 7) {
   const m = healthMetrics(guild, days);
   const ranks = RANKS.map((r) => `${r.name}: **${m.rankCounts[r.name]}**`).join(' · ');
-  return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 KlineO Community Health · ${days}d`)
+  return new EmbedBuilder().setColor(BRAND.lime).setTitle(`📊 ${communityName()} Community Health · ${days}d`)
     .addFields(
       { name: 'Community', value: `Members: **${m.total}**\nVerified: **${m.verified}**\nOnline now: **${m.online}**`, inline: true },
       { name: `${days}d growth`, value: `New joins: **${m.joins}**\nVerified: **${m.verifications}**\nActivation: **${m.activationRate}%**`, inline: true },
@@ -1578,8 +1578,8 @@ function scheduleHealthUpdate(guild) {
 function modInboxCounts() {
   const cutoff = now() - 7 * 86400000;
   return {
-    social: Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status='pending'").get()?.c ?? 0),
-    founders: Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0),
+    social: moduleEnabled('kreator') ? Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status='pending'").get()?.c ?? 0) : 0,
+    founders: moduleEnabled('founder_hub') ? Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0) : 0,
     suggestions: Number(db.prepare("SELECT COUNT(*) AS c FROM product_suggestions WHERE status IN ('submitted','reviewing')").get()?.c ?? 0),
     impact: Number(db.prepare('SELECT COUNT(*) AS c FROM message_candidates WHERE awarded=0 AND revoked=0 AND created_at >= ?').get(cutoff)?.c ?? 0),
     events: Number(db.prepare("SELECT COUNT(*) AS c FROM community_events WHERE status IN ('planned','live')").get()?.c ?? 0),
