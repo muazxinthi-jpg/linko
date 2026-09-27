@@ -382,6 +382,12 @@ const db = {
 };
 
 const DEFAULT_SETTINGS = {
+  community_name: '',
+  profile_preset: 'klineo',
+  module_signal_room: '1',
+  module_kreator: '1',
+  module_founder_hub: '1',
+  module_liquidity_studio: '1',
   xp_label: 'KXP',
   kxp_message: '1',
   kxp_voice_interval: '1',
@@ -487,6 +493,44 @@ function normalizeXpLabel(raw) {
 
 function xpLabel() {
   return normalizeXpLabel(getSetting('xp_label')) ?? 'KXP';
+}
+
+function communityName() {
+  const value = String(getSetting('community_name') ?? '').trim();
+  return value || 'Community';
+}
+
+function communityNameUpper() {
+  return communityName().toUpperCase().slice(0, 40);
+}
+
+function moduleEnabled(key) {
+  return getSetting(`module_${key}`) !== '0';
+}
+
+function applyServerPreset(preset) {
+  const name = preset === 'community' ? 'community' : 'klineo';
+  setSetting('profile_preset', name);
+  const values = name === 'klineo'
+    ? { signal_room: 1, kreator: 1, founder_hub: 1, liquidity_studio: 1 }
+    : { signal_room: 1, kreator: 0, founder_hub: 0, liquidity_studio: 0 };
+  for (const [key, enabled] of Object.entries(values)) setSetting(`module_${key}`, enabled ? 1 : 0);
+  return values;
+}
+
+function coreRoleName() {
+  return communityName().toLowerCase() === 'klineo' ? 'KLINEO CORE' : 'COMMUNITY CORE';
+}
+
+function teamRoleName() {
+  return communityName().toLowerCase() === 'klineo' ? 'KLINEO TEAM' : 'COMMUNITY TEAM';
+}
+
+function categoryName(key) {
+  if (key === 'community') return `💬・${communityNameUpper()} COMMUNITY`;
+  if (key === 'social') return `📣・${communityNameUpper()} SOCIAL`;
+  if (key === 'kxp') return `⚡・${xpLabel()}`;
+  return CATEGORY_NAMES[key];
 }
 
 const client = new Client({
@@ -2317,21 +2361,24 @@ async function updatePublicKxpDocs(guild) {
   if (social) await seedMessage(social, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
 }
 function readOnlyOverwrites(everyone, roles = []) {
+  const validRoles = roles.filter(Boolean);
   return [
     overwrite(everyone.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads]),
-    ...roles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])),
+    ...validRoles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])),
   ];
 }
 function privateFor(everyone, allowedRoles) {
+  const validRoles = allowedRoles.filter(Boolean);
   return [
     overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
-    ...allowedRoles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory])),
+    ...validRoles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory])),
   ];
 }
 function privateVoiceFor(everyone, allowedRoles) {
+  const validRoles = allowedRoles.filter(Boolean);
   return [
     overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect]),
-    ...allowedRoles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak])),
+    ...validRoles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak])),
   ];
 }
 
