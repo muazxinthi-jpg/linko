@@ -3555,9 +3555,9 @@ client.on('interactionCreate', async (interaction) => {
       logCommandUse(interaction).catch(() => {});
       setSetupPhase('starting');
       try {
-        await buildKlineO(interaction.guild);
+        await buildLinko(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.7 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.7 synced for **${communityName()}**. Template: **${serverTemplate()}** · XP: **${xpLabel()}** · Modules: **${enabledModuleNames().join(', ') || 'core only'}**.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -4336,19 +4336,49 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
       const action = interaction.options.getSubcommand();
       if (action === 'view') {
+        const modules = Object.keys(PROFILE_MODULES).map((m) => `${moduleEnabled(m) ? '✅' : '⬜'} ${m}`).join('\n');
         return interaction.reply({
-          content: `**LINKO SERVER SETTINGS**\nServer: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\nAllowed-server mode: **ON**`,
+          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nTemplate: **${serverTemplate()}**\nXP name: **${xpLabel()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Modules**\n${modules}\n\nModule changes are non-destructive. Run \`/setup-linko confirm:true\` after changing a preset/module to create or sync the enabled spaces.`,
           ephemeral: true,
         });
+      }
+      if (action === 'name') {
+        const requested = interaction.options.getString('name', true).trim();
+        setSetting('server_name', requested);
+        await refreshBrandMessages(interaction.guild).catch(() => {});
+        await updateAllLeaderboards(interaction.guild).catch(() => {});
+        return interaction.reply({ content: `✅ LINKO now identifies this community as **${requested}**. Run \`/setup-linko confirm:true\` to sync category/channel presentation if needed.`, ephemeral: true });
       }
       if (action === 'xp-name') {
         const requested = interaction.options.getString('name', true);
         const label = normalizeXpLabel(requested);
         if (!label) return interaction.reply({ content: 'XP name must contain **1 to 6 letters only**. Examples: `KXP`, `DOTXP`, `XP`.', ephemeral: true });
+        const oldLabel = xpLabel();
         setSetting('xp_label', label);
+        const xpCategory = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === `⚡・${oldLabel}`);
+        if (xpCategory && oldLabel !== label) await xpCategory.setName(`⚡・${label}`, 'LINKO XP label update').catch(() => {});
+        const oldLbBase = `${oldLabel.toLowerCase()}-leaderboard`;
+        const lb = interaction.guild.channels.cache.find((c) => c.isTextBased() && baseChannelName(c.name) === oldLbBase);
+        if (lb && oldLabel !== label) await lb.setName(xpLeaderboardChannelName(), 'LINKO XP label update').catch(() => {});
+        const oldHowBase = `how-to-earn-${oldLabel.toLowerCase()}`;
+        const how = interaction.guild.channels.cache.find((c) => c.isTextBased() && baseChannelName(c.name) === oldHowBase);
+        if (how && oldLabel !== label) await how.setName(howToEarnXpChannelName(), 'LINKO XP label update').catch(() => {});
         await updatePublicKxpDocs(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
-        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged; only the display name changed.`, ephemeral: true });
+        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing balances and rank history are unchanged.`, ephemeral: true });
+      }
+      if (action === 'preset') {
+        const preset = interaction.options.getString('preset', true);
+        applyProfilePreset(preset, interaction.guild);
+        await interaction.guild.commands.set(commandsForCurrentProfile()).catch(() => {});
+        return interaction.reply({ content: `✅ Applied the **${serverTemplate()}** preset. Community: **${communityName()}** · XP: **${xpLabel()}** · Modules: **${enabledModuleNames().join(', ') || 'core only'}**.\n\nRun \`/setup-linko confirm:true\` to sync the structure. Existing channels are not destructively deleted.`, ephemeral: true });
+      }
+      if (action === 'module') {
+        const moduleName = interaction.options.getString('module', true);
+        const enabled = interaction.options.getBoolean('enabled', true);
+        setModuleEnabled(moduleName, enabled);
+        await interaction.guild.commands.set(commandsForCurrentProfile()).catch(() => {});
+        return interaction.reply({ content: `✅ **${moduleName}** is now **${moduleEnabled(moduleName) ? 'ENABLED' : 'DISABLED'}**.\nRun \`/setup-linko confirm:true\` to create/sync enabled module spaces. Disabling a module hides its commands but does not automatically delete existing Discord channels or historical data.`, ephemeral: true });
       }
     }
     if (interaction.commandName === 'kxp-settings') {
