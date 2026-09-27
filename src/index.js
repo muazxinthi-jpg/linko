@@ -2698,6 +2698,7 @@ async function generateSocialCard(guild, member, type) {
   ctx.fillStyle = '#9CA3AF'; ctx.font = '500 24px monospace'; ctx.fillText('COMMUNITY IDENTITY // LINKO', 125, 162);
 
   const xp = getXp(member.id);
+  const label = xpLabel();
   const rank = rankForXp(xp);
   const next = nextRankForXp(xp);
   const referrals = getReferralStats(member.id);
@@ -2718,16 +2719,16 @@ async function generateSocialCard(guild, member, type) {
     ctx.fillStyle = '#FFFFFF'; ctx.font = '800 46px monospace'; ctx.fillText(value, x, y + 58);
   };
   let title = 'PROGRESS CARD';
-  let caption = `I’m ${rank.name} in the KlineO community with ${xp.toLocaleString()} KXP.`;
+  let caption = `I’m ${rank.name} in the KlineO community with ${xp.toLocaleString()} ${label}.`;
   if (type === 'progress') {
-    metric('KXP', xp.toLocaleString(), 145, 475);
-    metric('KXP leaderboard', kpos ? `#${kpos}` : '—', 560, 475);
+    metric(label, xp.toLocaleString(), 145, 475);
+    metric(`${label} leaderboard`, kpos ? `#${kpos}` : '—', 560, 475);
     metric('Next rank', next ? next.name : 'MAX', 1000, 475);
     const start = rank.threshold, end = next?.threshold ?? Math.max(start + 1, xp);
     const pct = next ? Math.max(0, Math.min(1, (xp - start) / (end - start))) : 1;
     ctx.fillStyle = '#6B7280'; drawRoundRect(ctx, 145, 630, 1180, 24, 12); ctx.fill();
     ctx.fillStyle = '#B8F03A'; drawRoundRect(ctx, 145, 630, Math.max(24, 1180 * pct), 24, 12); ctx.fill();
-    ctx.fillStyle = '#9CA3AF'; ctx.font = '500 22px monospace'; ctx.fillText(next ? `${(next.threshold - xp).toLocaleString()} KXP to ${next.name}` : 'PRIME reached · KXP keeps growing', 145, 700);
+    ctx.fillStyle = '#9CA3AF'; ctx.font = '500 22px monospace'; ctx.fillText(next ? `${(next.threshold - xp).toLocaleString()} ${label} to ${next.name}` : `PRIME reached · ${label} keeps growing`, 145, 700);
   } else if (type === 'referral') {
     title = 'REFERRAL CARD';
     metric('Valid referrals', referrals.valid.toLocaleString(), 145, 475);
@@ -2736,18 +2737,18 @@ async function generateSocialCard(guild, member, type) {
     caption = `I’ve brought ${referrals.valid} verified members into the KlineO community. My referral rank: ${rpos ? `#${rpos}` : 'building'}.`;
   } else if (type === 'impact') {
     title = 'COMMUNITY IMPACT';
-    metric('KXP', xp.toLocaleString(), 145, 475);
+    metric(label, xp.toLocaleString(), 145, 475);
     metric('Valid referrals', referrals.valid.toLocaleString(), 500, 475);
     metric('Approved posts', socialCount.toLocaleString(), 870, 475);
     metric('Valid bugs', bugs.toLocaleString(), 1230, 475);
-    caption = `My KlineO community impact: ${xp.toLocaleString()} KXP, ${referrals.valid} valid referrals and ${socialCount} approved social posts.`;
+    caption = `My KlineO community impact: ${xp.toLocaleString()} ${label}, ${referrals.valid} valid referrals and ${socialCount} approved social posts.`;
   } else if (type === 'founder') {
     const isFounder = member.roles.cache.some((r) => ['VERIFIED FOUNDER', 'STUDIO CLIENT'].includes(r.name));
     if (!isFounder) throw new Error('Founder cards are available only to VERIFIED FOUNDER or STUDIO CLIENT roles.');
     const app = db.prepare("SELECT * FROM founder_applications WHERE user_id = ? AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(member.id);
     title = 'VERIFIED FOUNDER';
     metric('Community rank', rank.name, 145, 475);
-    metric('KXP', xp.toLocaleString(), 620, 475);
+    metric(label, xp.toLocaleString(), 620, 475);
     metric('Project', app?.project_name ? app.project_name.slice(0, 18) : 'VERIFIED', 1000, 475);
     caption = `Verified Founder in the KlineO community${app?.project_name ? `, building ${app.project_name}` : ''}.`;
   }
