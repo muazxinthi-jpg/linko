@@ -511,11 +511,11 @@ function normalizeBrandAccent(raw) {
 }
 
 function brandAccent() {
-  return normalizeBrandAccent(getSetting('brand_accent')) ?? '#B8F03A';
+  return normalizeBrandAccent(getSetting('brand_accent')) ?? '#FF5A1F';
 }
 
 function accentRgba(hex, alpha) {
-  const normalized = normalizeBrandAccent(hex) ?? '#B8F03A';
+  const normalized = normalizeBrandAccent(hex) ?? '#FF5A1F';
   const value = Number.parseInt(normalized.slice(1), 16);
   const r = (value >> 16) & 255;
   const g = (value >> 8) & 255;
@@ -3014,189 +3014,200 @@ async function generateHealthCard(guild, days = 7) {
   const m = healthMetrics(guild, days);
   const current = healthPeriodMetrics(days, 0);
   const previous = healthPeriodMetrics(days, 1);
-  const status = healthCardStatus(m, previous);
   const insight = healthCardInsight(m, previous, days);
   const verifiedRate = m.total ? Math.round((m.verified / m.total) * 100) : 0;
   const startDate = new Date(current.start);
   const endDate = new Date(current.end);
   const dateLabel = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()} - ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}`;
 
-  ctx.fillStyle = '#050607';
-  ctx.fillRect(0, 0, W, H);
+  const hex = normalizeBrandAccent(accent) ?? '#FF5A1F';
+  const rgb = Number.parseInt(hex.slice(1), 16);
+  const r = (rgb >> 16) & 255;
+  const g = (rgb >> 8) & 255;
+  const b = rgb & 255;
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const ink = luminance > 0.52 ? '#070707' : '#FFFFFF';
+  const softInk = luminance > 0.52 ? 'rgba(7,7,7,0.70)' : 'rgba(255,255,255,0.72)';
+  const faintInk = luminance > 0.52 ? 'rgba(7,7,7,0.14)' : 'rgba(255,255,255,0.16)';
 
-  const glow = ctx.createRadialGradient(1390, 20, 0, 1390, 20, 760);
-  glow.addColorStop(0, accentRgba(accent, 0.24));
-  glow.addColorStop(0.42, accentRgba(accent, 0.075));
-  glow.addColorStop(1, accentRgba(accent, 0));
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
-
-  const leftGlow = ctx.createRadialGradient(100, 700, 0, 100, 700, 500);
-  leftGlow.addColorStop(0, 'rgba(255,255,255,0.035)');
-  leftGlow.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = leftGlow;
-  ctx.fillRect(0, 350, 700, 550);
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.028)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= W; x += 96) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y <= H; y += 96) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-  await drawGuildIdentity(ctx, guild, 86, 66, 88, accent);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '850 35px sans-serif';
-  ctx.fillText(communityNameUpper(), 205, 104);
-  ctx.fillStyle = '#90969F';
-  ctx.font = '650 18px monospace';
-  ctx.fillText('COMMUNITY HEALTH REPORT', 205, 137);
-
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#A7ADB5';
-  ctx.font = '650 17px monospace';
-  ctx.fillText(dateLabel, 1510, 89);
   ctx.fillStyle = accent;
-  ctx.font = '800 18px monospace';
-  ctx.fillText(`LAST ${days} DAYS · VS PRIOR ${days} DAYS`, 1510, 121);
-  ctx.textAlign = 'left';
+  ctx.fillRect(0, 0, W, H);
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '900 63px sans-serif';
-  ctx.fillText('Community Health', 88, 238);
-  ctx.fillStyle = '#A8AEB6';
-  ctx.font = '500 21px sans-serif';
-  ctx.fillText('Growth, participation and activation signals that are safe to share publicly.', 92, 276);
+  // Pull the Discord server banner into the composition when one exists.
+  // It is deliberately subtle so metrics remain readable and public-share friendly.
+  const bannerUrl = guild.bannerURL({ extension: 'png', size: 2048 });
+  let bannerDrawn = false;
+  if (bannerUrl) {
+    try {
+      const response = await fetch(bannerUrl);
+      if (response.ok) {
+        const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+        const boxX = 1030, boxY = 0, boxW = 570, boxH = 520;
+        const sourceRatio = image.width / image.height;
+        const boxRatio = boxW / boxH;
+        let sx = 0, sy = 0, sw = image.width, sh = image.height;
+        if (sourceRatio > boxRatio) {
+          sw = image.height * boxRatio;
+          sx = (image.width - sw) / 2;
+        } else {
+          sh = image.width / boxRatio;
+          sy = (image.height - sh) / 2;
+        }
+        ctx.save();
+        ctx.globalAlpha = 0.19;
+        ctx.drawImage(image, sx, sy, sw, sh, boxX, boxY, boxW, boxH);
+        ctx.restore();
 
-  const badgeColors = {
-    good: { fill: accentRgba(accent, 0.14), stroke: accentRgba(accent, 0.55), text: accent },
-    warn: { fill: 'rgba(246,200,95,0.11)', stroke: 'rgba(246,200,95,0.48)', text: '#F6C85F' },
-    muted: { fill: 'rgba(142,148,157,0.10)', stroke: 'rgba(142,148,157,0.30)', text: '#A4AAB2' },
-    neutral: { fill: 'rgba(255,255,255,0.055)', stroke: 'rgba(255,255,255,0.14)', text: '#D7DADF' },
-  };
-  const badge = badgeColors[status.tone] ?? badgeColors.neutral;
-  ctx.font = '800 18px monospace';
-  const badgeW = Math.max(190, ctx.measureText(status.label).width + 54);
-  drawRoundRect(ctx, 1510 - badgeW, 190, badgeW, 50, 25);
-  ctx.fillStyle = badge.fill; ctx.fill();
-  ctx.strokeStyle = badge.stroke; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.fillStyle = badge.text;
+        const wash = ctx.createLinearGradient(960, 0, 1580, 0);
+        wash.addColorStop(0, accentRgba(accent, 0.96));
+        wash.addColorStop(0.42, accentRgba(accent, 0.62));
+        wash.addColorStop(1, accentRgba(accent, 0.18));
+        ctx.fillStyle = wash;
+        ctx.fillRect(930, 0, 670, 535);
+        bannerDrawn = true;
+      }
+    } catch {}
+  }
+
+  // Fallback visual motif, inspired by LINKO's connected-chain identity.
+  if (!bannerDrawn) {
+    ctx.save();
+    ctx.translate(1360, 235);
+    ctx.rotate(-0.63);
+    ctx.strokeStyle = luminance > 0.52 ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.24)';
+    ctx.lineWidth = 34;
+    drawRoundRect(ctx, -185, -64, 245, 128, 64);
+    ctx.stroke();
+    drawRoundRect(ctx, -25, -64, 245, 128, 64);
+    ctx.stroke();
+    ctx.restore();
+
+    for (let y = 30; y < 410; y += 15) {
+      for (let x = 1210; x < 1570; x += 15) {
+        const dx = x - 1390, dy = y - 210;
+        if ((dx * dx) / 52000 + (dy * dy) / 27000 < 1) {
+          ctx.fillStyle = luminance > 0.52 ? 'rgba(255,255,255,0.34)' : 'rgba(255,255,255,0.17)';
+          ctx.fillRect(x, y, 5, 5);
+        }
+      }
+    }
+  }
+
+  // Brand / server identity.
+  await drawGuildIdentity(ctx, guild, 62, 48, 76, luminance > 0.52 ? '#090909' : '#FFFFFF');
+  ctx.fillStyle = ink;
+  ctx.font = '900 38px sans-serif';
+  ctx.fillText('LinkO', 158, 91);
+  ctx.font = '700 16px monospace';
+  ctx.fillText(communityNameUpper(), 160, 119);
+
   ctx.textAlign = 'center';
-  ctx.fillText(status.label, 1510 - badgeW / 2, 222);
+  ctx.font = '800 18px monospace';
+  ctx.fillText(`LAST ${days} DAYS`, 800, 82);
+  ctx.fillStyle = softInk;
+  ctx.font = '650 14px monospace';
+  ctx.fillText(dateLabel, 800, 108);
   ctx.textAlign = 'left';
 
-  drawRoundRect(ctx, 88, 312, 1422, 64, 20);
-  ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.085)'; ctx.lineWidth = 1; ctx.stroke();
-  ctx.fillStyle = accent;
-  ctx.fillRect(88, 312, 6, 64);
-  ctx.fillStyle = '#D9DDE2';
-  ctx.font = '600 18px sans-serif';
-  const insightLines = wrapCanvasText(ctx, `Key insight: ${insight}`, 1350, 2);
-  insightLines.forEach((line, i) => ctx.fillText(line, 118, 339 + i * 23));
+  // Editorial headline.
+  ctx.fillStyle = ink;
+  const headlineSize = fitText(ctx, 'COMMUNITY HEALTH.', 1160, 92, 72);
+  ctx.font = `950 ${headlineSize}px sans-serif`;
+  ctx.fillText('COMMUNITY HEALTH.', 62, 252);
+
+  const serverTitle = communityNameUpper();
+  const serverSize = fitText(ctx, serverTitle, 920, 58, 38);
+  ctx.font = `900 ${serverSize}px sans-serif`;
+  ctx.fillText(serverTitle, 64, 326);
+
+  ctx.fillStyle = softInk;
+  ctx.font = '600 22px sans-serif';
+  const tagline = insight || 'People connect. Communities compound.';
+  const tagLines = wrapCanvasText(ctx, tagline, 970, 2);
+  tagLines.forEach((line, index) => ctx.fillText(line, 65, 370 + index * 28));
+
+  const lineY = 455;
+  ctx.fillStyle = ink;
+  ctx.fillRect(64, lineY, 1470, 3);
 
   const primary = [
-    { label: 'Active Contributors', value: compactMetric(m.contributors), trend: metricTrend(current.contributors, previous.contributors), note: `unique contributors in ${days}d` },
-    { label: 'Qualified Messages', value: compactMetric(m.qualifiedMessages), trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages), note: 'meaningful tracked messages' },
-    { label: 'New Joins', value: compactMetric(m.joins), trend: metricTrend(current.joins, previous.joins), note: `${compactMetric(m.verifications)} newly verified` },
-    { label: 'Activation', value: m.activationRate == null ? '—' : `${m.activationRate}%`, trend: null, note: m.verifications ? `${compactMetric(m.activated)} of ${compactMetric(m.verifications)} new verifications activated` : 'no new verifications yet' },
+    { label: 'Active\nContributors', value: compactMetric(m.contributors), symbol: '●' },
+    { label: 'Qualified\nMessages', value: compactMetric(m.qualifiedMessages), symbol: '▣' },
+    { label: 'New\nJoins', value: compactMetric(m.joins), symbol: '+' },
+    { label: 'Activation', value: m.activationRate == null ? '—' : `${m.activationRate}%`, symbol: '▥' },
   ];
 
-  const trendTone = (trend) => {
-    if (!trend || trend.direction === 'flat') return '#8F969F';
-    return trend.direction === 'up' ? accent : '#FB7185';
-  };
-
-  const cardW = 339;
-  const gap = 22;
+  const primaryX = [64, 435, 805, 1175];
   primary.forEach((item, index) => {
-    const x = 88 + index * (cardW + gap);
-    const y = 402;
-    drawRoundRect(ctx, x, y, cardW, 176, 26);
-    ctx.fillStyle = index === 0 ? accentRgba(accent, 0.075) : 'rgba(255,255,255,0.05)';
-    ctx.fill();
-    ctx.strokeStyle = index === 0 ? accentRgba(accent, 0.32) : 'rgba(255,255,255,0.11)';
-    ctx.lineWidth = 1.3;
-    ctx.stroke();
-
-    ctx.fillStyle = index === 0 ? accent : '#9AA1A9';
-    ctx.font = '750 16px sans-serif';
-    ctx.fillText(item.label.toUpperCase(), x + 24, y + 35);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '900 46px monospace';
-    ctx.fillText(item.value, x + 24, y + 91);
-    ctx.fillStyle = '#777F88';
-    ctx.font = '600 14px sans-serif';
-    ctx.fillText(item.note, x + 24, y + 119);
-
-    if (item.trend) {
-      ctx.fillStyle = trendTone(item.trend);
-      ctx.font = '750 14px monospace';
-      ctx.fillText(item.trend.label, x + 24, y + 151);
-    } else {
-      ctx.fillStyle = '#69717A';
-      ctx.font = '650 14px monospace';
-      ctx.fillText('CURRENT PERIOD', x + 24, y + 151);
+    const x = primaryX[index];
+    if (index > 0) {
+      ctx.fillStyle = ink;
+      ctx.globalAlpha = 0.75;
+      ctx.fillRect(x - 36, 492, 3, 166);
+      ctx.globalAlpha = 1;
     }
+
+    drawRoundRect(ctx, x, 493, 70, 64, 13);
+    ctx.fillStyle = luminance > 0.52 ? 'rgba(255,255,255,0.84)' : 'rgba(0,0,0,0.22)';
+    ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.font = '900 27px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(item.symbol, x + 35, 535);
+    ctx.textAlign = 'left';
+
+    const lines = item.label.split('\n');
+    ctx.font = '750 20px sans-serif';
+    lines.forEach((line, li) => ctx.fillText(line, x + 92, 517 + li * 24));
+
+    ctx.font = '950 78px monospace';
+    ctx.fillText(item.value, x, 646);
   });
+
+  ctx.fillStyle = ink;
+  ctx.fillRect(64, 687, 1470, 3);
 
   const secondary = [
-    ['Total Members', compactMetric(m.total), `${compactMetric(m.online)} online`],
-    ['Verified Members', compactMetric(m.verified), `${verifiedRate}% of members`],
-    ['Valid Referrals', compactMetric(m.validReferrals), metricTrend(current.validReferrals, previous.validReferrals).label],
-    ['Social Posts', compactMetric(m.social), metricTrend(current.social, previous.social).label],
-    ['Event Attendees', compactMetric(m.eventAttendees), metricTrend(current.eventAttendees, previous.eventAttendees).label],
-    ['Suggestions', compactMetric(m.suggestions), metricTrend(current.suggestions, previous.suggestions).label],
+    ['Verified\nMembers', compactMetric(m.verified), `${verifiedRate}% verified`],
+    ['Social\nPosts', compactMetric(m.social), 'approved'],
+    ['Event\nAttendees', compactMetric(m.eventAttendees), `last ${days}d`],
+    ['Referrals', compactMetric(m.validReferrals), 'valid'],
+    ['Suggestions', compactMetric(m.suggestions), 'submitted'],
   ];
+  const secondaryW = 294;
 
-  const secW = 221;
-  const secGap = 16;
   secondary.forEach(([label, value, note], index) => {
-    const x = 88 + index * (secW + secGap);
-    const y = 604;
-    drawRoundRect(ctx, x, y, secW, 118, 20);
-    ctx.fillStyle = 'rgba(255,255,255,0.038)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.075)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = '#858D96';
-    ctx.font = '700 13px sans-serif';
-    ctx.fillText(label.toUpperCase(), x + 18, y + 27);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '900 28px monospace';
-    ctx.fillText(value, x + 18, y + 65);
-    ctx.fillStyle = '#6E7680';
-    ctx.font = '600 12px sans-serif';
-    ctx.fillText(String(note).slice(0, 28), x + 18, y + 91);
+    const x = 64 + index * secondaryW;
+    if (index > 0) {
+      ctx.globalAlpha = 0.62;
+      ctx.fillStyle = ink;
+      ctx.fillRect(x - 19, 719, 2, 118);
+      ctx.globalAlpha = 1;
+    }
+
+    const lines = label.split('\n');
+    ctx.fillStyle = ink;
+    ctx.font = '750 18px sans-serif';
+    lines.forEach((line, li) => ctx.fillText(line, x, 744 + li * 21));
+    ctx.font = '950 48px monospace';
+    ctx.fillText(value, x, 812);
+    ctx.fillStyle = softInk;
+    ctx.font = '650 13px sans-serif';
+    ctx.fillText(note, x, 836);
   });
 
-  drawRoundRect(ctx, 88, 750, 1422, 64, 20);
-  ctx.fillStyle = accentRgba(accent, 0.055);
-  ctx.fill();
-  ctx.strokeStyle = accentRgba(accent, 0.18);
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = '#A6ADB5';
-  ctx.font = '600 15px monospace';
-  ctx.fillText('PUBLIC-SAFE SIGNALS ONLY', 116, 789);
-  ctx.fillStyle = '#FFFFFF';
+  ctx.fillStyle = ink;
   ctx.font = '700 16px sans-serif';
-  ctx.fillText('No message content, wallet data or private member information appears on this card.', 375, 789);
+  ctx.fillText('Generated by LINKO', 64, 878);
 
-  ctx.fillStyle = accent;
-  ctx.fillRect(88, 850, 84, 4);
-  ctx.fillStyle = '#7D858E';
-  ctx.font = '650 15px monospace';
-  ctx.fillText('GENERATED BY LINKO', 192, 856);
   ctx.textAlign = 'right';
-  ctx.fillStyle = '#B6BBC2';
-  ctx.font = '650 15px sans-serif';
-  ctx.fillText(guild.name.slice(0, 48), 1510, 856);
+  ctx.font = '800 14px monospace';
+  ctx.fillText('PEOPLE CONNECT. PROGRESS.', 1535, 878);
   ctx.textAlign = 'left';
 
-  const countLabel = (value, singular, plural = `${singular}s`) => `${value} ${Number(value) === 1 ? singular : plural}`;
   const activationCaption = m.activationRate == null ? 'no new verifications yet' : `${m.activationRate}% activation among new verifications`;
-  const caption = `${communityName()} community health, last ${days} days: ${countLabel(m.contributors, 'active contributor')}, ${countLabel(m.qualifiedMessages, 'qualified message')}, ${countLabel(m.joins, 'new join')}, and ${activationCaption}. ${insight}`;
-  return { buffer: canvas.toBuffer('image/png'), caption, status: status.label };
+  const caption = `${communityName()} Community Health, last ${days} days: ${m.contributors} active contributors, ${m.qualifiedMessages} qualified messages, ${m.joins} new joins and ${activationCaption}. ${insight}`;
+  return { buffer: canvas.toBuffer('image/png'), caption, status: healthCardStatus(m, previous).label };
 }
 
 async function generateSocialCard(guild, member, type) {
