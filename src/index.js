@@ -4207,18 +4207,34 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       if (action === 'community-name') {
         const name = interaction.options.getString('name', true).trim().replace(/\s+/g, ' ');
         if (name.length < 2 || name.length > 40) return interaction.reply({ content: 'Community name must be 2–40 characters.', ephemeral: true });
+        const oldName = communityName();
+        const oldUpper = oldName.toUpperCase().slice(0, 40);
+        const oldCore = oldName.toLowerCase() === 'klineo' ? 'KLINEO CORE' : 'COMMUNITY CORE';
+        const oldTeam = oldName.toLowerCase() === 'klineo' ? 'KLINEO TEAM' : 'COMMUNITY TEAM';
         setSetting('community_name', name);
         setSetting('profile_preset', 'custom');
-        return interaction.reply({ content: `✅ Community display name set to **${name}**. Run \`/setup-linko confirm:true\` to sync branded categories, roles and content.`, ephemeral: true });
+        const newCore = coreRoleName(), newTeam = teamRoleName();
+        const coreRole = interaction.guild.roles.cache.find((r) => r.name === oldCore && !r.managed);
+        const teamRole = interaction.guild.roles.cache.find((r) => r.name === oldTeam && !r.managed);
+        if (coreRole && oldCore !== newCore) await coreRole.setName(newCore, 'LINKO community profile rename').catch(() => {});
+        if (teamRole && oldTeam !== newTeam) await teamRole.setName(newTeam, 'LINKO community profile rename').catch(() => {});
+        const oldCommunity = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === `💬・${oldUpper} COMMUNITY`);
+        const oldSocial = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === `📣・${oldUpper} SOCIAL`);
+        if (oldCommunity && oldCommunity.name !== categoryName('community')) await oldCommunity.setName(categoryName('community'), 'LINKO community profile rename').catch(() => {});
+        if (oldSocial && oldSocial.name !== categoryName('social')) await oldSocial.setName(categoryName('social'), 'LINKO community profile rename').catch(() => {});
+        return interaction.reply({ content: `✅ Community display name set to **${name}**. Existing core/team roles and branded categories were renamed where possible. Run \`/setup-linko confirm:true\` to sync the rest.`, ephemeral: true });
       }
       if (action === 'xp-name') {
         const requested = interaction.options.getString('name', true);
         const label = normalizeXpLabel(requested);
         if (!label) return interaction.reply({ content: 'XP name must contain **1 to 6 letters only**. Examples: `KXP`, `DOTXP`, `XP`.', ephemeral: true });
+        const oldLabel = xpLabel();
         setSetting('xp_label', label);
+        const xpCategory = interaction.guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === `⚡・${oldLabel}`);
+        if (xpCategory && xpCategory.name !== categoryName('kxp')) await xpCategory.setName(categoryName('kxp'), 'LINKO XP label rename').catch(() => {});
         await updatePublicKxpDocs(interaction.guild).catch(() => {});
         await updateAllLeaderboards(interaction.guild).catch(() => {});
-        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged. Run \`/setup-linko confirm:true\` if you also want the XP category name synced.`, ephemeral: true });
+        return interaction.reply({ content: `✅ This server's XP is now called **${label}**. Existing point balances are unchanged, and the XP category was renamed where possible.`, ephemeral: true });
       }
       if (action === 'preset') {
         const preset = interaction.options.getString('type', true);
