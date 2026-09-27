@@ -3,6 +3,7 @@ import { mkdirSync, appendFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { createCanvas } from '@napi-rs/canvas';
 import { DatabaseSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -21,19 +22,23 @@ import {
 } from 'discord.js';
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
+const CONFIGURED_GUILD_IDS = String(process.env.GUILD_IDS ?? process.env.GUILD_ID ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const GUILD_IDS = new Set(CONFIGURED_GUILD_IDS);
 const MIN_ACCOUNT_AGE_HOURS = Number(process.env.MIN_ACCOUNT_AGE_HOURS ?? 0);
 
-if (!TOKEN || !GUILD_ID) {
-  console.error('Missing DISCORD_TOKEN or GUILD_ID in .env');
+if (!TOKEN || GUILD_IDS.size === 0) {
+  console.error('Missing DISCORD_TOKEN or GUILD_IDS/GUILD_ID in .env');
   process.exit(1);
 }
 
-mkdirSync('data', { recursive: true });
-const db = new DatabaseSync('data/linko.sqlite');
-db.exec('PRAGMA journal_mode = WAL;');
-db.exec('PRAGMA foreign_keys = ON;');
-db.exec(`
+mkdirSync('data/guilds', { recursive: true });
+const guildDbContext = new AsyncLocalStorage();
+const guildDbs = new Map();
+
+const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     xp INTEGER NOT NULL DEFAULT 0,
@@ -340,20 +345,41 @@ db.exec(`
     changed_at INTEGER NOT NULL,
     actor_id TEXT NOT NULL
   );
-`);
+`;
 
-function ensureSqliteColumn(table, column, definition) {
-  const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
-  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+function ensureSqliteColumn(database, table, column, definition) {
+  const exists = database.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
+  if (!exists) database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
-ensureSqliteColumn('wallet_profiles', 'x_account', 'TEXT');
-ensureSqliteColumn('wallet_profiles', 'telegram_account', 'TEXT');
-ensureSqliteColumn('social_submissions', 'campaign_id', 'INTEGER');
-ensureSqliteColumn('social_submissions', 'creator_eligible', 'INTEGER NOT NULL DEFAULT 0');
-ensureSqliteColumn('social_submissions', 'share_message_id', 'TEXT');
-ensureSqliteColumn('social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
-ensureSqliteColumn('social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
+function isAllowedGuild(guildId) {
+  return !!guildId && GUILD_IDS.has(String(guildId));
+}
+
+function guildDatabasePath(guildId) {
+  return `data/guilds/${String(guildId)}.sqlite`;
+}
+
+function runWithGuild(guildId, fn) {
+  const id = String(guildId ?? '');
+  if (!isAllowedGuild(id)) return undefined;
+  return guildDbContext.run(id, fn);
+}
+
+function currentGuildId() {
+  const guildId = guildDbContext.getStore();
+  if (!guildId) throw new Error('LINKO database access attempted without a guild context');
+  return guildId;
+}
+
+function currentDatabase() {
+  return getGuildDb(currentGuildId());
+}
+
+const db = {
+  prepare(...args) { return currentDatabase().prepare(...args); },
+  exec(...args) { return currentDatabase().exec(...args); },
+};
 
 const DEFAULT_SETTINGS = {
   kxp_message: '1',
