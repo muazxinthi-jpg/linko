@@ -1740,17 +1740,26 @@ function withImageOrPlaceholder(embed, slot, label) {
   return embed.addFields({ name: '🖼️ Image', value: `**${label} image not uploaded yet.**\nStaff: use \`/server-image set\` and upload the image for this section.` });
 }
 function buildWelcomeEmbed(channels) {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('Welcome to KlineO')
-    .setDescription(`KlineO is a community for traders, creators, founders and market operators around AI-powered trading and digital-asset market infrastructure.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined KlineO\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn KXP through meaningful participation, official voice events, valid referrals and approved KlineO content.\n\nFounders can apply with \`/apply-founder\`. Generate a shareable KlineO card anytime with \`/social-card\`.
-
-After verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.\n\n**Security:** KlineO staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
-    .setFooter({ text: '[KLINEO-WELCOME]' });
+  const name = communityName();
+  const label = xpLabel();
+  const referralStep = moduleEnabled('referrals') ? `2. Run \`/join-source\` and tell LINKO how you joined **${name}**\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**` : `2. Verify in <#${channels.verify.id}>\n3. Enter as **OBSERVER**`;
+  const optional = [
+    moduleEnabled('founders') ? 'Founders can apply with `/apply-founder`.' : '',
+    moduleEnabled('kreator') ? 'KREATORs can submit approved social content and compete on creator leaderboards.' : '',
+    moduleEnabled('languages') ? 'Use `/language` after verification to join language rooms.' : '',
+  ].filter(Boolean).join(' ');
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`)
+    .setDescription(`LINKO powers community access, ranks and participation for **${name}**.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n${referralStep}\n\nEarn **${label}** through the activities enabled by this community. ${optional}\n\n**Security:** ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
+    .setFooter({ text: '[LINKO-WELCOME]' });
   return withImageOrPlaceholder(e, 'welcome', 'Welcome');
 }
+
 function buildVerifyEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('Verify & enter KlineO')
-    .setDescription('Before verification, run **/join-source** and tell LINKO how you joined KlineO. Then complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that KlineO staff will never ask for your seed phrase, private key, or funds via unsolicited DM.')
-    .setFooter({ text: '[KLINEO-VERIFY]' });
+  const name = communityName();
+  const referralText = moduleEnabled('referrals') ? 'Before verification, run **/join-source** and tell LINKO how you joined. Then ' : '';
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Verify & enter ${name}`)
+    .setDescription(`${referralText}complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
+    .setFooter({ text: '[LINKO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
 function buildSocialEmbed() {
