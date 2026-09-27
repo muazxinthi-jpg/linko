@@ -1,3 +1,69 @@
+# LINKO v10.7.0
+
+LINKO v10.7 adds a lightweight multi-server foundation on top of the v10.6 KREATOR economy.
+
+## Multi-server isolation
+
+- One LINKO process can serve multiple allowlisted Discord servers.
+- Configure servers with `GUILD_IDS` as a comma-separated list. Legacy `GUILD_ID` remains supported for a single server.
+- Each Discord server gets its own SQLite database:
+  - `data/guilds/<guild-id>.sqlite`
+- XP, referrals, wallets, creator campaigns, KREATOR scores, settings, events, managed channels and moderation state are isolated per server.
+- The same Discord user can therefore have different XP balances, ranks and campaign history in different servers.
+- Railway should keep the persistent volume mounted at `/app/data`, so per-server databases live under `/app/data/guilds/`.
+
+## Per-server XP name
+
+Each server can name its own points system with **1 to 6 letters**.
+
+Use:
+
+```text
+/server-settings xp-name name:DOTXP
+```
+
+Examples: `KXP`, `DOTXP`, `XP`, `POINTS`.
+
+- Input is normalized to uppercase.
+- Changing the XP name changes presentation only. It does not reset balances, ranks or XP history.
+- KlineO defaults to **KXP**.
+- Leaderboards, reward messages, social cards, XP rules and core reports use the server's configured label.
+
+## Batch channel creation
+
+Staff can create up to **10 managed channels at once** with:
+
+```text
+/channel-manager batch-create
+```
+
+The batch shares category, text/voice type, access policy, optional emoji, topic, link policy, XP eligibility and slowmode. LINKO creates channels sequentially and reports any partial failures instead of silently rolling back successful channels.
+
+## KREATOR and campaign retention
+
+The v10.6 model remains:
+
+- overall XP leaderboard: permanent
+- lifetime KREATOR leaderboard: permanent
+- campaign/weekly leaderboard: temporary
+- closed campaign leaderboard remains visible for **7 days**
+- expired detailed campaign-reaction rows are pruned
+- already-awarded XP remains permanent in the member's lifetime KREATOR score and overall XP
+
+## Current early-data upgrade plan
+
+KlineO's current production data is intentionally small/early. For the v10.7 cutover, the existing single-server `data/linko.sqlite` can remain on the Railway volume as an archive while LINKO starts the new guild-isolated database at:
+
+```text
+/app/data/guilds/1552805183082471474.sqlite
+```
+
+No destructive deletion of the old database is required.
+
+> v10.7 is still allowlist-based multi-server infrastructure. The full Discord template and many role/channel names remain KlineO-branded; this release isolates servers and customizes XP naming without attempting a complete white-label community-template rewrite.
+
+---
+
 # LINKO v10.6.0
 
 LINKO v10.6 adds the **KREATOR economy** on top of the existing KXP system. KREATOR points are attribution, not a separate currency: approved creator-content KXP and reaction-milestone KXP also increase the member's normal overall KXP balance and rank progression.
