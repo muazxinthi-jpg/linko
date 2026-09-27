@@ -1867,6 +1867,55 @@ async function logCommandUse(interaction) {
   await channel.send(`⌨️ ${interaction.user} used **/${interaction.commandName}** in ${where}.`).catch(() => {});
 }
 
+async function migrateProfileStructureNames(guild) {
+  await guild.roles.fetch();
+  await guild.channels.fetch();
+
+  const rolePairs = isKlineoTemplate()
+    ? [[genericCoreRoleName(), 'KLINEO CORE'], [genericTeamRoleName(), 'KLINEO TEAM']]
+    : [['KLINEO CORE', genericCoreRoleName()], ['KLINEO TEAM', genericTeamRoleName()]];
+
+  for (const [from, to] of rolePairs) {
+    const oldRole = guild.roles.cache.find((r) => r.name === from && !r.managed);
+    const target = guild.roles.cache.find((r) => r.name === to && !r.managed);
+    if (oldRole && !target) await oldRole.setName(to, 'LINKO server profile role migration').catch(() => {});
+  }
+
+  const genericCategories = {
+    community: `💬・${communityNameUpper()} COMMUNITY`,
+    xp: `⚡・${xpLabel()}`,
+    signal: '📈・SIGNAL ROOM',
+    social: '📣・SOCIAL',
+    creators: '🎨・KREATOR HUB',
+    founders: '🏛️・FOUNDERS HUB',
+    studio: '💧・STUDIO',
+    high: '◆・HIGHER LEVELS',
+    voice: '🎙️・VOICE',
+    languages: '🌍・LANGUAGES',
+    staff: '🛡️・STAFF',
+  };
+
+  const pairs = [
+    [CATEGORY_NAMES.community, genericCategories.community],
+    [CATEGORY_NAMES.kxp, genericCategories.xp],
+    [CATEGORY_NAMES.social, genericCategories.social],
+    [CATEGORY_NAMES.creators, genericCategories.creators],
+    [CATEGORY_NAMES.founders, genericCategories.founders],
+    [CATEGORY_NAMES.studio, genericCategories.studio],
+  ];
+
+  for (const [klineoName, genericName] of pairs) {
+    const from = isKlineoTemplate() ? genericName : klineoName;
+    const to = isKlineoTemplate() ? klineoName : genericName;
+    const oldCategory = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === from);
+    const target = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === to);
+    if (oldCategory && !target) await oldCategory.setName(to, 'LINKO server profile category migration').catch(() => {});
+  }
+
+  await guild.roles.fetch();
+  await guild.channels.fetch();
+}
+
 async function migrateLegacyStructure(guild) {
   await guild.roles.fetch();
   await guild.channels.fetch();
@@ -2633,6 +2682,7 @@ async function buildLinko(guild) {
   setSetupPhase('01/11 · Fetch server state + apply server profile');
   await guild.roles.fetch();
   await guild.channels.fetch();
+  await migrateProfileStructureNames(guild);
   if (isKlineo) await migrateLegacyStructure(guild);
   // Remove deprecated member profile-directory channels from v6. Member socials are no longer collected.
   for (const legacyBase of ['community-directory', 'profile-submissions']) {
