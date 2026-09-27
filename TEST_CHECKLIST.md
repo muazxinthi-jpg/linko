@@ -20,6 +20,19 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Server profile and module tests
+
+11. In KlineO, confirm first-run defaults are KlineO / KXP / KlineO Full, with Signal Room, KREATOR, Founder Hub and Liquidity Studio enabled.
+12. In a second non-KlineO test server, confirm first-run defaults are its Discord server name / XP / Core Community, with Signal Room enabled and KREATOR, Founder Hub and Liquidity Studio disabled.
+13. Set the second server to `/server-settings community-name name:Polkadot` and `/server-settings xp-name name:DOTXP`.
+14. Confirm KlineO retains `KLINEO CORE` / `KLINEO TEAM`, while the second server uses `COMMUNITY CORE` / `COMMUNITY TEAM`.
+15. Confirm community/social/XP categories use the configured community and XP labels.
+16. Confirm disabled optional-module categories are absent on first setup; if they existed previously, disabling hides them rather than deleting history.
+17. Enable KREATOR, rerun `/setup-linko confirm:true`, and confirm its role/channels become available without affecting other guild data.
+18. Enable Liquidity Studio and confirm Founder Hub is enabled automatically. Disable Founder Hub and confirm Liquidity Studio is disabled automatically.
+19. Rename the community and XP label after setup. Confirm existing dynamic roles/categories are renamed where possible and balances remain unchanged.
+20. Confirm welcome, verify, official links, social cards, events, health and referral messages use the current server branding.
+
 ## XP naming
 
 11. Leave KlineO on `KXP`.
