@@ -3293,7 +3293,7 @@ client.on('guildMemberAdd', async (member) => {
       const log = member.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
       if (log) await log.send(`🧭 **Pending referral detected** — <@${inviterId}> → ${member}. Source: ${mapped ? 'LINKO tracked invite' : 'standard Discord invite'}. It becomes valid only after verification + 7 days + community activity.`).catch(() => {});
       const inviterMember = await member.guild.members.fetch(inviterId).catch(() => null);
-      if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending KlineO referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet. It becomes valid after they verify, remain in the server for 7 days, and show community activity.`).catch(() => {});
+      if (inviterMember) await inviterMember.send(`🤝 LINKO detected a **pending ${communityName()} referral** for ${member.user.username}. No referral ${xpLabel()} is awarded yet. It becomes valid after they verify, remain in the server for 7 days, and show community activity.`).catch(() => {});
     }
   }
   if (!attributed) {
@@ -3304,7 +3304,7 @@ client.on('guildMemberAdd', async (member) => {
     const note = `🧭 **Unattributed join** — ${member}. Discord did not expose a unique inviter. LINKO cannot safely guess who invited them. The member must run \`/join-source\` before verification. If a member invited them, they select that member; staff can still use \`/confirm-referral\` for genuine exceptions.`;
     if (inbox) await inbox.send(note).catch(() => {});
     else if (log) await log.send(note).catch(() => {});
-    await member.send(`LINKO could not automatically identify your join source. Before you can verify, run **/join-source** in the KlineO server. If a KlineO member invited you, select them there. Referral credit becomes valid only after the inviter confirms, you verify, remain in the server for 7 days, and stay active across the qualification period.`).catch(() => {});
+    await member.send(`LINKO could not automatically identify your join source. Before you can verify, run **/join-source** in the ${communityName()} server. If a community member invited you, select them there. Referral credit becomes valid only after the inviter confirms, you verify, remain in the server for 7 days, and stay active across the qualification period.`).catch(() => {});
   }
   await sendWelcomeDm(member);
   scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
@@ -3375,8 +3375,9 @@ client.on('messageCreate', async (message) => {
     const shouldDelete = (isPublicBlocked && !hasStaffRole(message.member)) || (isSignal && !canShareSignalLinks(message.member)) || (managedBlocked && !hasStaffRole(message.member));
     if (shouldDelete) {
       await message.delete().catch(() => {});
-      const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : 'Links are not permitted in public KlineO community channels.';
-      await message.author.send(`Your message in **#${channelName}** was removed. ${note}\nUse **/submit-post** for KlineO social content.`).catch(() => {});
+      const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : `Links are not permitted in public ${communityName()} community channels.`;
+      const socialHint = moduleEnabled('kreator') ? `\nUse **/submit-post** for ${communityName()} social content.` : '';
+      await message.author.send(`Your message in **#${channelName}** was removed. ${note}${socialHint}`).catch(() => {});
       return;
     }
   }
