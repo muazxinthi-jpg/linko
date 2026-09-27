@@ -1755,9 +1755,10 @@ function buildVerifyEmbed() {
 }
 function buildSocialEmbed() {
   const label = xpLabel();
-  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle('KlineO Social & KREATORs')
-    .setDescription(`**Share KlineO. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a KlineO post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a KlineO progress, referral, impact or Founder card to share on your socials. Public chat links remain blocked.`)
-    .setFooter({ text: '[KLINEO-SOCIAL]' });
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Social & KREATORs`)
+    .setDescription(`**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a ${name} post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.\n\nUse \`/social-card\` to generate a shareable progress, referral, impact or Founder card. Public chat links remain blocked.`)
+    .setFooter({ text: '[LINKO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
 const OFFICIAL_LINKS = {
@@ -1775,11 +1776,12 @@ function officialLinkUrlValid(raw) {
 }
 function teamProfiles() { return db.prepare('SELECT * FROM team_profiles ORDER BY role_title COLLATE NOCASE, user_id').all(); }
 function buildOfficialLinksEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle('KlineO — Official Links')
-    .setDescription('Only trust links listed in this channel. KlineO staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.');
+  const name = communityName();
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`${name} — Official Links`)
+    .setDescription(`Only trust links listed in this channel. ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`);
   const linkFields = Object.entries(OFFICIAL_LINKS).map(([type, [key, label]]) => ({ type, key, label, value: getSetting(key) })).filter((x) => x.value);
   if (linkFields.length) e.addFields(linkFields.map((x) => ({ name: x.label, value: x.value, inline: true })));
-  else e.addFields({ name: '🔗 Official links', value: '**Not configured yet.**\nKLINEO CORE: use `/official-links set` to add the verified website and social links.' });
+  else e.addFields({ name: '🔗 Official links', value: `**Not configured yet.**\nServer administrators can use \`/official-links set\` to add verified links.` });
   const profiles = teamProfiles().slice(0, 10);
   if (profiles.length) {
     e.addFields({ name: '👥 Official Founders & Team', value: profiles.map((p) => {
@@ -1787,13 +1789,15 @@ function buildOfficialLinksEmbed() {
       return `<@${p.user_id}> — **${p.role_title}**${links ? `\n${links}` : ''}`;
     }).join('\n\n') });
   }
-  e.setFooter({ text: '[KLINEO-OFFICIAL-LINKS]' });
+  e.setFooter({ text: '[LINKO-OFFICIAL-LINKS]' });
   return withImageOrPlaceholder(e, 'official', 'Official Links');
 }
 function buildFounderHubEmbed() {
-  const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle('KlineO Founder Hub')
-    .setDescription('Verified founders and active Studio clients can discuss market structure, operations and KlineO Liquidity Studio here.\n\nUse `/apply-founder` to submit your project website, project socials, founder socials, role/title and Liquidity Studio interest. Approved founder profiles are added to the private Founder Directory. Sensitive client-specific work belongs in a private Studio workspace.')
-    .setFooter({ text: '[KLINEO-FOUNDERS]' });
+  const name = communityName();
+  const studioLine = moduleEnabled('studio') ? ` and active Studio clients` : '';
+  const e = new EmbedBuilder().setColor(BRAND.emerald).setTitle(`${name} Founder Hub`)
+    .setDescription(`Verified founders${studioLine} can discuss market structure, operations and community growth here.\n\nUse \`/apply-founder\` to submit your project website, project socials, founder socials and role/title. Approved profiles are added to the private Founder Directory.${moduleEnabled('studio') ? ' Sensitive client-specific Studio work belongs in a private client workspace.' : ''}`)
+    .setFooter({ text: '[LINKO-FOUNDERS]' });
   return withImageOrPlaceholder(e, 'founder', 'Founder Hub');
 }
 async function refreshBrandMessages(guild) {
