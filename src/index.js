@@ -1177,7 +1177,7 @@ function parseDiscordMessageLink(raw, guildId) {
   return { channelId: m[2], messageId: m[3] };
 }
 async function ensureCandidateFromMessage(message) {
-  if (!message?.guild || message.guild.id !== GUILD_ID || message.author?.bot || !message.member || !hasVerifiedRole(message.member)) return null;
+  if (!message?.guild || !isAllowedGuild(message.guild.id) || message.author?.bot || !message.member || !hasVerifiedRole(message.member)) return null;
   const base = baseChannelName(message.channel.name);
   if (!MESSAGE_XP_CHANNELS.has(base) || base === 'bug-reports') return null;
   const analysis = analyzeImpactMessage(message.content);
@@ -3034,7 +3034,7 @@ async function reconcileCreatorReactionRewards(guild, submissionId) {
 async function handleCreatorPostReaction(reaction, user, added) {
   if (user.bot) return;
   const guild = reaction.message.guild;
-  if (!guild || guild.id !== GUILD_ID) return;
+  if (!guild || !isAllowedGuild(guild.id)) return;
   const sub = db.prepare('SELECT * FROM social_submissions WHERE share_message_id = ? AND status = ?').get(reaction.message.id, 'approved');
   if (!sub) return;
   if (user.id === sub.user_id) return;
@@ -3051,33 +3051,44 @@ async function handleCreatorPostReaction(reaction, user, added) {
 
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
-  try {
-    const guild = await client.guilds.fetch(GUILD_ID);
-    const fullGuild = await guild.fetch();
-    await fullGuild.commands.set(commands);
-    await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
-    for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
-    await cacheInvites(fullGuild);
-    console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id})`);
-    console.log('Run /setup-klineo confirm:true to sync LINKO v10.6 KREATOR + campaign + engagement features.');
-    setInterval(() => checkPendingReferrals(fullGuild).catch(console.error), 60 * 60 * 1000);
-    setInterval(() => processVoiceEventMinute(fullGuild).catch(console.error), 60 * 1000);
-    setInterval(() => updateServerStats(fullGuild, false).catch(console.error), 5 * 60 * 1000);
-    setInterval(() => updateAllLeaderboards(fullGuild).catch(console.error), 5 * 60 * 1000);
-    setInterval(() => evaluateImpactCandidates(fullGuild).catch(console.error), 60 * 1000);
-    setInterval(() => processCommunityEvents(fullGuild).catch(console.error), 60 * 1000);
-    setInterval(() => updateCommunityHealthDashboard(fullGuild).catch(console.error), 10 * 60 * 1000);
-    setInterval(() => updateModInbox(fullGuild).catch(console.error), 5 * 60 * 1000);
-    setTimeout(() => checkPendingReferrals(fullGuild).catch(console.error), 15000);
-    setTimeout(() => updateAllLeaderboards(fullGuild).catch(console.error), 20000);
-    setTimeout(() => updateCommunityHealthDashboard(fullGuild).catch(console.error), 25000);
-    setTimeout(() => updateModInbox(fullGuild).catch(console.error), 30000);
-    setTimeout(() => processCommunityEvents(fullGuild).catch(console.error), 35000);
-  } catch (error) { console.error('Startup failed:', error); }
+  for (const guildId of GUILD_IDS) {
+    try {
+      await runWithGuild(guildId, async () => {
+        const guild = await client.guilds.fetch(guildId);
+        const fullGuild = await guild.fetch();
+        getGuildDb(fullGuild.id);
+        await fullGuild.commands.set(commands);
+        await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
+        for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
+        await cacheInvites(fullGuild);
+        console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.7 multi-server features.');
+
+        const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
+        setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
+        setInterval(recurring(processVoiceEventMinute), 60 * 1000);
+        setInterval(() => runWithGuild(fullGuild.id, () => updateServerStats(fullGuild, false).catch(console.error)), 5 * 60 * 1000);
+        setInterval(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 5 * 60 * 1000);
+        setInterval(recurring(evaluateImpactCandidates), 60 * 1000);
+        setInterval(recurring(processCommunityEvents), 60 * 1000);
+        setInterval(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 10 * 60 * 1000);
+        setInterval(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 5 * 60 * 1000);
+
+        setTimeout(recurring(checkPendingReferrals), 15000);
+        setTimeout(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 20000);
+        setTimeout(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 25000);
+        setTimeout(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 30000);
+        setTimeout(recurring(processCommunityEvents), 35000);
+      });
+    } catch (error) {
+      console.error(`Startup failed for guild ${guildId}:`, error);
+    }
+  }
 });
 
 client.on('guildMemberAdd', async (member) => {
-  if (member.guild.id !== GUILD_ID || member.user.bot) return;
+  if (!isAllowedGuild(member.guild.id) || member.user.bot) return;
+  return runWithGuild(member.guild.id, async () => {
   ensureUserRow(member.id, member.joinedTimestamp ?? now());
   const used = await detectUsedInvite(member.guild);
   let attributed = false;
@@ -3106,20 +3117,37 @@ client.on('guildMemberAdd', async (member) => {
   }
   await sendWelcomeDm(member);
   scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
+  });
 });
-client.on('guildMemberRemove', (member) => { if (member.guild.id === GUILD_ID) { scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild); } });
-client.on('presenceUpdate', (_oldPresence, newPresence) => { if (newPresence?.guild?.id === GUILD_ID) scheduleStatsUpdate(newPresence.guild); });
-client.on('inviteCreate', (invite) => { inviteUseCache.set(invite.code, invite.uses ?? 0); });
-client.on('inviteDelete', (invite) => { inviteUseCache.delete(invite.code); });
+client.on('guildMemberRemove', (member) => {
+  if (!isAllowedGuild(member.guild.id)) return;
+  return runWithGuild(member.guild.id, () => {
+    scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
+  });
+});
+client.on('presenceUpdate', (_oldPresence, newPresence) => {
+  if (!isAllowedGuild(newPresence?.guild?.id)) return;
+  return runWithGuild(newPresence.guild.id, () => scheduleStatsUpdate(newPresence.guild));
+});
+client.on('inviteCreate', (invite) => {
+  if (!isAllowedGuild(invite.guild?.id)) return;
+  inviteCacheForGuild(invite.guild.id).set(invite.code, invite.uses ?? 0);
+});
+client.on('inviteDelete', (invite) => {
+  if (!isAllowedGuild(invite.guild?.id)) return;
+  inviteCacheForGuild(invite.guild.id).delete(invite.code);
+});
 
 client.on('messageReactionAdd', async (reaction, user) => {
   if (user.bot) return;
   try {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
-    if (!reaction.message.guild || reaction.message.guild.id !== GUILD_ID) return;
-    await recordImpactEngagement(reaction.message.id, user.id, 'reaction');
-    await handleCreatorPostReaction(reaction, user, true);
+    if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
+    await runWithGuild(reaction.message.guild.id, async () => {
+      await recordImpactEngagement(reaction.message.id, user.id, 'reaction');
+      await handleCreatorPostReaction(reaction, user, true);
+    });
   } catch (error) { logLinkoError('messageReactionAdd', error); }
 });
 
@@ -3128,13 +3156,14 @@ client.on('messageReactionRemove', async (reaction, user) => {
   try {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
-    if (!reaction.message.guild || reaction.message.guild.id !== GUILD_ID) return;
-    await handleCreatorPostReaction(reaction, user, false);
+    if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
+    await runWithGuild(reaction.message.guild.id, () => handleCreatorPostReaction(reaction, user, false));
   } catch (error) { logLinkoError('messageReactionRemove', error); }
 });
 
 client.on('messageCreate', async (message) => {
-  if (!message.guild || message.guild.id !== GUILD_ID || message.author.bot || !message.member) return;
+  if (!message.guild || !isAllowedGuild(message.guild.id) || message.author.bot || !message.member) return;
+  return runWithGuild(message.guild.id, async () => {
   const channelName = message.channel.name;
   const channelBase = baseChannelName(channelName);
   if (channelBase === 'bot-commands' && !hasStaffRole(message.member)) {
@@ -3172,10 +3201,12 @@ client.on('messageCreate', async (message) => {
 
   // Candidate text is evaluated transiently. The database stores only scores/metadata/fingerprint, never the message body.
   await ensureCandidateFromMessage(message);
+  });
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.inGuild() || interaction.guildId !== GUILD_ID) return;
+  if (!interaction.inGuild() || !isAllowedGuild(interaction.guildId)) return;
+  return runWithGuild(interaction.guildId, async () => {
   try {
     if (interaction.isButton()) {
       if (interaction.customId === 'klineo_verify') return verifyMember(interaction);
@@ -4158,6 +4189,7 @@ Join <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_inter
     if (interaction.deferred || interaction.replied) await interaction.editReply({ content: msg }).catch(() => {});
     else await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
   }
+  });
 });
 
 client.login(TOKEN);
