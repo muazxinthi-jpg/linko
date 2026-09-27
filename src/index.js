@@ -91,6 +91,24 @@ db.exec(`
     review_message_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS creator_campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    closed_at INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS creator_post_reactions (
+    submission_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    emoji_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (submission_id, user_id, emoji_key)
+  );
+
   CREATE TABLE IF NOT EXISTS member_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL UNIQUE,
@@ -331,12 +349,20 @@ function ensureSqliteColumn(table, column, definition) {
 
 ensureSqliteColumn('wallet_profiles', 'x_account', 'TEXT');
 ensureSqliteColumn('wallet_profiles', 'telegram_account', 'TEXT');
+ensureSqliteColumn('social_submissions', 'campaign_id', 'INTEGER');
+ensureSqliteColumn('social_submissions', 'creator_eligible', 'INTEGER NOT NULL DEFAULT 0');
+ensureSqliteColumn('social_submissions', 'share_message_id', 'TEXT');
+ensureSqliteColumn('social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
+ensureSqliteColumn('social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
 
 const DEFAULT_SETTINGS = {
   kxp_message: '1',
   kxp_voice_interval: '1',
   kxp_valid_referral: '1',
   kxp_social_post: '2',
+  creator_reaction_threshold: '100',
+  creator_reaction_kxp: '1',
+  creator_reaction_cap: '3',
   kxp_bug_report: '3',
   kxp_profile_submission: '1',
   referral_activity_min_events: '1',
@@ -352,6 +378,8 @@ const DEFAULT_SETTINGS = {
   voice_interval_minutes: '15',
   kxp_leaderboard_visibility: 'public',
   referral_leaderboard_visibility: 'public',
+  creator_leaderboard_visibility: 'public',
+  campaign_leaderboard_visibility: 'public',
   image_welcome: '',
   image_verify: '',
   image_social: '',
@@ -464,7 +492,7 @@ const ROLE_SPECS = [
   { key: 'studio', name: 'STUDIO CLIENT', color: 0xF59E0B, hoist: true, permissions: [] },
   { key: 'founder', name: 'VERIFIED FOUNDER', color: BRAND.emerald, hoist: true, permissions: [] },
   { key: 'partner', name: 'PARTNER', color: BRAND.blue, hoist: true, permissions: [] },
-  { key: 'creator', name: 'CREATOR', color: BRAND.rose, hoist: true, permissions: [] },
+  { key: 'creator', name: 'KREATOR', color: 0xA855F7, hoist: true, permissions: [] },
   { key: 'ambassador', name: 'AMBASSADOR', color: BRAND.limeSoft, hoist: true, permissions: [] },
   ...[...RANKS].reverse().map((rank) => ({ ...rank, hoist: false, permissions: [] })),
 ];
@@ -538,7 +566,7 @@ const CHANNEL_NAMES = {
   productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
   howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
   analystChat: '🧠・analyst-chat', tradeAnalysis: '📉・trade-analysis', marketThesis: '🌐・market-thesis', aiStrategies: '🤖・ai-strategies',
-  sharePost: '📣・share-your-post', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・creator-leaderboard',
+  sharePost: '📣・share-your-post', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
   creatorLounge: '🎨・creator-lounge', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
   founderLobby: '🏛️・founder-lobby', founderDirectory: '📇・founder-directory', liquidityStudio: '💧・liquidity-studio', marketStructure: '📐・market-structure', founderResources: '📚・founder-resources', studioRequests: '📩・studio-requests',
   studioAnnouncements: '📢・studio-announcements', clientSupport: '🆘・client-support',
@@ -565,6 +593,7 @@ function baseChannelName(name = '') {
 }
 
 const LEGACY_ROLE_NAMES = new Map([
+  ['CREATOR', 'KREATOR'],
   ['L1 · OBSERVER', 'OBSERVER'], ['L2 · SCOUT', 'SCOUT'], ['L3 · ANALYST', 'ANALYST'], ['L4 · OPERATOR', 'OPERATOR'],
   ['L5 · STRATEGIST', 'STRATEGIST'], ['L6 · VANGUARD', 'VANGUARD'], ['L7 · PRIME', 'PRIME'],
 ]);
@@ -580,7 +609,7 @@ const LEGACY_CHANNEL_NAMES = new Map([
   ['product-updates', CHANNEL_NAMES.productUpdates], ['product-feedback', CHANNEL_NAMES.productFeedback], ['bug-reports', CHANNEL_NAMES.bugReports], ['help', CHANNEL_NAMES.help], ['introductions', CHANNEL_NAMES.introductions], ['wins-and-learnings', CHANNEL_NAMES.wins],
   ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
   ['analyst-chat', CHANNEL_NAMES.analystChat], ['trade-analysis', CHANNEL_NAMES.tradeAnalysis], ['market-thesis', CHANNEL_NAMES.marketThesis], ['ai-strategies', CHANNEL_NAMES.aiStrategies],
-  ['share-your-post', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard],
+  ['share-your-post', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
   ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
   ['founder-lobby', CHANNEL_NAMES.founderLobby], ['founder-directory', CHANNEL_NAMES.founderDirectory], ['liquidity-studio', CHANNEL_NAMES.liquidityStudio], ['market-structure', CHANNEL_NAMES.marketStructure], ['founder-resources', CHANNEL_NAMES.founderResources], ['studio-requests', CHANNEL_NAMES.studioRequests],
   ['studio-announcements', CHANNEL_NAMES.studioAnnouncements], ['client-support', CHANNEL_NAMES.clientSupport],
@@ -604,7 +633,9 @@ const commands = [
   new SlashCommandBuilder().setName('leaderboard').setDescription('Show a KlineO leaderboard.')
     .addStringOption((o) => o.setName('type').setDescription('Leaderboard type').addChoices(
       { name: 'KXP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
-    )),
+      { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaign', value: 'campaign' },
+    ))
+    .addIntegerOption((o) => o.setName('campaign').setDescription('Campaign ID when viewing a campaign leaderboard').setMinValue(1)),
   new SlashCommandBuilder().setName('invite').setDescription('Create your tracked KlineO invite link.'),
   new SlashCommandBuilder().setName('invites').setDescription('Show your KlineO referral stats.'),
   new SlashCommandBuilder()
@@ -656,7 +687,18 @@ const commands = [
       { name: 'X', value: 'x' }, { name: 'LinkedIn', value: 'linkedin' }, { name: 'YouTube', value: 'youtube' },
       { name: 'TikTok', value: 'tiktok' }, { name: 'Instagram', value: 'instagram' },
     ))
-    .addStringOption((o) => o.setName('url').setDescription('Direct URL to your post').setRequired(true)),
+    .addStringOption((o) => o.setName('url').setDescription('Direct URL to your post').setRequired(true))
+    .addIntegerOption((o) => o.setName('campaign').setDescription('Optional active Creator Campaign ID').setMinValue(1)),
+
+  new SlashCommandBuilder()
+    .setName('creator-campaign')
+    .setDescription('Staff: manage KlineO creator campaigns.')
+    .addSubcommand((sc) => sc.setName('create').setDescription('Create a creator campaign.')
+      .addStringOption((o) => o.setName('name').setDescription('Campaign name').setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName('description').setDescription('Short campaign brief').setMaxLength(300)))
+    .addSubcommand((sc) => sc.setName('list').setDescription('List creator campaigns.'))
+    .addSubcommand((sc) => sc.setName('close').setDescription('Close a creator campaign and freeze its board.')
+      .addIntegerOption((o) => o.setName('campaign').setDescription('Campaign ID').setRequired(true).setMinValue(1))),
 
   new SlashCommandBuilder()
     .setName('social-card')
@@ -790,6 +832,7 @@ const commands = [
       { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
       { name: 'Valid referral', value: 'kxp_valid_referral' },
       { name: 'Approved social post', value: 'kxp_social_post' },
+      { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
       { name: 'Valid bug report', value: 'kxp_bug_report' },
       { name: 'Profile / wallet first-time submission', value: 'kxp_profile_submission' },
     ))
@@ -799,6 +842,7 @@ const commands = [
     .setName('leaderboard-settings')
     .setDescription('Staff: view or change leaderboard visibility.')    .addStringOption((o) => o.setName('board').setDescription('Leaderboard').addChoices(
       { name: 'KXP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
+      { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaigns', value: 'campaign' },
     ))
     .addStringOption((o) => o.setName('visibility').setDescription('Visibility').addChoices(
       { name: 'Public to verified members', value: 'public' }, { name: 'Private to staff', value: 'private' },
@@ -841,7 +885,7 @@ const commands = [
       { name: 'Verified Founder', value: 'VERIFIED FOUNDER' },
       { name: 'Studio Client', value: 'STUDIO CLIENT' },
       { name: 'Partner', value: 'PARTNER' },
-      { name: 'Creator', value: 'CREATOR' },
+      { name: 'Kreator', value: 'KREATOR' },
       { name: 'Ambassador', value: 'AMBASSADOR' },
     )),
 
@@ -974,6 +1018,7 @@ function hasStaffRole(member) {
   return member?.roles?.cache?.some((r) => names.includes(r.name));
 }
 function hasVerifiedRole(member) { return member?.roles?.cache?.some((r) => r.name === 'VERIFIED MEMBER'); }
+function hasKreatorRole(member) { return member?.roles?.cache?.some((r) => r.name === 'KREATOR' || r.name === 'CREATOR'); }
 function rankForXp(xp) { return [...RANKS].reverse().find((r) => xp >= r.threshold) ?? RANKS[0]; }
 function nextRankForXp(xp) { return RANKS.find((r) => r.threshold > xp) ?? null; }
 function ensureUserRow(userId, joinedAt = null) {
@@ -1361,7 +1406,7 @@ function scheduleModInboxUpdate(guild) {
 function accessRoleNames(access) {
   return ({
     verified: ['VERIFIED MEMBER'], analyst: ['ANALYST','OPERATOR','STRATEGIST','VANGUARD','PRIME'], strategist: ['STRATEGIST','VANGUARD','PRIME'],
-    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['CREATOR'], staff: ['KLINEO CORE','KLINEO TEAM','MODERATOR'],
+    founders: ['VERIFIED FOUNDER','STUDIO CLIENT'], studio: ['STUDIO CLIENT'], creators: ['KREATOR'], staff: ['KLINEO CORE','KLINEO TEAM','MODERATOR'],
   })[access] ?? ['VERIFIED MEMBER'];
 }
 function accessOverwrites(guild, access) {
@@ -2099,7 +2144,7 @@ async function buildKlineO(guild) {
 
   const me = await guild.members.fetchMe();
   const ceiling = me.roles.highest.position;
-  const orderedNames = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR', 'STUDIO CLIENT', 'VERIFIED FOUNDER', 'PARTNER', 'CREATOR', 'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER', ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`)];
+  const orderedNames = ['KLINEO CORE', 'KLINEO TEAM', 'MODERATOR', 'STUDIO CLIENT', 'VERIFIED FOUNDER', 'PARTNER', 'KREATOR', 'AMBASSADOR', 'VERIFIED MEMBER', 'PRIME', 'VANGUARD', 'STRATEGIST', 'OPERATOR', 'ANALYST', 'SCOUT', 'OBSERVER', ...INTERESTS.map((x) => `${INTEREST_ROLE_PREFIX}${x[1]}`)];
   const movable = orderedNames.map((n) => guild.roles.cache.find((r) => r.name === n)).filter((r) => r && r.position < ceiling);
   const positions = movable.map((r, i) => ({ role: r.id, position: Math.max(1, ceiling - 1 - i) }));
   if (positions.length) await guild.roles.setPositions(positions).catch((e) => console.warn('Role order warning:', e.message));
