@@ -2678,14 +2678,16 @@ async function buildLinko(guild) {
   categories.start = await ensureCategory(guild, CAT.start, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel])]);
   categories.community = await ensureCategory(guild, CAT.community, verifiedBase);
   categories.kxp = await ensureCategory(guild, CAT.kxp, verifiedBase);
-  categories.signal = await ensureCategory(guild, CAT.signal, signalPrivate);
-  categories.social = await ensureCategory(guild, CAT.social, verifiedBase);
-  categories.creators = await ensureCategory(guild, CAT.creators, creatorsPrivate);
-  categories.founders = await ensureCategory(guild, CAT.founders, foundersPrivate);
-  categories.studio = await ensureCategory(guild, CAT.studio, studioPrivate);
+  if (moduleEnabled('signals')) categories.signal = await ensureCategory(guild, CAT.signal, signalPrivate);
+  if (moduleEnabled('kreator')) {
+    categories.social = await ensureCategory(guild, CAT.social, verifiedBase);
+    categories.creators = await ensureCategory(guild, CAT.creators, creatorsPrivate);
+  }
+  if (moduleEnabled('founders')) categories.founders = await ensureCategory(guild, CAT.founders, foundersPrivate);
+  if (moduleEnabled('studio')) categories.studio = await ensureCategory(guild, CAT.studio, studioPrivate);
   categories.high = await ensureCategory(guild, CAT.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
   categories.voice = await ensureCategory(guild, CAT.voice, verifiedBase);
-  categories.languages = await ensureCategory(guild, CAT.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  if (moduleEnabled('languages')) categories.languages = await ensureCategory(guild, CAT.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   categories.staff = await ensureCategory(guild, CAT.staff, staffPrivate);
   await categories.stats.setPosition(0).catch(() => {});
   await categories.start.setPosition(1).catch(() => {});
@@ -2693,29 +2695,31 @@ async function buildLinko(guild) {
 
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
-  channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: 'Welcome to KlineO. Start here.' }, startReadOnly);
-  channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: 'KlineO community and security rules.' }, startReadOnly);
-  channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: 'Verify yourself to unlock KlineO.' }, startReadOnly);
-  channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: 'Only trust official KlineO links listed here.' }, startReadOnly);
-  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: 'Official KlineO announcements.' }, startReadOnly);
+  channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: `Welcome to ${name}. Start here.` }, startReadOnly);
+  channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${name} community and security rules.` }, startReadOnly);
+  channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `Verify yourself to unlock ${name}.` }, startReadOnly);
+  channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: `Only trust official ${name} links listed here.` }, startReadOnly);
+  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `Official ${name} announcements.` }, startReadOnly);
 
   for (const [key, name, topic, slowmode] of [
-    ['general', CHANNEL_NAMES.general, 'General KlineO discussion. Public links are blocked.', 2],
+    ['general', CHANNEL_NAMES.general, `General ${name} discussion. Public links are blocked.`, 2],
     ['marketChat', CHANNEL_NAMES.marketChat, 'Market discussion. No guaranteed-return claims. Public links are blocked.', 3],
     ['tradeSetups', CHANNEL_NAMES.tradeSetups, 'Trading setups and risk context. Public links are blocked.', 5],
-    ['aiAgentLab', CHANNEL_NAMES.aiAgentLab, 'AI agents, execution workflows and KlineO experiments. Public links are blocked.', 3],
-    ['productUpdates', CHANNEL_NAMES.productUpdates, 'KlineO product releases and integrations.', 0],
-    ['productFeedback', CHANNEL_NAMES.productFeedback, 'Constructive KlineO product feedback. Public links are blocked.', 5],
-    ['bugReports', CHANNEL_NAMES.bugReports, 'Report reproducible KlineO bugs. Valid reports can be approved by staff for KXP. Public links are blocked.', 10],
+    ['aiAgentLab', CHANNEL_NAMES.aiAgentLab, `AI agents, execution workflows and ${name} experiments. Public links are blocked.`, 3],
+    ['productUpdates', CHANNEL_NAMES.productUpdates, `${name} product releases and integrations.`, 0],
+    ['productFeedback', CHANNEL_NAMES.productFeedback, `Constructive ${name} product feedback. Public links are blocked.`, 5],
+    ['bugReports', CHANNEL_NAMES.bugReports, `Report reproducible ${name} bugs. Valid reports can be approved by staff for ${label}. Public links are blocked.`, 10],
     ['help', CHANNEL_NAMES.help, 'Ask for community or product help. Public links are blocked.', 5],
-    ['introductions', CHANNEL_NAMES.introductions, 'Introduce yourself to KlineO. Public links are blocked.', 10],
+    ['introductions', CHANNEL_NAMES.introductions, `Introduce yourself to ${name}. Public links are blocked.`, 10],
     ['wins', CHANNEL_NAMES.wins, 'Share wins, mistakes and lessons. Public links are blocked.', 5],
   ]) {
+    if (!isKlineo && ['marketChat', 'tradeSetups', 'aiAgentLab'].includes(key) && !moduleEnabled('signals')) continue;
+    if (['productUpdates', 'productFeedback', 'bugReports'].includes(key) && !moduleEnabled('product')) continue;
     const perms = baseChannelName(name) === 'product-updates' ? [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))] : verifiedBase;
     channels[key] = await ensureTextChannel(guild, categories.community, { name, topic, slowmode, reuseDefaultGeneral: baseChannelName(name) === 'general' }, perms);
   }
 
-  channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: 'Structured KlineO product suggestions and status updates. Submit with /suggest.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  if (moduleEnabled('product')) channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: `Structured ${name} suggestions and status updates. Submit with /suggest.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
   channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.howKxp, topic: 'How KXP, referrals and rank progression work.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
