@@ -1618,6 +1618,95 @@ function referralLeaderboardRows(guild, limit = 50) {
   }).slice(0, limit);
 }
 
+function creatorLeaderboardRows(guild, limit = 50) {
+  const rows = db.prepare(`
+    SELECT s.user_id,
+           SUM(COALESCE(s.xp_awarded, 0) + COALESCE(s.reaction_xp_awarded, 0)) AS creator_kxp,
+           SUM(CASE WHEN s.status = 'approved' THEN 1 ELSE 0 END) AS approved_posts,
+           SUM(COALESCE(s.reaction_xp_awarded, 0)) AS reaction_kxp,
+           COUNT(DISTINCT s.campaign_id) AS campaigns
+    FROM social_submissions s
+    WHERE s.status = 'approved' AND COALESCE(s.creator_eligible, 0) = 1
+    GROUP BY s.user_id
+    HAVING creator_kxp > 0
+    ORDER BY creator_kxp DESC, approved_posts DESC, reaction_kxp DESC, s.user_id ASC
+  `).all();
+  return rows.filter((r) => {
+    const member = guild.members.cache.get(r.user_id);
+    return !!member && !member.user.bot && hasVerifiedRole(member) && hasKreatorRole(member);
+  }).slice(0, limit);
+}
+
+function creatorCampaignById(campaignId) {
+  return db.prepare('SELECT * FROM creator_campaigns WHERE id = ?').get(campaignId);
+}
+
+function creatorCampaigns(status = null) {
+  return status
+    ? db.prepare('SELECT * FROM creator_campaigns WHERE status = ? ORDER BY id DESC').all(status)
+    : db.prepare('SELECT * FROM creator_campaigns ORDER BY id DESC').all();
+}
+
+function campaignLeaderboardRows(guild, campaignId, limit = 50) {
+  const rows = db.prepare(`
+    SELECT s.user_id,
+           SUM(COALESCE(s.xp_awarded, 0) + COALESCE(s.reaction_xp_awarded, 0)) AS campaign_kxp,
+           COUNT(*) AS approved_posts,
+           SUM(COALESCE(s.reaction_xp_awarded, 0)) AS reaction_kxp
+    FROM social_submissions s
+    WHERE s.status = 'approved' AND COALESCE(s.creator_eligible, 0) = 1 AND s.campaign_id = ?
+    GROUP BY s.user_id
+    HAVING campaign_kxp > 0
+    ORDER BY campaign_kxp DESC, approved_posts DESC, reaction_kxp DESC, s.user_id ASC
+  `).all(campaignId);
+  return rows.filter((r) => {
+    const member = guild.members.cache.get(r.user_id);
+    return !!member && !member.user.bot && hasVerifiedRole(member) && hasKreatorRole(member);
+  }).slice(0, limit);
+}
+
+function creatorReactionCount(submissionId) {
+  return Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM creator_post_reactions WHERE submission_id = ?').get(submissionId)?.c ?? 0);
+}
+
+function buildCreatorLeaderboardEmbeds(guild, limit = 50) {
+  const rows = creatorLeaderboardRows(guild, limit);
+  const chunks = leaderboardChunks(rows, 25);
+  return chunks.map((chunk, chunkIndex) => {
+    const offset = chunkIndex * 25;
+    const lines = chunk.length ? chunk.map((r, i) => {
+      const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.creator_kxp).toLocaleString()} Creator KXP** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction KXP`;
+    }).join('\n') : 'No KREATOR activity yet.';
+    return new EmbedBuilder()
+      .setColor(0xA855F7)
+      .setTitle(chunkIndex === 0 ? '🏅 KlineO KREATOR Leaderboard · Top 50' : '🏅 KlineO KREATOR Leaderboard · 26–50')
+      .setDescription(lines)
+      .setFooter({ text: '[KLINEO-KREATOR-LEADERBOARD] · Creator KXP is included in total KXP · Auto-updated by LINKO' })
+      .setTimestamp();
+  });
+}
+
+function buildCampaignLeaderboardEmbeds(guild, campaignId, limit = 50) {
+  const campaign = creatorCampaignById(campaignId);
+  if (!campaign) return [new EmbedBuilder().setColor(BRAND.rose).setTitle('Creator Campaign').setDescription(`Campaign #${campaignId} was not found.`)];
+  const rows = campaignLeaderboardRows(guild, campaignId, limit);
+  const chunks = leaderboardChunks(rows, 25);
+  return chunks.map((chunk, chunkIndex) => {
+    const offset = chunkIndex * 25;
+    const lines = chunk.length ? chunk.map((r, i) => {
+      const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.campaign_kxp).toLocaleString()} KXP** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction KXP`;
+    }).join('\n') : 'No approved KREATOR posts in this campaign yet.';
+    return new EmbedBuilder()
+      .setColor(0xA855F7)
+      .setTitle(chunkIndex === 0 ? `🏁 #${campaign.id} · ${campaign.name}` : `🏁 #${campaign.id} · ${campaign.name} · 26–50`)
+      .setDescription(`${campaign.description ? `${campaign.description}\n\n` : ''}${lines}`)
+      .setFooter({ text: `[KLINEO-CAMPAIGN-LEADERBOARD:${campaign.id}] · ${String(campaign.status).toUpperCase()} · Points also count toward KREATOR + overall KXP` })
+      .setTimestamp();
+  });
+}
+
 function leaderboardChunks(rows, size = 25) {
   const out = [];
   for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
@@ -1662,11 +1751,17 @@ function buildReferralLeaderboardEmbeds(guild, limit = 50) {
 }
 
 function leaderboardChannelBase(type) {
-  return type === 'referrals' ? 'referral-leaderboard' : 'kxp-leaderboard';
+  if (type === 'referrals') return 'referral-leaderboard';
+  if (type === 'creators') return 'kreator-leaderboard';
+  if (type === 'campaign') return 'campaign-leaderboard';
+  return 'kxp-leaderboard';
 }
 
 function leaderboardVisibilityKey(type) {
-  return type === 'referrals' ? 'referral_leaderboard_visibility' : 'kxp_leaderboard_visibility';
+  if (type === 'referrals') return 'referral_leaderboard_visibility';
+  if (type === 'creators') return 'creator_leaderboard_visibility';
+  if (type === 'campaign') return 'campaign_leaderboard_visibility';
+  return 'kxp_leaderboard_visibility';
 }
 
 function leaderboardIsPublic(type) {
@@ -1696,17 +1791,44 @@ async function updateLeaderboardMessage(guild, type = 'kxp') {
   const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === base && c.isTextBased());
   if (!channel) return;
   const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  const marker = type === 'referrals' ? '[KLINEO-REFERRAL-LEADERBOARD]' : '[KLINEO-KXP-LEADERBOARD]';
+  const marker = type === 'referrals' ? '[KLINEO-REFERRAL-LEADERBOARD]' : type === 'creators' ? '[KLINEO-KREATOR-LEADERBOARD]' : '[KLINEO-KXP-LEADERBOARD]';
   const existing = recent?.find((m) => m.author.id === client.user.id && m.embeds.some((e) => e.footer?.text?.includes(marker) || (type === 'kxp' && e.footer?.text?.includes('[KLINEO-LEADERBOARD]'))));
   const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
-  const payload = { embeds: type === 'referrals' ? buildReferralLeaderboardEmbeds(guild, limit) : buildLeaderboardEmbeds(guild, limit) };
+  const embeds = type === 'referrals' ? buildReferralLeaderboardEmbeds(guild, limit) : type === 'creators' ? buildCreatorLeaderboardEmbeds(guild, limit) : buildLeaderboardEmbeds(guild, limit);
+  const payload = { embeds };
   if (existing) await existing.edit(payload).catch(() => {});
   else await channel.send(payload).catch(() => {});
+}
+
+async function updateCampaignLeaderboardMessages(guild) {
+  const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'campaign-leaderboard' && c.isTextBased());
+  if (!channel) return;
+  const campaigns = creatorCampaigns().slice(0, 10);
+  const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!campaigns.length) {
+    const marker = '[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]';
+    const existing = recent?.find((m) => m.author.id === client.user.id && m.content?.includes(marker));
+    const content = `**KlineO Creator Campaign Leaderboards**\n\nNo creator campaigns have been created yet. Staff can use \`/creator-campaign create\`.\n\n${marker}`;
+    if (existing) await existing.edit({ content, embeds: [] }).catch(() => {});
+    else await channel.send({ content }).catch(() => {});
+    return;
+  }
+  const empty = recent?.find((m) => m.author.id === client.user.id && m.content?.includes('[KLINEO-CAMPAIGN-LEADERBOARD:EMPTY]'));
+  if (empty) await empty.delete().catch(() => {});
+  for (const campaign of campaigns) {
+    const marker = `[KLINEO-CAMPAIGN-LEADERBOARD:${campaign.id}]`;
+    const existing = recent?.find((m) => m.author.id === client.user.id && m.embeds.some((e) => e.footer?.text?.includes(marker)));
+    const payload = { embeds: buildCampaignLeaderboardEmbeds(guild, campaign.id, Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50))) };
+    if (existing) await existing.edit(payload).catch(() => {});
+    else await channel.send(payload).catch(() => {});
+  }
 }
 
 async function updateAllLeaderboards(guild) {
   await updateLeaderboardMessage(guild, 'kxp');
   await updateLeaderboardMessage(guild, 'referrals');
+  await updateLeaderboardMessage(guild, 'creators');
+  await updateCampaignLeaderboardMessages(guild);
 }
 
 function scheduleLeaderboardUpdate(guild) {
@@ -1723,7 +1845,7 @@ function getKxpBreakdown(userId) {
     const reason = String(row.reason ?? '');
     if (reason.startsWith('Meaningful message') || reason.startsWith('Qualified community message') || reason.startsWith('Reversed qualified community message')) out.messages += amount;
     else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:')) out.voice += amount;
-    else if (reason.startsWith('Approved KlineO social contribution')) out.social += amount;
+    else if (reason.startsWith('Approved KlineO social contribution') || reason.startsWith('Creator reaction')) out.social += amount;
     else if (reason.startsWith('Valid bug report')) out.bugs += amount;
     else if (reason.startsWith('Profile submission:')) out.profile += amount;
     else if (reason.startsWith('Valid 7-day referral') || reason.startsWith('Moderator-confirmed 7-day referral') || reason.startsWith('Referral ') || reason.startsWith('Referred member ')) out.referrals += amount;
