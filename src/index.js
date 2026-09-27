@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { mkdirSync, appendFileSync } from 'node:fs';
+import { mkdirSync, appendFileSync, existsSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { createCanvas } from '@napi-rs/canvas';
 import { DatabaseSync } from 'node:sqlite';
@@ -463,6 +463,194 @@ function initializeGuildDatabase(database) {
       (user_id, source, inviter_id, detected_inviter_id, source_confirmed, inviter_confirmed, created_at, updated_at)
       VALUES (?, 'member', ?, ?, 1, ?, ?, ?)`)
       .run(ref.member_id, ref.inviter_id, tracked ? ref.inviter_id : null, confirmed ? 1 : 0, Number(ref.joined_at ?? Date.now()), Date.now());
+  }
+}
+
+
+function tableExists(database, table) {
+  return !!database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
+}
+function tableColumns(database, table) {
+  if (!tableExists(database, table)) return [];
+  return database.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+}
+function minNullable(a, b) {
+  const vals = [a, b].filter((v) => v !== null && v !== undefined);
+  return vals.length ? Math.min(...vals.map(Number)) : null;
+}
+function maxNullable(a, b) {
+  const vals = [a, b].filter((v) => v !== null && v !== undefined);
+  return vals.length ? Math.max(...vals.map(Number)) : null;
+}
+function copyLegacyRowsIgnore(legacy, target, table, omit = []) {
+  if (!tableExists(legacy, table) || !tableExists(target, table)) return 0;
+  const targetCols = new Set(tableColumns(target, table));
+  const cols = tableColumns(legacy, table).filter((col) => targetCols.has(col) && !omit.includes(col));
+  if (!cols.length) return 0;
+  const placeholders = cols.map(() => '?').join(',');
+  const stmt = target.prepare(`INSERT OR IGNORE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`);
+  let copied = 0;
+  for (const row of legacy.prepare(`SELECT ${cols.join(',')} FROM ${table}`).all()) {
+    const result = stmt.run(...cols.map((col) => row[col]));
+    copied += Number(result.changes ?? 0);
+  }
+  return copied;
+}
+
+function migrateLegacyKlineoDatabase(guildId, guildName) {
+  const id = String(guildId);
+  if (String(guildName ?? '').trim().toLowerCase() !== 'klineo') return null;
+  const legacyPath = 'data/linko.sqlite';
+  if (!existsSync(legacyPath)) return null;
+
+  const target = getGuildDb(id);
+  const markerKey = 'legacy_v1051_migrated_at';
+  if (target.prepare('SELECT value FROM settings WHERE key=?').get(markerKey)?.value) return null;
+
+  mkdirSync('data/backups', { recursive: true });
+  const backupPath = `data/backups/${id}-pre-v1051-migration-${Date.now()}.sqlite`;
+  target.exec(`VACUUM INTO '${backupPath}'`);
+
+  const legacy = new DatabaseSync(legacyPath, { readOnly: true });
+  const summary = { users: 0, legacyXp: 0, xpLog: 0, social: 0, referrals: 0, events: 0, suggestions: 0 };
+
+  try {
+    target.exec('BEGIN IMMEDIATE');
+
+    if (tableExists(legacy, 'users')) {
+      const getUser = target.prepare('SELECT xp, verified_at, joined_at, last_seen_at FROM users WHERE user_id=?');
+      const insertUser = target.prepare('INSERT INTO users (user_id,xp,verified_at,joined_at,last_seen_at) VALUES (?,?,?,?,?)');
+      const updateUser = target.prepare('UPDATE users SET xp=?, verified_at=?, joined_at=?, last_seen_at=? WHERE user_id=?');
+      for (const row of legacy.prepare('SELECT user_id,xp,verified_at,joined_at,last_seen_at FROM users').all()) {
+        const cur = getUser.get(row.user_id);
+        const oldXp = Number(row.xp ?? 0);
+        summary.legacyXp += oldXp;
+        if (!cur) {
+          insertUser.run(row.user_id, oldXp, row.verified_at, row.joined_at, row.last_seen_at);
+        } else {
+          updateUser.run(
+            Number(cur.xp ?? 0) + oldXp,
+            minNullable(cur.verified_at, row.verified_at),
+            minNullable(cur.joined_at, row.joined_at),
+            maxNullable(cur.last_seen_at, row.last_seen_at),
+            row.user_id
+          );
+        }
+        summary.users++;
+      }
+    }
+
+    if (tableExists(legacy, 'daily_xp')) {
+      const getDailyRow = target.prepare('SELECT message_xp,voice_xp,social_count FROM daily_xp WHERE user_id=? AND day=?');
+      const insertDaily = target.prepare('INSERT INTO daily_xp (user_id,day,message_xp,voice_xp,social_count) VALUES (?,?,?,?,?)');
+      const updateDaily = target.prepare('UPDATE daily_xp SET message_xp=?,voice_xp=?,social_count=? WHERE user_id=? AND day=?');
+      for (const row of legacy.prepare('SELECT user_id,day,message_xp,voice_xp,social_count FROM daily_xp').all()) {
+        const cur = getDailyRow.get(row.user_id, row.day);
+        if (!cur) insertDaily.run(row.user_id,row.day,row.message_xp,row.voice_xp,row.social_count);
+        else updateDaily.run(
+          Number(cur.message_xp ?? 0) + Number(row.message_xp ?? 0),
+          Number(cur.voice_xp ?? 0) + Number(row.voice_xp ?? 0),
+          Number(cur.social_count ?? 0) + Number(row.social_count ?? 0),
+          row.user_id,row.day
+        );
+      }
+    }
+
+    if (tableExists(legacy, 'xp_log')) {
+      const existsLog = target.prepare('SELECT 1 FROM xp_log WHERE user_id=? AND amount=? AND reason=? AND created_at=? AND COALESCE(actor_id,"")=COALESCE(?,"") LIMIT 1');
+      const insertLog = target.prepare('INSERT INTO xp_log (user_id,amount,reason,created_at,actor_id) VALUES (?,?,?,?,?)');
+      for (const row of legacy.prepare('SELECT user_id,amount,reason,created_at,actor_id FROM xp_log ORDER BY id').all()) {
+        if (existsLog.get(row.user_id,row.amount,row.reason,row.created_at,row.actor_id)) continue;
+        insertLog.run(row.user_id,row.amount,row.reason,row.created_at,row.actor_id);
+        summary.xpLog++;
+      }
+    }
+
+    if (tableExists(legacy, 'member_activation')) {
+      const getAct = target.prepare('SELECT * FROM member_activation WHERE user_id=?');
+      const insAct = target.prepare('INSERT INTO member_activation (user_id,interests_set,language_set,introduced_at,first_impact_at) VALUES (?,?,?,?,?)');
+      const updAct = target.prepare('UPDATE member_activation SET interests_set=?,language_set=?,introduced_at=?,first_impact_at=? WHERE user_id=?');
+      for (const row of legacy.prepare('SELECT * FROM member_activation').all()) {
+        const cur = getAct.get(row.user_id);
+        if (!cur) insAct.run(row.user_id,row.interests_set,row.language_set,row.introduced_at,row.first_impact_at);
+        else updAct.run(
+          Math.max(Number(cur.interests_set ?? 0), Number(row.interests_set ?? 0)),
+          Math.max(Number(cur.language_set ?? 0), Number(row.language_set ?? 0)),
+          minNullable(cur.introduced_at,row.introduced_at),
+          minNullable(cur.first_impact_at,row.first_impact_at),
+          row.user_id
+        );
+      }
+    }
+
+    summary.referrals += copyLegacyRowsIgnore(legacy,target,'referrals');
+    summary.social += copyLegacyRowsIgnore(legacy,target,'social_submissions',['id']);
+    summary.suggestions += copyLegacyRowsIgnore(legacy,target,'product_suggestions',['id']);
+
+    for (const table of [
+      'invite_codes','message_candidates','message_engagement','user_interests','language_roles',
+      'member_languages','managed_channels','wallets','wallet_profiles','profile_submission_rewards',
+      'unattributed_joins','join_attribution','team_profiles'
+    ]) copyLegacyRowsIgnore(legacy,target,table);
+    for (const table of ['member_profiles','founder_applications','wallet_history']) copyLegacyRowsIgnore(legacy,target,table,['id']);
+
+    const voiceMap = new Map();
+    if (tableExists(legacy,'voice_events')) {
+      const findVoice = target.prepare('SELECT id FROM voice_events WHERE name=? AND channel_id=? AND started_at=? LIMIT 1');
+      const insertVoice = target.prepare('INSERT INTO voice_events (name,channel_id,started_by,started_at,ended_at,active) VALUES (?,?,?,?,?,?)');
+      for (const row of legacy.prepare('SELECT * FROM voice_events ORDER BY id').all()) {
+        let mapped = findVoice.get(row.name,row.channel_id,row.started_at)?.id;
+        if (!mapped) mapped = Number(insertVoice.run(row.name,row.channel_id,row.started_by,row.started_at,row.ended_at,row.active).lastInsertRowid);
+        voiceMap.set(Number(row.id), Number(mapped));
+      }
+      if (tableExists(legacy,'voice_event_progress')) {
+        const ins = target.prepare('INSERT OR IGNORE INTO voice_event_progress (event_id,user_id,qualified_minutes) VALUES (?,?,?)');
+        for (const row of legacy.prepare('SELECT * FROM voice_event_progress').all()) {
+          const mapped = voiceMap.get(Number(row.event_id));
+          if (mapped) ins.run(mapped,row.user_id,row.qualified_minutes);
+        }
+      }
+    }
+
+    const eventMap = new Map();
+    if (tableExists(legacy,'community_events')) {
+      const findEvent = target.prepare('SELECT id FROM community_events WHERE title=? AND start_at=? AND created_at=? LIMIT 1');
+      const insertEvent = target.prepare('INSERT INTO community_events (title,description,start_at,duration_minutes,voice_channel_id,status,created_by,created_at,public_message_id,reminded_30,reminded_5,started_at,ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+      for (const row of legacy.prepare('SELECT * FROM community_events ORDER BY id').all()) {
+        let mapped = findEvent.get(row.title,row.start_at,row.created_at)?.id;
+        if (!mapped) {
+          mapped = Number(insertEvent.run(row.title,row.description,row.start_at,row.duration_minutes,row.voice_channel_id,row.status,row.created_by,row.created_at,row.public_message_id,row.reminded_30,row.reminded_5,row.started_at,row.ended_at).lastInsertRowid);
+          summary.events++;
+        }
+        eventMap.set(Number(row.id), Number(mapped));
+      }
+      if (tableExists(legacy,'event_rsvps')) {
+        const ins = target.prepare('INSERT OR IGNORE INTO event_rsvps (event_id,user_id,status,updated_at) VALUES (?,?,?,?)');
+        for (const row of legacy.prepare('SELECT * FROM event_rsvps').all()) {
+          const mapped = eventMap.get(Number(row.event_id));
+          if (mapped) ins.run(mapped,row.user_id,row.status,row.updated_at);
+        }
+      }
+      if (tableExists(legacy,'event_attendance')) {
+        const ins = target.prepare('INSERT OR IGNORE INTO event_attendance (event_id,user_id,first_seen_at,last_seen_at,minutes) VALUES (?,?,?,?,?)');
+        for (const row of legacy.prepare('SELECT * FROM event_attendance').all()) {
+          const mapped = eventMap.get(Number(row.event_id));
+          if (mapped) ins.run(mapped,row.user_id,row.first_seen_at,row.last_seen_at,row.minutes);
+        }
+      }
+    }
+
+    target.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+      .run(markerKey, String(Date.now()));
+    target.exec('COMMIT');
+    console.log(`[LEGACY MIGRATION ${id}] COMPLETE · users=${summary.users} · legacyXP=${summary.legacyXp} · xpLog=${summary.xpLog} · referrals=${summary.referrals} · social=${summary.social} · suggestions=${summary.suggestions} · events=${summary.events} · backup=${backupPath}`);
+    return summary;
+  } catch (error) {
+    try { target.exec('ROLLBACK'); } catch {}
+    console.error(`[LEGACY MIGRATION ${id}] FAILED:`, error);
+    throw error;
+  } finally {
+    legacy.close();
   }
 }
 
@@ -3285,6 +3473,7 @@ client.once('clientReady', async () => {
             setSetting('xp_label', 'XP');
           }
         }
+        migrateLegacyKlineoDatabase(fullGuild.id, fullGuild.name);
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
