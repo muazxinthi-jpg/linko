@@ -4992,6 +4992,24 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: `**USER ${xpLabel()} REPORT**\nUser: ${user}\nRole: **${rank.name}**\nTotal ${xpLabel()}: **${b.total.toLocaleString()}**\n\nMessages: **${b.messages.toLocaleString()}**\nVoice: **${b.voice.toLocaleString()}**\nServer Boosts: **${b.boosts.toLocaleString()}**\nReferrals: **${b.referrals.toLocaleString()}**\nSocial Posts: **${b.social.toLocaleString()}**\nBug Reports: **${b.bugs.toLocaleString()}**\nProfile / Wallet: **${b.profile.toLocaleString()}**\nManual / Other: **${b.manual.toLocaleString()}**`, ephemeral: true });
     }
 
+    if (interaction.commandName === 'set-boost-count') {
+      if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+      const user = interaction.options.getUser('member', true);
+      const count = interaction.options.getInteger('count', true);
+      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+      if (!member || member.user.bot) return interaction.reply({ content: 'Member not found.', ephemeral: true });
+      if (count === 0) {
+        db.prepare('DELETE FROM booster_overrides WHERE user_id = ?').run(user.id);
+        return interaction.reply({ content: `✅ Cleared the multi-boost override for ${user}. LINKO will use Discord's normal active-booster signal.`, ephemeral: true });
+      }
+      if (!member.premiumSinceTimestamp) return interaction.reply({ content: `${user} is not currently detected by Discord as an active server booster. No override was saved.`, ephemeral: true });
+      db.prepare(`INSERT INTO booster_overrides (user_id, boost_count, updated_at, updated_by)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET boost_count=excluded.boost_count, updated_at=excluded.updated_at, updated_by=excluded.updated_by`)
+        .run(user.id, count, now(), interaction.user.id);
+      return interaction.reply({ content: `✅ Verified ${user} at **${count} active boost${count === 1 ? '' : 's'}**. Daily reward: **+${count * getSettingInt('kxp_boost_daily')} ${xpLabel()}** while Discord still reports them as actively boosting.`, ephemeral: true });
+    }
+
     if (interaction.commandName === 'referral-stats') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const user = interaction.options.getUser('member', true);
