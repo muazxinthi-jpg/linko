@@ -1380,6 +1380,19 @@ const commands = [
   new SlashCommandBuilder().setName('events').setDescription('Show upcoming community community events.'),
 
   new SlashCommandBuilder()
+    .setName('announce')
+    .setDescription('Core/Team: preview and publish an official announcement.')
+    .addStringOption((o) => o.setName('title').setDescription('Optional announcement title').setMaxLength(200))
+    .addAttachmentOption((o) => o.setName('image').setDescription('Optional announcement image'))
+    .addStringOption((o) => o.setName('message').setDescription('Optional announcement message').setMaxLength(4000))
+    .addStringOption((o) => o.setName('link1').setDescription('Optional CTA or X post URL').setMaxLength(500))
+    .addStringOption((o) => o.setName('label1').setDescription('Optional CTA label; X links always become SHOW LOVE ON X').setMaxLength(80))
+    .addStringOption((o) => o.setName('link2').setDescription('Optional second CTA URL').setMaxLength(500))
+    .addStringOption((o) => o.setName('label2').setDescription('Optional second CTA label').setMaxLength(80))
+    .addStringOption((o) => o.setName('link3').setDescription('Optional third CTA URL').setMaxLength(500))
+    .addStringOption((o) => o.setName('label3').setDescription('Optional third CTA label').setMaxLength(80)),
+
+  new SlashCommandBuilder()
     .setName('community-health')
     .setDescription('Staff: show community community health metrics.')
     .addIntegerOption((o) => o.setName('days').setDescription('Reporting window in days').setMinValue(1).setMaxValue(90)),
@@ -1480,6 +1493,74 @@ function isAdmin(interaction) {
 function hasCoreRole(member) {
   const names = new Set([coreRoleName(), 'KLINEO CORE', 'COMMUNITY CORE']);
   return member?.roles?.cache?.some((r) => names.has(r.name));
+}
+function canPublishAnnouncement(member) {
+  const names = new Set([coreRoleName(), teamRoleName()]);
+  return member?.roles?.cache?.some((r) => names.has(r.name));
+}
+function isXPostUrl(raw) {
+  try {
+    const u = new URL(String(raw ?? '').trim());
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    return u.protocol === 'https:' && (host === 'x.com' || host === 'twitter.com') && /\/status\/\d+/.test(u.pathname);
+  } catch { return false; }
+}
+function announcementUrl(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  if (!officialLinkUrlValid(value)) throw new Error('Announcement CTA links must be valid HTTPS URLs.');
+  return value;
+}
+function announcementButtonLabel(url, custom, index) {
+  if (isXPostUrl(url)) return 'SHOW LOVE ON X';
+  const label = String(custom ?? '').trim();
+  return label ? label.slice(0, 80) : `OPEN LINK${index > 1 ? ` ${index}` : ''}`;
+}
+function announcementLinkRow(links = []) {
+  if (!links.length) return null;
+  return new ActionRowBuilder().addComponents(...links.slice(0, 3).map((link, index) =>
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setURL(link.url)
+      .setLabel(announcementButtonLabel(link.url, link.label, index + 1))
+  ));
+}
+function buildAnnouncementPayload(draft) {
+  const links = draft.links ?? [];
+  const linkRow = announcementLinkRow(links);
+
+  if (draft.xOnly) {
+    return {
+      content: `**𝕏 NEW ON X**\n${links[0].url}`,
+      embeds: [],
+      components: linkRow ? [linkRow] : [],
+    };
+  }
+
+  const title = draft.title || `📣 ${communityNameUpper()} ANNOUNCEMENT`;
+  const embeds = [];
+  if (draft.imageUrl) {
+    embeds.push(new EmbedBuilder()
+      .setColor(BRAND.lime)
+      .setTitle(title)
+      .setImage(draft.imageUrl));
+    if (draft.body) {
+      embeds.push(new EmbedBuilder()
+        .setColor(BRAND.lime)
+        .setDescription(draft.body)
+        .setFooter({ text: `${communityName()} Official Announcement` })
+        .setTimestamp());
+    } else {
+      embeds[0].setFooter({ text: `${communityName()} Official Announcement` }).setTimestamp();
+    }
+  } else {
+    const embed = new EmbedBuilder().setColor(BRAND.lime).setTitle(title);
+    if (draft.body) embed.setDescription(draft.body);
+    embed.setFooter({ text: `${communityName()} Official Announcement` }).setTimestamp();
+    embeds.push(embed);
+  }
+
+  return { content: null, embeds, components: linkRow ? [linkRow] : [] };
 }
 function staffRoleNames() {
   return [coreRoleName(), teamRoleName(), 'MODERATOR'];
