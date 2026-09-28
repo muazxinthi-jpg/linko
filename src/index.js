@@ -2881,6 +2881,35 @@ async function addXp(guild, userId, amount, reason, actorId = null) {
   scheduleHealthUpdate(guild);
   return next;
 }
+async function ensurePublicLobby(guild) {
+  const everyone = guild.roles.everyone;
+  let channel = guild.channels.cache.find((c) => c.type === ChannelType.GuildText && !c.parentId && c.name === 'general');
+  if (!channel) {
+    channel = await guild.channels.create({
+      name: 'general',
+      type: ChannelType.GuildText,
+      topic: `Public ${communityName()} lobby before verification. Use START HERE to unlock the full community.`,
+      rateLimitPerUser: 5,
+      reason: 'LINKO public no-role lobby',
+    });
+  }
+  await channel.edit({
+    parent: null,
+    topic: `Public ${communityName()} lobby before verification. Use START HERE to unlock the full community.`,
+    rateLimitPerUser: 5,
+    reason: 'LINKO public lobby sync',
+  }).catch(() => {});
+  await channel.permissionOverwrites.edit(everyone, {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true,
+    CreatePublicThreads: false,
+    CreatePrivateThreads: false,
+    SendMessagesInThreads: false,
+  }, { reason: 'LINKO public no-role lobby' }).catch(() => {});
+  return channel;
+}
+
 async function awardReferralMilestones(_guild, _referredUserId, _rankName) {
   // LINKO v5 keeps referral rewards deliberately conservative.
   // A referral earns KXP only after the referred member verifies and remains for 7 days.
@@ -2964,6 +2993,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
+  channels.publicLobby = await ensurePublicLobby(guild);
   channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: `${communityName()} welcome and onboarding. Start here.` }, startReadOnly);
   channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${communityName()} community and security rules.` }, startReadOnly);
   channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `${communityName()} verification and access.` }, startReadOnly);
@@ -2983,7 +3013,7 @@ async function buildKlineO(guild) {
     ['wins', CHANNEL_NAMES.wins, 'Share wins, mistakes and lessons. Public links are blocked.', 5],
   ]) {
     const perms = baseChannelName(name) === 'product-updates' ? [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))] : verifiedBase;
-    channels[key] = await ensureTextChannel(guild, categories.community, { name, topic, slowmode, reuseDefaultGeneral: baseChannelName(name) === 'general' }, perms);
+    channels[key] = await ensureTextChannel(guild, categories.community, { name, topic, slowmode }, perms);
   }
 
   channels.productRoadmap = await ensureTextChannel(guild, categories.community, { name: CHANNEL_NAMES.productRoadmap, topic: `Structured ${communityName()} product suggestions and status updates. Submit with /suggest.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
