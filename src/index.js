@@ -2910,6 +2910,44 @@ async function ensurePublicLobby(guild) {
   return channel;
 }
 
+function verifiedBoostCount(userId) {
+  return Math.max(0, Number(db.prepare('SELECT boost_count FROM booster_overrides WHERE user_id = ?').get(userId)?.boost_count ?? 0));
+}
+
+async function awardDailyBoosterXp(guild) {
+  await guild.members.fetch().catch(() => null);
+  const day = dayKey();
+  const perBoost = Math.max(0, getSettingInt('kxp_boost_daily'));
+  if (!perBoost) return;
+
+  for (const member of guild.members.cache.values()) {
+    if (member.user.bot || !member.premiumSinceTimestamp) continue;
+    const override = verifiedBoostCount(member.id);
+    const boostCount = Math.max(1, override || 1);
+    const amount = perBoost * boostCount;
+    const existing = db.prepare('SELECT xp_awarded FROM booster_daily WHERE user_id = ? AND day = ?').get(member.id, day);
+    if (Number(existing?.xp_awarded ?? 0) > 0) continue;
+
+    const reason = `Server boost daily reward:${day}:${boostCount} boost${boostCount === 1 ? '' : 's'}`;
+    const alreadyLogged = Number(db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM xp_log WHERE user_id = ? AND reason = ?').get(member.id, reason)?.s ?? 0);
+    if (alreadyLogged > 0) {
+      db.prepare('INSERT OR REPLACE INTO booster_daily (user_id, day, boost_count, xp_awarded, awarded_at) VALUES (?, ?, ?, ?, ?)').run(member.id, day, boostCount, alreadyLogged, now());
+      continue;
+    }
+
+    await addXp(guild, member.id, amount, reason, null);
+    db.prepare('INSERT OR REPLACE INTO booster_daily (user_id, day, boost_count, xp_awarded, awarded_at) VALUES (?, ?, ?, ?, ?)').run(member.id, day, boostCount, amount, now());
+  }
+}
+
+async function syncAllRankRoles(guild) {
+  await guild.members.fetch().catch(() => null);
+  for (const member of guild.members.cache.values()) {
+    if (member.user.bot || !hasVerifiedRole(member)) continue;
+    await syncRankRole(guild, member.id, false).catch(() => null);
+  }
+}
+
 async function awardReferralMilestones(_guild, _referredUserId, _rankName) {
   // LINKO v5 keeps referral rewards deliberately conservative.
   // A referral earns KXP only after the referred member verifies and remains for 7 days.
