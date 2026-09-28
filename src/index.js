@@ -2768,38 +2768,37 @@ function kxpRulesContent() {
   const label = xpLabel();
   return `**${label} — Experience Points**
 
-Ranks:
-• OBSERVER — 0 ${label}
-• SCOUT — 300 ${label}
-• ANALYST — 1,000 ${label}
-• OPERATOR — 2,000 ${label}
-• STRATEGIST — 10,000 ${label}
-• VANGUARD — 25,000 ${label}
-• PRIME — 50,000+ ${label} (highest rank; ${label} continues with no maximum)
+**Ranks**
+• OBSERVER — 0
+• SCOUT — 300
+• ANALYST — 1,000
+• OPERATOR — 2,000
+• STRATEGIST — 10,000
+• VANGUARD — 25,000
+• PRIME — 50,000+ (highest rank; lifetime ${label} keeps growing)
 
-**Current earning rules**
-• Qualifying message: **+${getSettingInt('kxp_message')} ${label}**
-• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**\n• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} ${label} per active boost per day**
-• Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
-• Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
-• KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
-• Valid bug report: **+${getSettingInt('kxp_bug_report')} ${label}**
-• First-time X submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time Telegram submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time EVM wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
-• First-time Solana wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
+**Earn ${label}**
+• Qualified message: **+${getSettingInt('kxp_message')}**
+• Official voice: **+${getSettingInt('kxp_voice_interval')} / ${getSettingInt('voice_interval_minutes')} min**
+• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} per active boost/day**
+• Valid referral: **+${getSettingInt('kxp_valid_referral')}**
+• Approved social post: **+${getSettingInt('kxp_social_post')}**
+• KREATOR milestone: **+${getSettingInt('creator_reaction_kxp')} / ${getSettingInt('creator_reaction_threshold')} verified reactions**
+• Valid bug report: **+${getSettingInt('kxp_bug_report')}**
+• First-time X / Telegram / EVM / Solana submission: **+${getSettingInt('kxp_profile_submission')} each**
 
-**${label} never caps.** PRIME unlocks at 50,000 ${label}, but members can keep earning lifetime ${label} indefinitely.\n\nBoost rewards are loyalty rewards. LINKO automatically detects active boosters. Staff can verify additional active boosts when Discord does not expose an exact per-member multi-boost count.\n\nStaff may also award audited manual ${label} for verified KlineO product participation, including genuine platform/trading activity. Manual rewards should reflect verified usage or contribution, not profit/loss or risky trading behavior. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
+Referral rewards require verification, 7 days retained, and activity across at least **${getSettingInt('referral_activity_min_days')} days**.
 
-Voice time only earns ${label} while staff have an **official voice event** active.
+Boost rewards are daily loyalty rewards. LINKO detects active boosters automatically; staff can verify extra active boosts when Discord cannot expose the exact multi-boost count.
 
-**Message ${label} is impact-scored.** LINKO first rejects short/trivial/repeated/duplicate/link-spam messages. Candidate messages are then scored using content quality/relevance plus real community response (meaningful replies or distinct reactions). A moderator can confirm or reverse edge cases. LINKO stores only message IDs + scores/metadata for this system, not the message body.
+Staff may award audited manual ${label} for verified KlineO product/trading activity. Rewards are for verified usage or contribution, not profit/loss.
 
-Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, and \`/leaderboard\`.
+Message ${label} is impact-scored; spam, duplicates and trivial messages do not qualify.
+
+Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, \`/leaderboard\`.
 
 [KLINEO-KXP]`;
 }
-
 function socialRulesContent() {
   const label = xpLabel();
   return `**Share ${communityName()}. Earn ${label} for genuine contributions.**
