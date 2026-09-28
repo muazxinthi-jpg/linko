@@ -1497,11 +1497,16 @@ function getDaily(userId) {
   return db.prepare('SELECT * FROM daily_xp WHERE user_id = ? AND day = ?').get(userId, day);
 }
 async function backfillRecentActivity(guild, days = 7) {
-  if (getSetting('activity_backfill_v1_at')) return;
+  const needActivity = !getSetting('activity_backfill_v1_at');
+  const needQuality = !getSetting('quality_backfill_v1_at');
+  if (!needActivity && !needQuality) return;
+
   const cutoff = now() - Math.max(1, days) * 86400000;
   let scanned = 0;
   let recorded = 0;
+  let qualityCandidates = 0;
   const users = new Set();
+  const recentMessages = [];
   const MAX_TOTAL = 10000;
   const MAX_PER_CHANNEL = 1500;
 
@@ -1523,7 +1528,8 @@ async function backfillRecentActivity(guild, days = 7) {
           continue;
         }
         if (!message.author?.bot) {
-          touchActivity(message.author.id, 'message', message.createdTimestamp ?? now());
+          if (needActivity) touchActivity(message.author.id, 'message', message.createdTimestamp ?? now());
+          if (needQuality) recentMessages.push(message);
           users.add(message.author.id);
           recorded++;
         }
@@ -1534,8 +1540,31 @@ async function backfillRecentActivity(guild, days = 7) {
     }
   }
 
-  setSetting('activity_backfill_v1_at', String(now()));
-  console.log(`[LINKO HEALTH] Activity backfill complete: ${recorded} messages, ${users.size} active members, ${scanned} messages scanned.`);
+  if (needQuality && recentMessages.length) {
+    recentMessages.sort((a, b) => (a.createdTimestamp ?? 0) - (b.createdTimestamp ?? 0));
+
+    // First pass creates the same candidate records LINKO would create live.
+    for (const message of recentMessages) {
+      const row = await ensureCandidateFromMessage(message).catch(() => null);
+      if (row) qualityCandidates++;
+    }
+
+    // Second pass reconstructs reply/reaction signal without awarding retroactive XP.
+    for (const message of recentMessages) {
+      if (message.reference?.messageId && message.reference?.guildId === guild.id) {
+        const a = analyzeImpactMessage(message.content);
+        if (a.qualifiesAsCandidate) await recordImpactEngagement(message.reference.messageId, message.author.id, 'reply');
+      }
+      const hasReaction = message.reactions?.cache?.some((reaction) => Number(reaction.count ?? 0) > 0);
+      if (hasReaction) {
+        db.prepare('UPDATE message_candidates SET reaction_count = MAX(reaction_count, 1) WHERE message_id = ?').run(message.id);
+      }
+    }
+  }
+
+  if (needActivity) setSetting('activity_backfill_v1_at', String(now()));
+  if (needQuality) setSetting('quality_backfill_v1_at', String(now()));
+  console.log(`[LINKO HEALTH] Backfill complete: ${recorded} human messages, ${users.size} active members, ${qualityCandidates} quality candidates, ${scanned} messages scanned.`);
 }
 function containsLink(content) {
   return /(https?:\/\/|www\.|discord\.gg\/|discord\.com\/invite\/|(?:^|\s)[a-z0-9][a-z0-9.-]*\.(?:com|io|xyz|net|org|gg|app|ai|finance|exchange)\b)/i.test(content);
@@ -1601,6 +1630,16 @@ function analyzeImpactMessage(content) {
 function candidateScore(row) {
   return Number(row.base_score ?? 0) + (Number(row.reply_count ?? 0) > 0 ? 1 : 0) + (Number(row.reaction_count ?? 0) > 0 ? 1 : 0) + Number(row.moderator_bonus ?? 0);
 }
+function qualifiedMessageCountBetween(start, end = now()) {
+  const threshold = Math.max(1, getSettingInt('impact_min_score'));
+  return Number(db.prepare(`SELECT COUNT(*) AS c
+    FROM message_candidates
+    WHERE created_at >= ? AND created_at < ? AND revoked = 0
+      AND (base_score
+        + CASE WHEN reply_count > 0 THEN 1 ELSE 0 END
+        + CASE WHEN reaction_count > 0 THEN 1 ELSE 0 END
+        + moderator_bonus) >= ?`).get(start, end, threshold)?.c ?? 0);
+}
 function parseDiscordMessageLink(raw, guildId) {
   const m = String(raw ?? '').trim().match(/(?:https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/channels\/)(\d+)\/(\d+)\/(\d+)/i);
   if (!m || m[1] !== String(guildId)) return null;
@@ -1656,7 +1695,7 @@ async function evaluateImpactCandidates(guild) {
     if (candidateScore(row) < threshold) continue;
     await awardImpactCandidate(guild, row, null, false);
   }
-  const staleCutoff = now() - 48 * 60 * 60 * 1000;
+  const staleCutoff = now() - 91 * 86400000;
   db.prepare('DELETE FROM message_engagement WHERE message_id IN (SELECT message_id FROM message_candidates WHERE created_at < ?)').run(staleCutoff);
   db.prepare('DELETE FROM message_candidates WHERE created_at < ? AND awarded = 0').run(staleCutoff);
 }
@@ -1846,7 +1885,7 @@ function healthMetrics(guild, days = 7) {
   const activeMembers = Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM activity_daily WHERE last_activity_at >= ?').get(cutoff)?.c ?? 0);
   const activeRate = humans.size ? Math.round((activeMembers / humans.size) * 100) : 0;
   const contributors = Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM xp_log WHERE created_at >= ? AND amount > 0').get(cutoff)?.c ?? 0);
-  const qualifiedMessages = Number(db.prepare("SELECT COUNT(*) AS c FROM xp_log WHERE created_at >= ? AND reason LIKE 'Qualified community message:%' AND amount > 0").get(cutoff)?.c ?? 0);
+  const qualifiedMessages = qualifiedMessageCountBetween(cutoff, now());
   const validReferrals = Number(db.prepare("SELECT COUNT(*) AS c FROM xp_log WHERE created_at >= ? AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0").get(cutoff)?.c ?? 0);
   const social = Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status = 'approved' AND reviewed_at >= ?").get(cutoff)?.c ?? 0);
   const suggestions = Number(db.prepare('SELECT COUNT(*) AS c FROM product_suggestions WHERE created_at >= ?').get(cutoff)?.c ?? 0);
@@ -3221,7 +3260,7 @@ function healthPeriodMetrics(days, offsetPeriods = 0) {
   const verifications = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('verified_at')}`).get(start, end)?.c ?? 0);
   const activeMembers = Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM activity_daily WHERE last_activity_at >= ? AND first_activity_at < ?').get(start, end)?.c ?? 0);
   const contributors = Number(db.prepare(`SELECT COUNT(DISTINCT user_id) AS c FROM xp_log WHERE ${between('created_at')} AND amount > 0`).get(start, end)?.c ?? 0);
-  const qualifiedMessages = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND reason LIKE 'Qualified community message:%' AND amount > 0`).get(start, end)?.c ?? 0);
+  const qualifiedMessages = qualifiedMessageCountBetween(start, end);
   const validReferrals = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0`).get(start, end)?.c ?? 0);
   const social = Number(db.prepare(`SELECT COUNT(*) AS c FROM social_submissions WHERE status='approved' AND ${between('reviewed_at')}`).get(start, end)?.c ?? 0);
   const suggestions = Number(db.prepare(`SELECT COUNT(*) AS c FROM product_suggestions WHERE ${between('created_at')}`).get(start, end)?.c ?? 0);
@@ -3488,7 +3527,7 @@ async function generateHealthCard(guild, days = 7) {
     return trend.label.toUpperCase();
   };
   const primary = [
-    { label: ['Active','Members'], value: compactMetric(m.activeMembers), icon: 'people', trend: metricTrend(current.activeMembers, previous.activeMembers), note: `${m.activeRate}% of community` },
+    { label: ['Active','Members'], value: compactMetric(m.activeMembers), icon: 'people', trend: metricTrend(current.activeMembers, previous.activeMembers), note: `${m.activeMembers} of ${m.total} · ${m.activeRate}% active` },
     { label: ['Qualified','Messages'], value: compactMetric(m.qualifiedMessages), icon: 'message', trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages) },
     { label: ['New','Joins'], value: compactMetric(m.joins), icon: 'join', trend: metricTrend(current.joins, previous.joins) },
     { label: ['Activation'], value: m.activationRate == null ? 'N/A' : `${m.activationRate}%`, icon: 'bars', trend: m.activationRate == null || previousActivationRate == null ? null : metricTrend(m.activationRate, previousActivationRate), note: m.activationRate == null ? 'No verified joins yet' : `${m.activated} of ${m.verifications} activated` },
@@ -3526,7 +3565,7 @@ async function generateHealthCard(guild, days = 7) {
       ctx.fillText(item.note, x + 3, 616);
     }
     const tLabel = trendLabel(item.trend);
-    drawPill(x + 92, 608, tLabel, item.trend?.direction ?? 'flat');
+    drawPill(x, 622, tLabel, item.trend?.direction ?? 'flat');
   });
 
   ctx.fillStyle = divider;
