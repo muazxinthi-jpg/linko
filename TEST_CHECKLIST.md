@@ -1,4 +1,4 @@
-# LINKO v10.7 Test Checklist
+# LINKO v10.8 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,22 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Project Profile + welcome tests
+
+Before continuing to the server-profile tests:
+
+- In a brand-new non-KlineO test Guild, run `/setup-linko confirm:true` and confirm LINKO opens Project Profile step 1 instead of immediately building the server.
+- Submit step 1 and confirm LINKO responds with the **CONTINUE PROJECT SETUP** button.
+- Open step 2 and confirm products/services and the first member action are required, while status, primary URL and wording guidance may be left empty.
+- Enter a non-HTTPS primary URL and confirm LINKO rejects it without running server setup.
+- Complete step 2 with a valid HTTPS URL and confirm LINKO finishes setup.
+- Confirm `/server-settings view` changes Project Profile from **NEEDS SETUP** to **COMPLETE**.
+- Confirm the persistent welcome embed shows project positioning, audience, products/services, optional current status, community value, product link(s), and the project-specific first action.
+- Confirm the private Project Profile summary shows the wording guidance, but the public welcome message does not expose that internal guidance.
+- Run `/project-profile configure`, change a core field, and confirm the live welcome message refreshes.
+- Run `/project-profile details`, change products/status/first action, and confirm the live welcome message refreshes.
+- Confirm KlineO is seeded automatically with KlineO.xyz, KlineO.io, its audience/products/status/first action, and does not require the setup wizard when those fields are already present.
+- Confirm existing XP, referrals, wallets, campaigns and other Guild data remain unchanged after the additive settings upgrade.
 ## Server profile and module tests
 
 11. In KlineO, confirm first-run defaults are KlineO / KXP / KlineO Full, with Signal Room, KREATOR, Founder Hub and Liquidity Studio enabled.
