@@ -2770,16 +2770,16 @@ function kxpRulesContent() {
 
 Ranks:
 • OBSERVER — 0 ${label}
-• SCOUT — 150 ${label}
-• ANALYST — 500 ${label}
-• OPERATOR — 1,200 ${label}
-• STRATEGIST — 2,500 ${label}
-• VANGUARD — 5,000 ${label}
-• PRIME — 10,000+ ${label} (highest rank; ${label} continues with no maximum)
+• SCOUT — 300 ${label}
+• ANALYST — 1,000 ${label}
+• OPERATOR — 2,000 ${label}
+• STRATEGIST — 10,000 ${label}
+• VANGUARD — 25,000 ${label}
+• PRIME — 50,000+ ${label} (highest rank; ${label} continues with no maximum)
 
 **Current earning rules**
 • Qualifying message: **+${getSettingInt('kxp_message')} ${label}**
-• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**
+• Official voice event: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes**\n• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} ${label} per active boost per day**
 • Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}** after source selection + inviter confirmation + verification + 7 days + activity on at least ${getSettingInt('referral_activity_min_days')} different days
 • Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
 • KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions**, capped at ${getSettingInt('creator_reaction_cap')} milestones/post
@@ -2789,7 +2789,7 @@ Ranks:
 • First-time EVM wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
 • First-time Solana wallet submission: **+${getSettingInt('kxp_profile_submission')} ${label}**
 
-**${label} never caps.** PRIME unlocks at 10,000 ${label}, but members can keep earning lifetime ${label} indefinitely. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
+**${label} never caps.** PRIME unlocks at 50,000 ${label}, but members can keep earning lifetime ${label} indefinitely.\n\nBoost rewards are loyalty rewards. LINKO automatically detects active boosters. Staff can verify additional active boosts when Discord does not expose an exact per-member multi-boost count.\n\nStaff may also award audited manual ${label} for verified KlineO product participation, including genuine platform/trading activity. Manual rewards should reflect verified usage or contribution, not profit/loss or risky trading behavior. Editing an already rewarded X, Telegram or wallet entry does not award the point again.
 
 Voice time only earns ${label} while staff have an **official voice event** active.
 
