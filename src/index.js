@@ -433,7 +433,10 @@ const DEFAULT_SETTINGS = {
   project_status: '',
   project_first_action: '',
   project_guidance: '',
+  project_primary_label: '',
   project_primary_url: '',
+  project_secondary_label: '',
+  project_secondary_url: '',
   profile_preset: 'klineo',
   module_signal_room: '1',
   module_kreator: '1',
@@ -1247,7 +1250,8 @@ const commands = [
     .setDescription('Core/Admin: view or configure the project context LINKO uses.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View the current project profile.'))
     .addSubcommand((sc) => sc.setName('configure').setDescription('Open the core project profile form.'))
-    .addSubcommand((sc) => sc.setName('details').setDescription('Edit products, status, first action, website and guidance.')),
+    .addSubcommand((sc) => sc.setName('details').setDescription('Edit products, status, first action, website and guidance.'))
+    .addSubcommand((sc) => sc.setName('links').setDescription('Edit the branded product links shown in the welcome message.')),
 
   new SlashCommandBuilder()
     .setName('server-settings')
@@ -2155,7 +2159,10 @@ function projectProfile() {
     status: String(getSetting('project_status') ?? '').trim(),
     firstAction: String(getSetting('project_first_action') ?? '').trim(),
     guidance: String(getSetting('project_guidance') ?? '').trim(),
+    primaryLabel: String(getSetting('project_primary_label') ?? '').trim(),
     primaryUrl: String(getSetting('project_primary_url') || getSetting('official_website') || '').trim(),
+    secondaryLabel: String(getSetting('project_secondary_label') ?? '').trim(),
+    secondaryUrl: String(getSetting('project_secondary_url') || getSetting('official_liquidity_studio') || '').trim(),
   };
 }
 function projectProfileCoreComplete() {
@@ -2165,6 +2172,18 @@ function projectProfileCoreComplete() {
 function projectProfileComplete() {
   const p = projectProfile();
   return projectProfileCoreComplete() && !!(p.products && p.firstAction);
+}
+function projectLinkLabel(raw, url, fallback = 'Website') {
+  const explicit = String(raw ?? '').trim().replace(/[\[\]]/g, '').slice(0, 80);
+  if (explicit) return explicit;
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    return host || fallback;
+  } catch { return fallback; }
+}
+function projectLinkMarkdown(label, url, fallback) {
+  if (!url) return '';
+  return `[${projectLinkLabel(label, url, fallback)}](${url})`;
 }
 function projectProfileSummaryEmbed() {
   const p = projectProfile();
@@ -2177,8 +2196,11 @@ function projectProfileSummaryEmbed() {
   if (p.status) e.addFields({ name: 'Current status / milestone', value: p.status.slice(0, 1024) });
   if (p.firstAction) e.addFields({ name: 'First action for a new member', value: p.firstAction.slice(0, 1024) });
   if (p.guidance) e.addFields({ name: 'LINKO wording guidance', value: p.guidance.slice(0, 1024) });
-  const official = [p.primaryUrl || getSetting('official_website'), getSetting('official_liquidity_studio')].filter(Boolean);
-  if (official.length) e.addFields({ name: 'Primary product links', value: official.join('\n').slice(0, 1024) });
+  const official = [
+    projectLinkMarkdown(p.primaryLabel, p.primaryUrl, 'Website'),
+    p.secondaryUrl && p.secondaryUrl !== p.primaryUrl ? projectLinkMarkdown(p.secondaryLabel, p.secondaryUrl, 'Second product') : '',
+  ].filter(Boolean);
+  if (official.length) e.addFields({ name: 'Project links', value: official.join('\n').slice(0, 1024) });
   return e.setFooter({ text: 'LINKO Project Profile' });
 }
 async function showProjectProfileModal(interaction, mode = 'edit') {
@@ -2248,6 +2270,37 @@ function saveProjectProfileDetailsFromModal(interaction) {
   if (primaryUrl) setSetting('official_website', primaryUrl);
   return { ok: true };
 }
+async function showProjectProfileLinksModal(interaction) {
+  const p = projectProfile();
+  const modal = new ModalBuilder()
+    .setCustomId('project_profile_links_modal')
+    .setTitle('Edit project welcome links');
+
+  const fields = [
+    new TextInputBuilder().setCustomId('project_primary_label').setLabel('Primary link label').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80).setValue(p.primaryLabel.slice(0, 80)),
+    new TextInputBuilder().setCustomId('project_primary_url').setLabel('Primary product / website URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(300).setValue(p.primaryUrl.slice(0, 300)),
+    new TextInputBuilder().setCustomId('project_secondary_label').setLabel('Second link label').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80).setValue(p.secondaryLabel.slice(0, 80)),
+    new TextInputBuilder().setCustomId('project_secondary_url').setLabel('Second product / service URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(300).setValue(p.secondaryUrl.slice(0, 300)),
+  ];
+  modal.addComponents(...fields.map((field) => new ActionRowBuilder().addComponents(field)));
+  return interaction.showModal(modal);
+}
+function saveProjectProfileLinksFromModal(interaction) {
+  const primaryLabel = interaction.fields.getTextInputValue('project_primary_label').trim().replace(/[\[\]]/g, '').slice(0, 80);
+  const primaryUrl = interaction.fields.getTextInputValue('project_primary_url').trim().slice(0, 300);
+  const secondaryLabel = interaction.fields.getTextInputValue('project_secondary_label').trim().replace(/[\[\]]/g, '').slice(0, 80);
+  const secondaryUrl = interaction.fields.getTextInputValue('project_secondary_url').trim().slice(0, 300);
+  if (primaryLabel && !primaryUrl) return { ok: false, error: 'Primary link label needs a matching URL.' };
+  if (secondaryLabel && !secondaryUrl) return { ok: false, error: 'Second link label needs a matching URL.' };
+  if (primaryUrl && !officialLinkUrlValid(primaryUrl)) return { ok: false, error: 'Primary project link must be a valid https:// URL.' };
+  if (secondaryUrl && !officialLinkUrlValid(secondaryUrl)) return { ok: false, error: 'Second project link must be a valid https:// URL.' };
+  setSetting('project_primary_label', primaryLabel);
+  setSetting('project_primary_url', primaryUrl);
+  setSetting('project_secondary_label', secondaryLabel);
+  setSetting('project_secondary_url', secondaryUrl);
+  if (primaryUrl) setSetting('official_website', primaryUrl);
+  return { ok: true };
+}
 function seedKlineOProjectProfile(guild) {
   const isKlineO = String(guild?.name ?? '').trim().toLowerCase() === 'klineo' || String(getSetting('community_name') ?? '').trim().toLowerCase() === 'klineo';
   if (!isKlineO) return false;
@@ -2260,7 +2313,10 @@ function seedKlineOProjectProfile(guild) {
   if (!getSetting('project_status')) setSetting('project_status', 'Beyond early beta, with more than $3.8M in routed trading volume. Binance, Bybit and HyperLiquid are connected, with KuCoin and additional integrations incoming.');
   if (!getSetting('project_first_action')) setSetting('project_first_action', 'Choose the roles that fit you, complete onboarding, then explore KlineO.xyz if you are a trader or creator, or KlineO.io if you represent a project, ecosystem, foundation or exchange.');
   if (!getSetting('project_guidance')) setSetting('project_guidance', 'Keep KlineO.xyz and KlineO.io clearly differentiated. Keep positioning product-led and infrastructure-led. Do not describe KXP as a token or financial asset.');
+  if (!getSetting('project_primary_label')) setSetting('project_primary_label', 'KlineO.xyz · Trading & Execution');
   if (!getSetting('project_primary_url')) setSetting('project_primary_url', 'https://klineo.xyz');
+  if (!getSetting('project_secondary_label')) setSetting('project_secondary_label', 'KlineO.io · Liquidity Intelligence');
+  if (!getSetting('project_secondary_url')) setSetting('project_secondary_url', 'https://klineo.io');
   if (!getSetting('official_website')) setSetting('official_website', 'https://klineo.xyz');
   if (!getSetting('official_liquidity_studio')) setSetting('official_liquidity_studio', 'https://klineo.io');
   if (!getSetting('official_x')) setSetting('official_x', 'https://x.com/klineoxyz');
@@ -2279,7 +2335,7 @@ function buildWelcomeEmbed(channels) {
   const founderLine = moduleEnabled('founder_hub') ? '\nFounders can apply with `/apply-founder`.' : '';
   const socialLine = moduleEnabled('kreator') ? ` Approved creator content can also earn ${label}.` : '';
   const website = p.primaryUrl || getSetting('official_website');
-  const secondary = getSetting('official_liquidity_studio');
+  const secondary = p.secondaryUrl || getSetting('official_liquidity_studio');
 
   const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`);
 
@@ -2295,8 +2351,8 @@ function buildWelcomeEmbed(channels) {
   if (p.memberValue) e.addFields({ name: '⚡ What you’ll find here', value: p.memberValue.slice(0, 1024) });
 
   const productLinks = [];
-  if (website) productLinks.push(`[Primary product](${website})`);
-  if (secondary && secondary !== website) productLinks.push(`[Liquidity / secondary product](${secondary})`);
+  if (website) productLinks.push(projectLinkMarkdown(p.primaryLabel, website, 'Website'));
+  if (secondary && secondary !== website) productLinks.push(projectLinkMarkdown(p.secondaryLabel, secondary, 'Second product'));
   if (productLinks.length) e.addFields({ name: '🔗 Explore', value: productLinks.join(' · ') });
 
   e.addFields({
@@ -4747,6 +4803,16 @@ client.on('interactionCreate', async (interaction) => {
       await refreshBrandMessages(interaction.guild).catch((error) => logLinkoError('project-profile-details-refresh', error));
       return interaction.editReply({ embeds: [projectProfileSummaryEmbed()], content: '✅ Project details updated. The live welcome message was refreshed where available.' });
     }
+    if (interaction.isModalSubmit() && interaction.customId === 'project_profile_links_modal') {
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
+        return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
+      }
+      const saved = saveProjectProfileLinksFromModal(interaction);
+      if (!saved.ok) return interaction.reply({ content: `❌ ${saved.error}`, ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
+      await refreshBrandMessages(interaction.guild).catch((error) => logLinkoError('project-profile-links-refresh', error));
+      return interaction.editReply({ embeds: [projectProfileSummaryEmbed()], content: '✅ Project link labels updated. The live welcome message was refreshed where available.' });
+    }
     if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
     if (!interaction.isChatInputCommand()) return;
 
@@ -5651,6 +5717,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       }
       if (action === 'configure') return showProjectProfileModal(interaction, 'edit');
       if (action === 'details') return showProjectProfileDetailsModal(interaction, 'edit');
+      if (action === 'links') return showProjectProfileLinksModal(interaction);
     }
 
     if (interaction.commandName === 'server-settings') {
