@@ -4610,6 +4610,31 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    if (interaction.isModalSubmit() && ['project_profile_modal', 'project_profile_setup_modal'].includes(interaction.customId)) {
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
+        return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
+      }
+      saveProjectProfileFromModal(interaction);
+      await interaction.deferReply({ ephemeral: true });
+
+      if (interaction.customId === 'project_profile_setup_modal') {
+        setSetupPhase('starting');
+        try {
+          await buildKlineO(interaction.guild);
+          setSetupPhase('idle');
+          return interaction.editReply(`✅ Project Profile saved and LINKO setup completed for **${communityName()}**. The welcome experience now uses this project context.`);
+        } catch (error) {
+          const phase = getSetupPhase();
+          logLinkoError(`project profile setup failed during ${phase}`, error);
+          setSetupPhase('idle');
+          return interaction.editReply(`❌ Project Profile was saved, but LINKO setup stopped during **${phase}**: ${String(error?.message ?? error).slice(0, 900)}`);
+        }
+      }
+
+      await refreshBrandMessages(interaction.guild).catch((error) => logLinkoError('project-profile-refresh', error));
+      return interaction.editReply({ embeds: [projectProfileSummaryEmbed()], content: '✅ Project Profile updated. The live welcome message was refreshed where available.' });
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
     if (!interaction.isChatInputCommand()) return;
 
@@ -4627,6 +4652,10 @@ client.on('interactionCreate', async (interaction) => {
     // interaction response within ~3 seconds; command logging must never block it.
     if (interaction.commandName === 'setup-klineo' || interaction.commandName === 'setup-linko') {
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
+      seedKlineOProjectProfile(interaction.guild);
+      if (interaction.options.getBoolean('confirm', true) && !projectProfileComplete()) {
+        return showProjectProfileModal(interaction, 'setup');
+      }
       if (!interaction.options.getBoolean('confirm', true)) {
         return interaction.reply({ content: `Preview only. Use \`/${interaction.commandName} confirm:true\` to build/sync LINKO in this server.`, ephemeral: true });
       }
