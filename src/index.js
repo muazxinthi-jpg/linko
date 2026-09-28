@@ -2207,11 +2207,39 @@ function withImageOrPlaceholder(embed, slot, label) {
 function buildWelcomeEmbed(channels) {
   const name = communityName();
   const label = xpLabel();
-  const founderLine = moduleEnabled('founder_hub') ? '\n\nFounders can apply with `/apply-founder`.' : '';
+  const p = projectProfile();
+  const founderLine = moduleEnabled('founder_hub') ? '\nFounders can apply with `/apply-founder`.' : '';
   const socialLine = moduleEnabled('kreator') ? ` Approved creator content can also earn ${label}.` : '';
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`)
-    .setDescription(`${name} is powered by LINKO community operations.\n\n**Start here**\n1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined ${name}\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn ${label} through meaningful participation, official voice events and valid referrals.${socialLine}${founderLine}\n\nAfter verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.\n\n**Security:** ${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`)
-    .setFooter({ text: '[KLINEO-WELCOME]' });
+  const website = getSetting('official_website');
+  const secondary = getSetting('official_liquidity_studio');
+
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`);
+
+  if (p.tagline || p.description) {
+    e.setDescription(`${p.tagline ? `**${p.tagline}**\n\n` : ''}${p.description || ''}`);
+  } else {
+    e.setDescription(`${name} is powered by LINKO community operations.`);
+  }
+
+  if (p.audience) e.addFields({ name: '👥 Who this is for', value: p.audience.slice(0, 1024) });
+  if (p.memberValue) e.addFields({ name: '⚡ What you’ll find here', value: p.memberValue.slice(0, 1024) });
+
+  const productLinks = [];
+  if (website) productLinks.push(`[Primary product](${website})`);
+  if (secondary && secondary !== website) productLinks.push(`[Liquidity / secondary product](${secondary})`);
+  if (productLinks.length) e.addFields({ name: '🔗 Explore', value: productLinks.join(' · ') });
+
+  e.addFields({
+    name: '🚀 Start here',
+    value: `1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined ${name}\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn ${label} through meaningful participation, official voice events and valid referrals.${socialLine}${founderLine}\n\nAfter verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.`
+  });
+
+  e.addFields({
+    name: '🔐 Security',
+    value: `${name} staff will never DM you first asking for funds, seed phrases, private keys or wallet recovery information.`
+  });
+
+  e.setFooter({ text: '[KLINEO-WELCOME]' });
   return withImageOrPlaceholder(e, 'welcome', 'Welcome');
 }
 function buildVerifyEmbed() {
