@@ -4428,6 +4428,33 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.user?.bot) touchActivity(interaction.user.id, interaction.isChatInputCommand() ? 'command' : 'onboarding');
     if (interaction.isButton()) {
       if (interaction.customId === 'klineo_verify') return verifyMember(interaction);
+      if (interaction.customId.startsWith('announcement_publish:') || interaction.customId.startsWith('announcement_cancel:')) {
+        if (!canPublishAnnouncement(interaction.member)) return interaction.reply({ content: `Only **${coreRoleName()}** or **${teamRoleName()}** can publish announcements.`, ephemeral: true });
+        const [action, draftId] = interaction.customId.split(':');
+        const draft = announcementDrafts.get(draftId);
+        if (!draft || draft.guildId !== interaction.guildId || draft.createdBy !== interaction.user.id) {
+          return interaction.reply({ content: 'This announcement preview expired or belongs to another team member. Run /announce again.', ephemeral: true });
+        }
+        if (now() - draft.createdAt > 30 * 60 * 1000) {
+          announcementDrafts.delete(draftId);
+          return interaction.update({ content: '⌛ This announcement preview expired. Run /announce again.', embeds: [], components: [] });
+        }
+        if (action === 'announcement_cancel') {
+          announcementDrafts.delete(draftId);
+          return interaction.update({ content: 'Cancelled. Nothing was published.', embeds: [], components: [] });
+        }
+
+        const channel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'announcements' && c.isTextBased());
+        if (!channel) return interaction.reply({ content: '#announcements could not be found. Run /setup-linko first.', ephemeral: true });
+        const payload = buildAnnouncementPayload(draft);
+        const sent = await channel.send(payload);
+        db.prepare(`INSERT INTO announcements
+          (created_by, title, body, image_url, cta_json, x_only, discord_message_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(draft.createdBy, draft.title || null, draft.body || null, draft.imageUrl || null, JSON.stringify(draft.links ?? []), draft.xOnly ? 1 : 0, sent.id, now());
+        announcementDrafts.delete(draftId);
+        return interaction.update({ content: `✅ Published in ${channel}.`, embeds: [], components: [] });
+      }
       if (interaction.customId.startsWith('social_approve:')) {
         const [, id] = interaction.customId.split(':');
         return handleSocialReview(interaction, Number(id), true);
@@ -4793,6 +4820,57 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'events') {
       const rows = db.prepare("SELECT * FROM community_events WHERE status IN ('planned','live') ORDER BY start_at ASC LIMIT 10").all();
       return interaction.reply({ content: rows.length ? `**Upcoming ${communityName()} Events**\n${rows.map((r) => `**#${r.id} ${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — <#${r.voice_channel_id}>` : ''}`).join('\n')}` : `No upcoming ${communityName()} events are scheduled.`, ephemeral: true });
+    }
+
+    if (interaction.commandName === 'announce') {
+      if (!canPublishAnnouncement(interaction.member)) {
+        return interaction.reply({ content: `Only **${coreRoleName()}** or **${teamRoleName()}** can publish official announcements.`, ephemeral: true });
+      }
+
+      const title = interaction.options.getString('title')?.trim() || '';
+      const body = interaction.options.getString('message')?.trim() || '';
+      const image = interaction.options.getAttachment('image');
+      if (image && !(image.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(image.name ?? ''))) {
+        return interaction.reply({ content: 'The announcement attachment must be an image.', ephemeral: true });
+      }
+
+      const links = [];
+      for (let n = 1; n <= 3; n++) {
+        const raw = interaction.options.getString(`link${n}`);
+        const label = interaction.options.getString(`label${n}`)?.trim() || '';
+        if (label && !raw) return interaction.reply({ content: `label${n} needs a matching link${n}.`, ephemeral: true });
+        if (!raw) continue;
+        links.push({ url: announcementUrl(raw), label });
+      }
+      if (!title && !body && !image && !links.length) {
+        return interaction.reply({ content: 'Add at least a title, message, image, or CTA/X link.', ephemeral: true });
+      }
+
+      const xOnly = !title && !body && !image && links.length === 1 && isXPostUrl(links[0].url);
+      const draftId = interaction.id;
+      const draft = {
+        guildId: interaction.guildId,
+        createdBy: interaction.user.id,
+        createdAt: now(),
+        title,
+        body,
+        imageUrl: image?.url || '',
+        links,
+        xOnly,
+      };
+      announcementDrafts.set(draftId, draft);
+
+      const preview = buildAnnouncementPayload(draft);
+      const confirmRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`announcement_publish:${draftId}`).setLabel('PUBLISH').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`announcement_cancel:${draftId}`).setLabel('CANCEL').setStyle(ButtonStyle.Danger),
+      );
+      return interaction.reply({
+        content: xOnly ? `**Preview · X-only announcement**\n${links[0].url}` : '**Announcement preview**',
+        embeds: preview.embeds,
+        components: [...preview.components, confirmRow],
+        ephemeral: true,
+      });
     }
 
     if (interaction.commandName === 'health-card') {
