@@ -2043,8 +2043,10 @@ async function updateCommunityHealthDashboard(guild, days = getSettingInt('healt
   if (!channel) return;
   await seedMessage(channel, '[KLINEO-COMMUNITY-HEALTH]', { embeds: [buildHealthEmbed(guild, days)] });
 }
-function scheduleHealthUpdate(guild) {
-  scheduleGuildTimeout(healthUpdateTimers, guild, 5000, () => updateCommunityHealthDashboard(guild).catch(console.error));
+function scheduleHealthUpdate(_guild) {
+  // Deliberately no immediate dashboard write here.
+  // Health metrics remain live in the database; the persistent dashboard refreshes every 12h,
+  // or immediately when staff run /refresh-health.
 }
 function modInboxCounts() {
   const cutoff = now() - 7 * 86400000;
@@ -3060,6 +3062,16 @@ async function maybeAwardReferralRoleBonus(_guild, _memberId, _roleName) {
   // No automatic Creator/Founder referral bonus in v5.
 }
 
+async function syncAnnouncementChannelPermissions(guild) {
+  const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'announcements' && c.isTextBased());
+  if (!channel) return;
+  const core = guild.roles.cache.find((r) => r.name === coreRoleName());
+  const team = guild.roles.cache.find((r) => r.name === teamRoleName());
+  const overwrites = readOnlyOverwrites(guild.roles.everyone, [core, team]);
+  await channel.permissionOverwrites.set(overwrites, 'LINKO announcement publishing restricted to Core/Team');
+  await channel.edit({ topic: `${communityName()} official announcements. Published through /announce by Core/Team.` }).catch(() => {});
+}
+
 async function buildKlineO(guild) {
   setSetupPhase('01/11 · Fetch server state + migrate legacy structure');
   await guild.roles.fetch();
@@ -3094,6 +3106,7 @@ async function buildKlineO(guild) {
   const staff = [roles.core, roles.team, roles.moderator];
   const verifiedBase = privateFor(everyone, [roles.verified, ...staff]);
   const startReadOnly = readOnlyOverwrites(everyone, staff);
+  const announcementReadOnly = readOnlyOverwrites(everyone, [roles.core, roles.team]);
   const staffPrivate = privateFor(everyone, staff);
   const creatorsPrivate = privateFor(everyone, [roles.creator, ...staff]);
   const foundersPrivate = privateFor(everyone, [roles.founder, roles.studio, ...staff]);
@@ -3139,7 +3152,7 @@ async function buildKlineO(guild) {
   channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${communityName()} community and security rules.` }, startReadOnly);
   channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `${communityName()} verification and access.` }, startReadOnly);
   channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: `${communityName()} official links only.` }, startReadOnly);
-  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `${communityName()} official announcements.` }, startReadOnly);
+  channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `${communityName()} official announcements. Published through /announce by Core/Team.` }, announcementReadOnly);
 
   for (const [key, name, topic, slowmode] of [
     ['general', CHANNEL_NAMES.general, `General ${communityName()} discussion. Public links are blocked.`, 2],
@@ -4248,6 +4261,7 @@ client.once('clientReady', async () => {
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
         await cacheInvites(fullGuild);
         await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
+        await syncAnnouncementChannelPermissions(fullGuild).catch((error) => logLinkoError('announcement-permissions', error));
         await backfillRecentActivity(fullGuild, getSettingInt('health_window_days') || 7).catch((error) => logLinkoError('activity-backfill', error));
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
@@ -4263,7 +4277,10 @@ client.once('clientReady', async () => {
         setInterval(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 5 * 60 * 1000);
         setInterval(recurring(evaluateImpactCandidates), 60 * 1000);
         setInterval(recurring(processCommunityEvents), 60 * 1000);
-        setInterval(() => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)), 10 * 60 * 1000);
+        setInterval(
+          () => runWithGuild(fullGuild.id, () => updateCommunityHealthDashboard(fullGuild).catch(console.error)),
+          Math.max(1, getSettingInt('health_auto_refresh_hours') || 12) * 60 * 60 * 1000
+        );
         setInterval(() => runWithGuild(fullGuild.id, () => updateModInbox(fullGuild).catch(console.error)), 5 * 60 * 1000);
 
         setTimeout(recurring(checkPendingReferrals), 15000);
