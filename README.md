@@ -28,6 +28,20 @@ The persistent welcome message now uses the saved Project Profile for positionin
 
 Generic Discord onboarding still remains intact: rules, join source, verification, OBSERVER access, onboarding, XP and security guidance.
 
+## Branded project links
+
+`/project-profile links` lets Core/Admin configure up to two branded links used in the Welcome `Explore` section:
+
+- primary display label + HTTPS URL
+- optional second display label + HTTPS URL
+
+The labels are project-specific instead of generic `Primary product` / `Secondary product` wording. If a label is left blank but a URL exists, LINKO falls back to the URL hostname.
+
+KlineO defaults to:
+
+- `KlineO.xyz · Trading & Execution` → `https://klineo.xyz`
+- `KlineO.io · Liquidity Intelligence` → `https://klineo.io`
+
 KlineO is pre-seeded with its current `.xyz` / `.io` positioning so its setup does not need to ask for information LINKO already knows. Existing Guild databases upgrade additively through the settings table; no XP, referral, wallet or campaign history is reset.
 
 Additional official/social links remain managed through `/official-links`, and section artwork remains managed through `/server-image`.
