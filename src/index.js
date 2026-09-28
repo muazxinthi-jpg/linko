@@ -5269,6 +5269,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       return interaction.reply({ content: `**${interaction.guild.name} ${label} SETTINGS**
 Message: **+${getSettingInt('kxp_message')} ${label}**
 Voice: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
+Server boost: **+${getSettingInt('kxp_boost_daily')} ${label} per active boost per day**
 Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}**
 Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
 KREATOR reaction milestone: **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified reactions** (max ${getSettingInt('creator_reaction_cap')} milestones/post)
@@ -5439,7 +5440,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
 
     if (interaction.commandName === 'mod-help') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
-      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/health-card` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/set-boost-count` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/health-card` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
     }
 
     if (interaction.commandName === 'grant-klineo-role') {
