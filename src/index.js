@@ -2133,6 +2133,71 @@ function safePublicUrl(raw) {
   try { const u = new URL(raw); return ['https:', 'http:'].includes(u.protocol); } catch { return false; }
 }
 function profileValue(raw) { return String(raw ?? '').trim().slice(0, 180); }
+function projectProfile() {
+  return {
+    name: communityName(),
+    tagline: String(getSetting('project_tagline') ?? '').trim(),
+    description: String(getSetting('project_description') ?? '').trim(),
+    audience: String(getSetting('project_audience') ?? '').trim(),
+    memberValue: String(getSetting('project_member_value') ?? '').trim(),
+  };
+}
+function projectProfileComplete() {
+  const p = projectProfile();
+  return !!(p.name && p.name !== 'Community' && p.tagline && p.description && p.audience && p.memberValue);
+}
+function projectProfileSummaryEmbed() {
+  const p = projectProfile();
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`${p.name} — Project Profile`);
+  if (p.tagline) e.setDescription(`**${p.tagline}**`);
+  if (p.description) e.addFields({ name: 'What is the project?', value: p.description.slice(0, 1024) });
+  if (p.audience) e.addFields({ name: 'Who is it for?', value: p.audience.slice(0, 1024) });
+  if (p.memberValue) e.addFields({ name: 'What members get here', value: p.memberValue.slice(0, 1024) });
+  const official = [getSetting('official_website'), getSetting('official_liquidity_studio')].filter(Boolean);
+  if (official.length) e.addFields({ name: 'Primary product links', value: official.join('\n').slice(0, 1024) });
+  return e.setFooter({ text: 'LINKO Project Profile' });
+}
+async function showProjectProfileModal(interaction, mode = 'edit') {
+  const p = projectProfile();
+  const modal = new ModalBuilder()
+    .setCustomId(mode === 'setup' ? 'project_profile_setup_modal' : 'project_profile_modal')
+    .setTitle(mode === 'setup' ? 'Set up project profile' : 'Edit project profile');
+
+  const fields = [
+    new TextInputBuilder().setCustomId('project_name').setLabel('Project / community name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(40).setValue(p.name === 'Community' ? interaction.guild.name.slice(0, 40) : p.name.slice(0, 40)),
+    new TextInputBuilder().setCustomId('project_tagline').setLabel('One-line positioning').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100).setValue(p.tagline.slice(0, 100)),
+    new TextInputBuilder().setCustomId('project_description').setLabel('What is the project?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(800).setValue(p.description.slice(0, 800)),
+    new TextInputBuilder().setCustomId('project_audience').setLabel('Who is it for?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500).setValue(p.audience.slice(0, 500)),
+    new TextInputBuilder().setCustomId('project_member_value').setLabel('What should members get here?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(800).setValue(p.memberValue.slice(0, 800)),
+  ];
+  modal.addComponents(...fields.map((field) => new ActionRowBuilder().addComponents(field)));
+  return interaction.showModal(modal);
+}
+function saveProjectProfileFromModal(interaction) {
+  const name = interaction.fields.getTextInputValue('project_name').trim().slice(0, 40);
+  const tagline = interaction.fields.getTextInputValue('project_tagline').trim().slice(0, 100);
+  const description = interaction.fields.getTextInputValue('project_description').trim().slice(0, 800);
+  const audience = interaction.fields.getTextInputValue('project_audience').trim().slice(0, 500);
+  const memberValue = interaction.fields.getTextInputValue('project_member_value').trim().slice(0, 800);
+  setSetting('community_name', name);
+  setSetting('project_tagline', tagline);
+  setSetting('project_description', description);
+  setSetting('project_audience', audience);
+  setSetting('project_member_value', memberValue);
+}
+function seedKlineOProjectProfile(guild) {
+  const isKlineO = String(guild?.name ?? '').trim().toLowerCase() === 'klineo' || String(getSetting('community_name') ?? '').trim().toLowerCase() === 'klineo';
+  if (!isKlineO) return false;
+  if (!getSetting('community_name')) setSetting('community_name', 'KlineO');
+  if (!getSetting('project_tagline')) setSetting('project_tagline', 'Agentic operating layer for digital asset markets.');
+  if (!getSetting('project_description')) setSetting('project_description', 'KlineO connects AI-driven market intelligence with trading and liquidity operations across two products: KlineO.xyz for agentic trading and execution, and KlineO.io for liquidity intelligence and operations.');
+  if (!getSetting('project_audience')) setSetting('project_audience', 'Traders, creators, communities, professional teams, founders, issuers, foundations, ecosystems and exchanges.');
+  if (!getSetting('project_member_value')) setSetting('project_member_value', 'Product updates, market discussion, trading workflows, AI-agent experiments, creator opportunities, founder and liquidity conversations, events, feedback loops and KXP-based community progression.');
+  if (!getSetting('official_website')) setSetting('official_website', 'https://klineo.xyz');
+  if (!getSetting('official_liquidity_studio')) setSetting('official_liquidity_studio', 'https://klineo.io');
+  if (!getSetting('official_x')) setSetting('official_x', 'https://x.com/klineoxyz');
+  return true;
+}
 function configuredImage(slot) { return getSetting(IMAGE_SLOTS[slot]) || ''; }
 function withImageOrPlaceholder(embed, slot, label) {
   const url = configuredImage(slot);
