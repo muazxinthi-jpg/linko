@@ -217,6 +217,22 @@ const SCHEMA_SQL = `
   );
 
 
+  CREATE TABLE IF NOT EXISTS booster_daily (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    boost_count INTEGER NOT NULL DEFAULT 1,
+    xp_awarded INTEGER NOT NULL DEFAULT 0,
+    awarded_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, day)
+  );
+
+  CREATE TABLE IF NOT EXISTS booster_overrides (
+    user_id TEXT PRIMARY KEY,
+    boost_count INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS member_activation (
     user_id TEXT PRIMARY KEY,
     interests_set INTEGER NOT NULL DEFAULT 0,
