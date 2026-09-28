@@ -1560,7 +1560,7 @@ function buildAnnouncementPayload(draft) {
     embeds.push(embed);
   }
 
-  return { content: null, embeds, components: linkRow ? [linkRow] : [] };
+  return { embeds, components: linkRow ? [linkRow] : [] };
 }
 function staffRoleNames() {
   return [coreRoleName(), teamRoleName(), 'MODERATOR'];
