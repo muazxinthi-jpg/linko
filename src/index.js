@@ -4360,6 +4360,7 @@ client.once('clientReady', async () => {
           }
         }
         migrateLegacyKlineoDatabase(fullGuild.id, fullGuild.name);
+        seedKlineOProjectProfile(fullGuild);
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
@@ -4370,6 +4371,7 @@ client.once('clientReady', async () => {
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
+        if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
         console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.7 multi-server features.');
 
@@ -5548,7 +5550,7 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
           ['Liquidity Studio', 'liquidity_studio'],
         ].map(([label, key]) => `${moduleEnabled(key) ? '✅' : '⛔'} ${label}`).join('\n');
         return interaction.reply({
-          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nCard accent: **${brandAccent()}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
+          content: `**LINKO SERVER PROFILE**\nCommunity: **${communityName()}**\nDiscord server: **${interaction.guild.name}**\nGuild ID: \`${interaction.guildId}\`\nPreset: **${getSetting('profile_preset') || 'custom'}**\nXP name: **${xpLabel()}**\nCard accent: **${brandAccent()}**\nProject Profile: **${projectProfileComplete() ? 'COMPLETE' : 'NEEDS SETUP'}**\nDatabase: \`${guildDatabasePath(interaction.guildId)}\`\nCampaign board retention: **${getSettingInt('campaign_leaderboard_retention_days')} days**\n\n**Optional modules**\n${modules}\n\nChanges to community name/preset/modules take effect fully after \`/setup-linko confirm:true\`.`,
           ephemeral: true,
         });
       }
@@ -5789,7 +5791,7 @@ Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('vo
 
     if (interaction.commandName === 'mod-help') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
-      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/set-boost-count` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/official-links` · `/team-profile` · `/community-health` · `/health-card` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Moderator Commands**\n`/user-kxp` · `/give-xp` · `/remove-xp` · `/set-boost-count` · `/approve-bug` · `/referral-stats` · `/confirm-referral` · `/impact-status` · `/mark-impactful` · `/remove-message-xp` · `/impact-settings` · `/set-impact` · `/kxp-settings` · `/set-kxp` · `/voice-event` · `/leaderboard-settings` · `/creator-campaign` · `/grant-klineo-role` · `/create-client-space` · `/refresh-leaderboard` · `/export-leaderboard` · `/wallet-admin` · `/export-wallets` · `/refresh-stats` · `/server-image` · `/project-profile` · `/official-links` · `/team-profile` · `/community-health` · `/health-card` · `/refresh-health` · `/mod-inbox` · `/event` · `/suggestion` · `/language-manager` · `/channel-manager`', ephemeral: true });
     }
 
     if (interaction.commandName === 'grant-klineo-role') {
