@@ -429,7 +429,14 @@ const DEFAULT_SETTINGS = {
   project_description: '',
   project_audience: '',
   project_member_value: '',
+  project_products: '',
+  project_status: '',
+  project_first_action: '',
+  project_guidance: '',
+  project_primary_label: '',
   project_primary_url: '',
+  project_secondary_label: '',
+  project_secondary_url: '',
   profile_preset: 'klineo',
   module_signal_room: '1',
   module_kreator: '1',
@@ -1242,7 +1249,9 @@ const commands = [
     .setName('project-profile')
     .setDescription('Core/Admin: view or configure the project context LINKO uses.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View the current project profile.'))
-    .addSubcommand((sc) => sc.setName('configure').setDescription('Open the project profile setup form.')),
+    .addSubcommand((sc) => sc.setName('configure').setDescription('Open the core project profile form.'))
+    .addSubcommand((sc) => sc.setName('details').setDescription('Edit products, status, first action, website and guidance.'))
+    .addSubcommand((sc) => sc.setName('links').setDescription('Edit the branded product links shown in the welcome message.')),
 
   new SlashCommandBuilder()
     .setName('server-settings')
@@ -2146,11 +2155,35 @@ function projectProfile() {
     description: String(getSetting('project_description') ?? '').trim(),
     audience: String(getSetting('project_audience') ?? '').trim(),
     memberValue: String(getSetting('project_member_value') ?? '').trim(),
+    products: String(getSetting('project_products') ?? '').trim(),
+    status: String(getSetting('project_status') ?? '').trim(),
+    firstAction: String(getSetting('project_first_action') ?? '').trim(),
+    guidance: String(getSetting('project_guidance') ?? '').trim(),
+    primaryLabel: String(getSetting('project_primary_label') ?? '').trim(),
+    primaryUrl: String(getSetting('project_primary_url') || getSetting('official_website') || '').trim(),
+    secondaryLabel: String(getSetting('project_secondary_label') ?? '').trim(),
+    secondaryUrl: String(getSetting('project_secondary_url') || getSetting('official_liquidity_studio') || '').trim(),
   };
+}
+function projectProfileCoreComplete() {
+  const p = projectProfile();
+  return !!(p.name && p.name !== 'Community' && p.tagline && p.description && p.audience && p.memberValue);
 }
 function projectProfileComplete() {
   const p = projectProfile();
-  return !!(p.name && p.name !== 'Community' && p.tagline && p.description && p.audience && p.memberValue);
+  return projectProfileCoreComplete() && !!(p.products && p.firstAction);
+}
+function projectLinkLabel(raw, url, fallback = 'Website') {
+  const explicit = String(raw ?? '').trim().replace(/[\[\]]/g, '').slice(0, 80);
+  if (explicit) return explicit;
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    return host || fallback;
+  } catch { return fallback; }
+}
+function projectLinkMarkdown(label, url, fallback) {
+  if (!url) return '';
+  return `[${projectLinkLabel(label, url, fallback)}](${url})`;
 }
 function projectProfileSummaryEmbed() {
   const p = projectProfile();
@@ -2159,8 +2192,15 @@ function projectProfileSummaryEmbed() {
   if (p.description) e.addFields({ name: 'What is the project?', value: p.description.slice(0, 1024) });
   if (p.audience) e.addFields({ name: 'Who is it for?', value: p.audience.slice(0, 1024) });
   if (p.memberValue) e.addFields({ name: 'What members get here', value: p.memberValue.slice(0, 1024) });
-  const official = [getSetting('official_website'), getSetting('official_liquidity_studio')].filter(Boolean);
-  if (official.length) e.addFields({ name: 'Primary product links', value: official.join('\n').slice(0, 1024) });
+  if (p.products) e.addFields({ name: 'Products / services', value: p.products.slice(0, 1024) });
+  if (p.status) e.addFields({ name: 'Current status / milestone', value: p.status.slice(0, 1024) });
+  if (p.firstAction) e.addFields({ name: 'First action for a new member', value: p.firstAction.slice(0, 1024) });
+  if (p.guidance) e.addFields({ name: 'LINKO wording guidance', value: p.guidance.slice(0, 1024) });
+  const official = [
+    projectLinkMarkdown(p.primaryLabel, p.primaryUrl, 'Website'),
+    p.secondaryUrl && p.secondaryUrl !== p.primaryUrl ? projectLinkMarkdown(p.secondaryLabel, p.secondaryUrl, 'Second product') : '',
+  ].filter(Boolean);
+  if (official.length) e.addFields({ name: 'Project links', value: official.join('\n').slice(0, 1024) });
   return e.setFooter({ text: 'LINKO Project Profile' });
 }
 async function showProjectProfileModal(interaction, mode = 'edit') {
@@ -2191,6 +2231,76 @@ function saveProjectProfileFromModal(interaction) {
   setSetting('project_audience', audience);
   setSetting('project_member_value', memberValue);
 }
+function projectProfileDetailsActionRow(mode = 'edit') {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(mode === 'setup' ? 'project_profile_details_setup' : 'project_profile_details_edit')
+      .setLabel(mode === 'setup' ? 'CONTINUE PROJECT SETUP' : 'EDIT PROJECT DETAILS')
+      .setStyle(ButtonStyle.Primary),
+  );
+}
+async function showProjectProfileDetailsModal(interaction, mode = 'edit') {
+  const p = projectProfile();
+  const modal = new ModalBuilder()
+    .setCustomId(mode === 'setup' ? 'project_profile_details_setup_modal' : 'project_profile_details_modal')
+    .setTitle(mode === 'setup' ? 'Project details · step 2 of 2' : 'Edit project details');
+
+  const fields = [
+    new TextInputBuilder().setCustomId('project_products').setLabel('Main products / services').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(700).setValue(p.products.slice(0, 700)),
+    new TextInputBuilder().setCustomId('project_status').setLabel('Current status / milestone').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setValue(p.status.slice(0, 300)),
+    new TextInputBuilder().setCustomId('project_first_action').setLabel('What should a new member do first?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500).setValue(p.firstAction.slice(0, 500)),
+    new TextInputBuilder().setCustomId('project_primary_url').setLabel('Primary website / app URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(300).setValue(p.primaryUrl.slice(0, 300)),
+    new TextInputBuilder().setCustomId('project_guidance').setLabel('What should LINKO highlight or avoid?').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(700).setValue(p.guidance.slice(0, 700)),
+  ];
+  modal.addComponents(...fields.map((field) => new ActionRowBuilder().addComponents(field)));
+  return interaction.showModal(modal);
+}
+function saveProjectProfileDetailsFromModal(interaction) {
+  const products = interaction.fields.getTextInputValue('project_products').trim().slice(0, 700);
+  const status = interaction.fields.getTextInputValue('project_status').trim().slice(0, 300);
+  const firstAction = interaction.fields.getTextInputValue('project_first_action').trim().slice(0, 500);
+  const primaryUrl = interaction.fields.getTextInputValue('project_primary_url').trim().slice(0, 300);
+  const guidance = interaction.fields.getTextInputValue('project_guidance').trim().slice(0, 700);
+  if (primaryUrl && !officialLinkUrlValid(primaryUrl)) return { ok: false, error: 'Primary website/app URL must be a valid https:// URL.' };
+  setSetting('project_products', products);
+  setSetting('project_status', status);
+  setSetting('project_first_action', firstAction);
+  setSetting('project_primary_url', primaryUrl);
+  setSetting('project_guidance', guidance);
+  if (primaryUrl) setSetting('official_website', primaryUrl);
+  return { ok: true };
+}
+async function showProjectProfileLinksModal(interaction) {
+  const p = projectProfile();
+  const modal = new ModalBuilder()
+    .setCustomId('project_profile_links_modal')
+    .setTitle('Edit project welcome links');
+
+  const fields = [
+    new TextInputBuilder().setCustomId('project_primary_label').setLabel('Primary link label').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80).setValue(p.primaryLabel.slice(0, 80)),
+    new TextInputBuilder().setCustomId('project_primary_url').setLabel('Primary product / website URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(300).setValue(p.primaryUrl.slice(0, 300)),
+    new TextInputBuilder().setCustomId('project_secondary_label').setLabel('Second link label').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80).setValue(p.secondaryLabel.slice(0, 80)),
+    new TextInputBuilder().setCustomId('project_secondary_url').setLabel('Second product / service URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(300).setValue(p.secondaryUrl.slice(0, 300)),
+  ];
+  modal.addComponents(...fields.map((field) => new ActionRowBuilder().addComponents(field)));
+  return interaction.showModal(modal);
+}
+function saveProjectProfileLinksFromModal(interaction) {
+  const primaryLabel = interaction.fields.getTextInputValue('project_primary_label').trim().replace(/[\[\]]/g, '').slice(0, 80);
+  const primaryUrl = interaction.fields.getTextInputValue('project_primary_url').trim().slice(0, 300);
+  const secondaryLabel = interaction.fields.getTextInputValue('project_secondary_label').trim().replace(/[\[\]]/g, '').slice(0, 80);
+  const secondaryUrl = interaction.fields.getTextInputValue('project_secondary_url').trim().slice(0, 300);
+  if (primaryLabel && !primaryUrl) return { ok: false, error: 'Primary link label needs a matching URL.' };
+  if (secondaryLabel && !secondaryUrl) return { ok: false, error: 'Second link label needs a matching URL.' };
+  if (primaryUrl && !officialLinkUrlValid(primaryUrl)) return { ok: false, error: 'Primary project link must be a valid https:// URL.' };
+  if (secondaryUrl && !officialLinkUrlValid(secondaryUrl)) return { ok: false, error: 'Second project link must be a valid https:// URL.' };
+  setSetting('project_primary_label', primaryLabel);
+  setSetting('project_primary_url', primaryUrl);
+  setSetting('project_secondary_label', secondaryLabel);
+  setSetting('project_secondary_url', secondaryUrl);
+  if (primaryUrl) setSetting('official_website', primaryUrl);
+  return { ok: true };
+}
 function seedKlineOProjectProfile(guild) {
   const isKlineO = String(guild?.name ?? '').trim().toLowerCase() === 'klineo' || String(getSetting('community_name') ?? '').trim().toLowerCase() === 'klineo';
   if (!isKlineO) return false;
@@ -2199,6 +2309,14 @@ function seedKlineOProjectProfile(guild) {
   if (!getSetting('project_description')) setSetting('project_description', 'KlineO connects AI-driven market intelligence with trading and liquidity operations across two products: KlineO.xyz for agentic trading and execution, and KlineO.io for liquidity intelligence and operations.');
   if (!getSetting('project_audience')) setSetting('project_audience', 'Traders, creators, communities, professional teams, founders, issuers, foundations, ecosystems and exchanges.');
   if (!getSetting('project_member_value')) setSetting('project_member_value', 'Product updates, market discussion, trading workflows, AI-agent experiments, creator opportunities, founder and liquidity conversations, events, feedback loops and KXP-based community progression.');
+  if (!getSetting('project_products')) setSetting('project_products', 'KlineO.xyz: agentic trading, execution and workflow tooling for traders, creators, communities and professional teams. KlineO.io: liquidity intelligence and operations for issuers, foundations, ecosystems and exchanges.');
+  if (!getSetting('project_status')) setSetting('project_status', 'Beyond early beta, with more than $3.8M in routed trading volume. Binance, Bybit and HyperLiquid are connected, with KuCoin and additional integrations incoming.');
+  if (!getSetting('project_first_action')) setSetting('project_first_action', 'Choose the roles that fit you, complete onboarding, then explore KlineO.xyz if you are a trader or creator, or KlineO.io if you represent a project, ecosystem, foundation or exchange.');
+  if (!getSetting('project_guidance')) setSetting('project_guidance', 'Keep KlineO.xyz and KlineO.io clearly differentiated. Keep positioning product-led and infrastructure-led. Do not describe KXP as a token or financial asset.');
+  if (!getSetting('project_primary_label')) setSetting('project_primary_label', 'KlineO.xyz · Trading & Execution');
+  if (!getSetting('project_primary_url')) setSetting('project_primary_url', 'https://klineo.xyz');
+  if (!getSetting('project_secondary_label')) setSetting('project_secondary_label', 'KlineO.io · Liquidity Intelligence');
+  if (!getSetting('project_secondary_url')) setSetting('project_secondary_url', 'https://klineo.io');
   if (!getSetting('official_website')) setSetting('official_website', 'https://klineo.xyz');
   if (!getSetting('official_liquidity_studio')) setSetting('official_liquidity_studio', 'https://klineo.io');
   if (!getSetting('official_x')) setSetting('official_x', 'https://x.com/klineoxyz');
@@ -2216,8 +2334,8 @@ function buildWelcomeEmbed(channels) {
   const p = projectProfile();
   const founderLine = moduleEnabled('founder_hub') ? '\nFounders can apply with `/apply-founder`.' : '';
   const socialLine = moduleEnabled('kreator') ? ` Approved creator content can also earn ${label}.` : '';
-  const website = getSetting('official_website');
-  const secondary = getSetting('official_liquidity_studio');
+  const website = p.primaryUrl || getSetting('official_website');
+  const secondary = p.secondaryUrl || getSetting('official_liquidity_studio');
 
   const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Welcome to ${name}`);
 
@@ -2228,17 +2346,21 @@ function buildWelcomeEmbed(channels) {
   }
 
   if (p.audience) e.addFields({ name: '👥 Who this is for', value: p.audience.slice(0, 1024) });
+  if (p.products) e.addFields({ name: '🧩 Products & services', value: p.products.slice(0, 1024) });
+  if (p.status) e.addFields({ name: '📍 Current status', value: p.status.slice(0, 1024) });
   if (p.memberValue) e.addFields({ name: '⚡ What you’ll find here', value: p.memberValue.slice(0, 1024) });
 
   const productLinks = [];
-  if (website) productLinks.push(`[Primary product](${website})`);
-  if (secondary && secondary !== website) productLinks.push(`[Liquidity / secondary product](${secondary})`);
+  if (website) productLinks.push(projectLinkMarkdown(p.primaryLabel, website, 'Website'));
+  if (secondary && secondary !== website) productLinks.push(projectLinkMarkdown(p.secondaryLabel, secondary, 'Second product'));
   if (productLinks.length) e.addFields({ name: '🔗 Explore', value: productLinks.join(' · ') });
 
   e.addFields({
     name: '🚀 Start here',
     value: `1. Read <#${channels.rules.id}>\n2. Run \`/join-source\` and tell LINKO how you joined ${name}\n3. Verify in <#${channels.verify.id}>\n4. Enter as **OBSERVER**\n5. Earn ${label} through meaningful participation, official voice events and valid referrals.${socialLine}${founderLine}\n\nAfter verification, run \`/onboarding\` to choose your interests/languages and complete your activation checklist.`
   });
+
+  if (p.firstAction) e.addFields({ name: '➡️ Your first project step', value: p.firstAction.slice(0, 1024) });
 
   e.addFields({
     name: '🔐 Security',
@@ -4373,7 +4495,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.7 multi-server features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.8 project-aware multi-server features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -4551,6 +4673,10 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.user?.bot) touchActivity(interaction.user.id, interaction.isChatInputCommand() ? 'command' : 'onboarding');
     if (interaction.isButton()) {
       if (interaction.customId === 'klineo_verify') return verifyMember(interaction);
+      if (interaction.customId === 'project_profile_details_setup' || interaction.customId === 'project_profile_details_edit') {
+        if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
+        return showProjectProfileDetailsModal(interaction, interaction.customId.endsWith('_setup') ? 'setup' : 'edit');
+      }
       if (interaction.customId.startsWith('announcement_publish:') || interaction.customId.startsWith('announcement_cancel:')) {
         if (!canPublishAnnouncement(interaction.member)) return interaction.reply({ content: `Only **${coreRoleName()}** or **${teamRoleName()}** can publish announcements.`, ephemeral: true });
         const [action, draftId] = interaction.customId.split(':');
@@ -4617,9 +4743,10 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
       }
       saveProjectProfileFromModal(interaction);
-      await interaction.deferReply({ ephemeral: true });
+      const setupMode = interaction.customId === 'project_profile_setup_modal';
 
-      if (interaction.customId === 'project_profile_setup_modal') {
+      if (setupMode && projectProfileComplete()) {
+        await interaction.deferReply({ ephemeral: true });
         setSetupPhase('starting');
         try {
           await buildKlineO(interaction.guild);
@@ -4633,10 +4760,59 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
+      if (setupMode) {
+        return interaction.reply({
+          content: '✅ Step 1 of 2 saved. LINKO now knows what the project is and who it serves. Continue with products, current status and the first action new members should take.',
+          components: [projectProfileDetailsActionRow('setup')],
+          ephemeral: true,
+        });
+      }
+
       await refreshBrandMessages(interaction.guild).catch((error) => logLinkoError('project-profile-refresh', error));
-      return interaction.editReply({ embeds: [projectProfileSummaryEmbed()], content: '✅ Project Profile updated. The live welcome message was refreshed where available.' });
+      return interaction.reply({
+        embeds: [projectProfileSummaryEmbed()],
+        content: '✅ Core Project Profile updated. Use the button below to update products, status, first-member action, primary URL and LINKO wording guidance.',
+        components: [projectProfileDetailsActionRow('edit')],
+        ephemeral: true,
+      });
     }
 
+    if (interaction.isModalSubmit() && ['project_profile_details_modal', 'project_profile_details_setup_modal'].includes(interaction.customId)) {
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
+        return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
+      }
+      const saved = saveProjectProfileDetailsFromModal(interaction);
+      if (!saved.ok) return interaction.reply({ content: `❌ ${saved.error}`, ephemeral: true });
+      const setupMode = interaction.customId === 'project_profile_details_setup_modal';
+      await interaction.deferReply({ ephemeral: true });
+
+      if (setupMode) {
+        setSetupPhase('starting');
+        try {
+          await buildKlineO(interaction.guild);
+          setSetupPhase('idle');
+          return interaction.editReply(`✅ Project Profile completed and LINKO setup finished for **${communityName()}**. The welcome message now includes this project context.`);
+        } catch (error) {
+          const phase = getSetupPhase();
+          logLinkoError(`project profile details setup failed during ${phase}`, error);
+          setSetupPhase('idle');
+          return interaction.editReply(`❌ Project Profile was saved, but LINKO setup stopped during **${phase}**: ${String(error?.message ?? error).slice(0, 900)}`);
+        }
+      }
+
+      await refreshBrandMessages(interaction.guild).catch((error) => logLinkoError('project-profile-details-refresh', error));
+      return interaction.editReply({ embeds: [projectProfileSummaryEmbed()], content: '✅ Project details updated. The live welcome message was refreshed where available.' });
+    }
+    if (interaction.isModalSubmit() && interaction.customId === 'project_profile_links_modal') {
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
+        return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
+      }
+      const saved = saveProjectProfileLinksFromModal(interaction);
+      if (!saved.ok) return interaction.reply({ content: `❌ ${saved.error}`, ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
+      await refreshBrandMessages(interaction.guild).catch((error) => logLinkoError('project-profile-links-refresh', error));
+      return interaction.editReply({ embeds: [projectProfileSummaryEmbed()], content: '✅ Project link labels updated. The live welcome message was refreshed where available.' });
+    }
     if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
     if (!interaction.isChatInputCommand()) return;
 
@@ -4655,8 +4831,11 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'setup-klineo' || interaction.commandName === 'setup-linko') {
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
       seedKlineOProjectProfile(interaction.guild);
-      if (interaction.options.getBoolean('confirm', true) && !projectProfileComplete()) {
+      if (interaction.options.getBoolean('confirm', true) && !projectProfileCoreComplete()) {
         return showProjectProfileModal(interaction, 'setup');
+      }
+      if (interaction.options.getBoolean('confirm', true) && !projectProfileComplete()) {
+        return showProjectProfileDetailsModal(interaction, 'setup');
       }
       if (!interaction.options.getBoolean('confirm', true)) {
         return interaction.reply({ content: `Preview only. Use \`/${interaction.commandName} confirm:true\` to build/sync LINKO in this server.`, ephemeral: true });
@@ -4667,7 +4846,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.7 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.8 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -5537,6 +5716,8 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
         return interaction.reply({ embeds: [projectProfileSummaryEmbed()], ephemeral: true });
       }
       if (action === 'configure') return showProjectProfileModal(interaction, 'edit');
+      if (action === 'details') return showProjectProfileDetailsModal(interaction, 'edit');
+      if (action === 'links') return showProjectProfileLinksModal(interaction);
     }
 
     if (interaction.commandName === 'server-settings') {
