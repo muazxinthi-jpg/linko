@@ -1,3 +1,38 @@
+# LINKO v10.8.0
+
+LINKO v10.8 makes every managed Guild project-aware before setup completes.
+
+## Two-step Project Profile
+
+When a new non-KlineO Guild runs `/setup-linko confirm:true`, LINKO now collects project context in two steps instead of building a generic community immediately.
+
+Step 1 asks for:
+- project/community name
+- one-line positioning
+- what the project is
+- who the project/community is for
+- what members should get from the community
+
+Step 2 asks for:
+- main products/services
+- current status or milestone (optional)
+- the first project-specific action a new member should take
+- primary website/app URL (optional, HTTPS only)
+- wording guidance for what LINKO should highlight or avoid (optional)
+
+`/project-profile view`, `/project-profile configure`, and `/project-profile details` let Core/Admin review or change this context later.
+
+## Project-aware welcome
+
+The persistent welcome message now uses the saved Project Profile for positioning, audience, products/services, current status, product links, community value and the project-specific first action.
+
+Generic Discord onboarding still remains intact: rules, join source, verification, OBSERVER access, onboarding, XP and security guidance.
+
+KlineO is pre-seeded with its current `.xyz` / `.io` positioning so its setup does not need to ask for information LINKO already knows. Existing Guild databases upgrade additively through the settings table; no XP, referral, wallet or campaign history is reset.
+
+Additional official/social links remain managed through `/official-links`, and section artwork remains managed through `/server-image`.
+
+---
 # LINKO v10.7.0
 
 LINKO v10.7 adds a lightweight multi-server foundation on top of the v10.6 KREATOR economy.
