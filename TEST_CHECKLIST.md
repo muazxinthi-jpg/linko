@@ -35,6 +35,12 @@ Before continuing to the server-profile tests:
 - Run `/project-profile configure`, change a core field, and confirm the live welcome message refreshes.
 - Run `/project-profile details`, change products/status/first action, and confirm the live welcome message refreshes.
 - Confirm KlineO is seeded automatically with KlineO.xyz, KlineO.io, its audience/products/status/first action, and does not require the setup wizard when those fields are already present.
+- Run `/project-profile links` and confirm Core/Admin can set a primary label + URL and optional second label + URL.
+- Confirm a label without its matching URL is rejected.
+- Confirm non-HTTPS product URLs are rejected.
+- Confirm the Welcome `Explore` section uses the configured labels as clickable links, with no generic `Primary product` / `secondary product` wording.
+- Clear a custom label while keeping its URL and confirm LINKO falls back to the URL hostname.
+- In KlineO, confirm the Welcome links render as **KlineO.xyz · Trading & Execution** and **KlineO.io · Liquidity Intelligence**.
 - Confirm existing XP, referrals, wallets, campaigns and other Guild data remain unchanged after the additive settings upgrade.
 ## Server profile and module tests
 
