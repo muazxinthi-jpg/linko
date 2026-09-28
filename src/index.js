@@ -1135,7 +1135,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('give-xp')
-    .setDescription('Staff: award or deduct XP.')
+    .setDescription('Staff: audited manual XP, including verified platform/trading activity.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true))
     .addIntegerOption((o) => o.setName('amount').setDescription('Positive or negative XP').setRequired(true).setMinValue(-10000).setMaxValue(10000))
     .addStringOption((o) => o.setName('reason').setDescription('Reason').setRequired(true).setMaxLength(180)),
@@ -1151,6 +1151,12 @@ const commands = [
     .setName('user-kxp')
     .setDescription('Staff: show a detailed XP report for a member.')
     .addUserOption((o) => o.setName('member').setDescription('Member').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('set-boost-count')
+    .setDescription('Staff: set a verified active boost count for a member.')
+    .addUserOption((o) => o.setName('member').setDescription('Server booster').setRequired(true))
+    .addIntegerOption((o) => o.setName('count').setDescription('Active boosts; use 0 to clear override').setRequired(true).setMinValue(0).setMaxValue(20)),
 
   new SlashCommandBuilder()
     .setName('referral-stats')
@@ -1250,6 +1256,7 @@ const commands = [
       { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
       { name: 'Valid bug report', value: 'kxp_bug_report' },
       { name: 'Profile / wallet first-time submission', value: 'kxp_profile_submission' },
+      { name: 'Active server boost / day', value: 'kxp_boost_daily' },
     ))
     .addIntegerOption((o) => o.setName('amount').setDescription('XP amount').setRequired(true).setMinValue(0).setMaxValue(100)),
   new SlashCommandBuilder()
@@ -1263,6 +1270,7 @@ const commands = [
       { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
       { name: 'Valid bug report', value: 'kxp_bug_report' },
       { name: 'Profile / wallet first-time submission', value: 'kxp_profile_submission' },
+      { name: 'Active server boost / day', value: 'kxp_boost_daily' },
     ))
     .addIntegerOption((o) => o.setName('amount').setDescription('XP amount').setRequired(true).setMinValue(0).setMaxValue(100)),
 
