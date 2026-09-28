@@ -413,6 +413,7 @@ const DEFAULT_SETTINGS = {
   campaign_leaderboard_retention_days: '7',
   kxp_bug_report: '3',
   kxp_profile_submission: '1',
+  kxp_boost_daily: '2',
   referral_activity_min_events: '1',
   referral_activity_min_days: '2',
   referral_claim_window_hours: '72',
@@ -795,12 +796,12 @@ const BRAND = {
 
 const RANKS = [
   { key: 'l1', name: 'OBSERVER', threshold: 0, color: BRAND.darkGray },
-  { key: 'l2', name: 'SCOUT', threshold: 150, color: BRAND.blue },
-  { key: 'l3', name: 'ANALYST', threshold: 500, color: BRAND.cyan },
-  { key: 'l4', name: 'OPERATOR', threshold: 1200, color: BRAND.emerald },
-  { key: 'l5', name: 'STRATEGIST', threshold: 2500, color: BRAND.lime },
-  { key: 'l6', name: 'VANGUARD', threshold: 5000, color: BRAND.limeSoft },
-  { key: 'l7', name: 'PRIME', threshold: 10000, color: BRAND.white },
+  { key: 'l2', name: 'SCOUT', threshold: 300, color: BRAND.blue },
+  { key: 'l3', name: 'ANALYST', threshold: 1000, color: BRAND.cyan },
+  { key: 'l4', name: 'OPERATOR', threshold: 2000, color: BRAND.emerald },
+  { key: 'l5', name: 'STRATEGIST', threshold: 10000, color: BRAND.lime },
+  { key: 'l6', name: 'VANGUARD', threshold: 25000, color: BRAND.limeSoft },
+  { key: 'l7', name: 'PRIME', threshold: 50000, color: BRAND.white },
 ];
 
 const ROLE_SPECS = [
