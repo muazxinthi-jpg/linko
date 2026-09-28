@@ -5497,6 +5497,17 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       return interaction.reply({ content: '✅ Member and Online counters refreshed.', ephemeral: true });
     }
 
+    if (interaction.commandName === 'project-profile') {
+      if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
+        return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
+      }
+      const action = interaction.options.getSubcommand();
+      if (action === 'view') {
+        return interaction.reply({ embeds: [projectProfileSummaryEmbed()], ephemeral: true });
+      }
+      if (action === 'configure') return showProjectProfileModal(interaction, 'edit');
+    }
+
     if (interaction.commandName === 'server-settings') {
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
       const action = interaction.options.getSubcommand();
