@@ -2155,7 +2155,7 @@ function projectProfile() {
     status: String(getSetting('project_status') ?? '').trim(),
     firstAction: String(getSetting('project_first_action') ?? '').trim(),
     guidance: String(getSetting('project_guidance') ?? '').trim(),
-    primaryUrl: String(getSetting('project_primary_url') ?? getSetting('official_website') ?? '').trim(),
+    primaryUrl: String(getSetting('project_primary_url') || getSetting('official_website') || '').trim(),
   };
 }
 function projectProfileCoreComplete() {
