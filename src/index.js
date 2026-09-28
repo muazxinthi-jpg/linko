@@ -1911,7 +1911,13 @@ function healthMetrics(guild, days = 7) {
     FROM users u
     LEFT JOIN member_activation a ON a.user_id=u.user_id
     WHERE u.verified_at >= ?
-      AND (a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL)`).get(cutoff)?.c ?? 0);
+      AND (
+        a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM activity_daily ad
+          WHERE ad.user_id = u.user_id AND ad.last_activity_at >= u.verified_at
+        )
+      )`).get(cutoff)?.c ?? 0);
   const activationRate = verifications ? Math.min(100, Math.round((activated / verifications) * 100)) : null;
   const rankCounts = Object.fromEntries(RANKS.map((r) => [r.name, 0]));
   for (const m of humans.values()) if (verifiedRole && m.roles.cache.has(verifiedRole.id)) rankCounts[rankForXp(getXp(m.id)).name]++;
@@ -3348,7 +3354,13 @@ async function generateHealthCard(guild, days = 7) {
     FROM users u
     LEFT JOIN member_activation a ON a.user_id=u.user_id
     WHERE u.verified_at >= ? AND u.verified_at < ?
-      AND (a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL)`).get(previous.start, previous.end)?.c ?? 0);
+      AND (
+        a.interests_set=1 OR a.language_set=1 OR a.introduced_at IS NOT NULL OR a.first_impact_at IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM activity_daily ad
+          WHERE ad.user_id = u.user_id AND ad.last_activity_at >= u.verified_at
+        )
+      )`).get(previous.start, previous.end)?.c ?? 0);
   const previousActivationRate = previous.verifications
     ? Math.min(100, Math.round((previousActivated / previous.verifications) * 100))
     : null;
