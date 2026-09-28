@@ -2477,12 +2477,13 @@ function scheduleLeaderboardUpdate(guild) {
 function getKxpBreakdown(userId) {
   const total = getXp(userId);
   const rows = db.prepare('SELECT amount, reason FROM xp_log WHERE user_id = ?').all(userId);
-  const out = { total, messages: 0, voice: 0, referrals: 0, social: 0, bugs: 0, profile: 0, manual: 0 };
+  const out = { total, messages: 0, voice: 0, boosts: 0, referrals: 0, social: 0, bugs: 0, profile: 0, manual: 0 };
   for (const row of rows) {
     const amount = Number(row.amount ?? 0);
     const reason = String(row.reason ?? '');
     if (reason.startsWith('Meaningful message') || reason.startsWith('Qualified community message') || reason.startsWith('Reversed qualified community message')) out.messages += amount;
     else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:')) out.voice += amount;
+    else if (reason.startsWith('Server boost daily reward:')) out.boosts += amount;
     else if (reason.startsWith('Approved KlineO social contribution') || reason.startsWith('Creator reaction')) out.social += amount;
     else if (reason.startsWith('Valid bug report')) out.bugs += amount;
     else if (reason.startsWith('Profile submission:')) out.profile += amount;
@@ -4988,7 +4989,7 @@ client.on('interactionCreate', async (interaction) => {
       const user = interaction.options.getUser('member', true);
       const b = getKxpBreakdown(user.id);
       const rank = rankForXp(b.total);
-      return interaction.reply({ content: `**USER ${xpLabel()} REPORT**\nUser: ${user}\nRole: **${rank.name}**\nTotal ${xpLabel()}: **${b.total.toLocaleString()}**\n\nMessages: **${b.messages.toLocaleString()}**\nVoice: **${b.voice.toLocaleString()}**\nReferrals: **${b.referrals.toLocaleString()}**\nSocial Posts: **${b.social.toLocaleString()}**\nBug Reports: **${b.bugs.toLocaleString()}**\nProfile / Wallet: **${b.profile.toLocaleString()}**\nManual / Other: **${b.manual.toLocaleString()}**`, ephemeral: true });
+      return interaction.reply({ content: `**USER ${xpLabel()} REPORT**\nUser: ${user}\nRole: **${rank.name}**\nTotal ${xpLabel()}: **${b.total.toLocaleString()}**\n\nMessages: **${b.messages.toLocaleString()}**\nVoice: **${b.voice.toLocaleString()}**\nServer Boosts: **${b.boosts.toLocaleString()}**\nReferrals: **${b.referrals.toLocaleString()}**\nSocial Posts: **${b.social.toLocaleString()}**\nBug Reports: **${b.bugs.toLocaleString()}**\nProfile / Wallet: **${b.profile.toLocaleString()}**\nManual / Other: **${b.manual.toLocaleString()}**`, ephemeral: true });
     }
 
     if (interaction.commandName === 'referral-stats') {
