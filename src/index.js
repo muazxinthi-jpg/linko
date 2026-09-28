@@ -1239,6 +1239,12 @@ const commands = [
   new SlashCommandBuilder().setName('mod-help').setDescription('Staff: show the LINKO moderator command guide.'),
 
   new SlashCommandBuilder()
+    .setName('project-profile')
+    .setDescription('Core/Admin: view or configure the project context LINKO uses.')
+    .addSubcommand((sc) => sc.setName('view').setDescription('View the current project profile.'))
+    .addSubcommand((sc) => sc.setName('configure').setDescription('Open the project profile setup form.')),
+
+  new SlashCommandBuilder()
     .setName('server-settings')
     .setDescription('Administrator: view or change this server\'s LINKO profile.')
     .addSubcommand((sc) => sc.setName('view').setDescription('View server-level LINKO settings.'))
