@@ -4153,12 +4153,17 @@ client.once('clientReady', async () => {
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
         await cacheInvites(fullGuild);
+        await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
         await backfillRecentActivity(fullGuild, getSettingInt('health_window_days') || 7).catch((error) => logLinkoError('activity-backfill', error));
+        await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
+        await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
+        await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
         console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.7 multi-server features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
+        setInterval(recurring(awardDailyBoosterXp), 60 * 60 * 1000);
         setInterval(recurring(processVoiceEventMinute), 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateServerStats(fullGuild, false).catch(console.error)), 5 * 60 * 1000);
         setInterval(() => runWithGuild(fullGuild.id, () => updateAllLeaderboards(fullGuild).catch(console.error)), 5 * 60 * 1000);
