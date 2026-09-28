@@ -4217,6 +4217,17 @@ client.on('guildMemberAdd', async (member) => {
   scheduleStatsUpdate(member.guild); scheduleHealthUpdate(member.guild); scheduleModInboxUpdate(member.guild);
   });
 });
+client.on('guildMemberUpdate', (oldMember, newMember) => {
+  if (!isAllowedGuild(newMember.guild.id) || newMember.user.bot) return;
+  const wasBoosting = !!oldMember.premiumSinceTimestamp;
+  const isBoosting = !!newMember.premiumSinceTimestamp;
+  if (wasBoosting === isBoosting) return;
+  return runWithGuild(newMember.guild.id, async () => {
+    if (!isBoosting) db.prepare('DELETE FROM booster_overrides WHERE user_id = ?').run(newMember.id);
+    await awardDailyBoosterXp(newMember.guild).catch(console.error);
+  });
+});
+
 client.on('guildMemberRemove', (member) => {
   if (!isAllowedGuild(member.guild.id)) return;
   return runWithGuild(member.guild.id, () => {
