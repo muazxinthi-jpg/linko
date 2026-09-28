@@ -156,6 +156,18 @@ const SCHEMA_SQL = `
     review_message_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS announcements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_by TEXT NOT NULL,
+    title TEXT,
+    body TEXT,
+    image_url TEXT,
+    cta_json TEXT,
+    x_only INTEGER NOT NULL DEFAULT 0,
+    discord_message_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -459,6 +471,7 @@ const DEFAULT_SETTINGS = {
   official_support: '',
   brand_accent: '',
   health_window_days: '7',
+  health_auto_refresh_hours: '12',
   event_reminder_30: '1',
   event_reminder_5: '1',
   leaderboard_limit: '50',
@@ -883,6 +896,7 @@ const inviteUseCaches = new Map();
 const statsUpdateTimers = new Map();
 const leaderboardUpdateTimers = new Map();
 const healthUpdateTimers = new Map();
+const announcementDrafts = new Map();
 const modInboxUpdateTimers = new Map();
 const setupPhases = new Map();
 
