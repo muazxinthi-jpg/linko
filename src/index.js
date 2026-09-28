@@ -425,6 +425,11 @@ const db = {
 
 const DEFAULT_SETTINGS = {
   community_name: '',
+  project_tagline: '',
+  project_description: '',
+  project_audience: '',
+  project_member_value: '',
+  project_primary_url: '',
   profile_preset: 'klineo',
   module_signal_room: '1',
   module_kreator: '1',
