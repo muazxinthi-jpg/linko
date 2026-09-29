@@ -1315,7 +1315,8 @@ const commands = [
     .setDescription('Staff: change an XP reward value from Discord.')
     .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
       { name: 'Qualifying message', value: 'kxp_message' },
-      { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
+      { name: 'Official voice · 15-minute listening', value: 'kxp_voice_interval' },
+      { name: 'Official voice · speaker participation bonus', value: 'kxp_voice_speaker_bonus' },
       { name: 'Valid referral', value: 'kxp_valid_referral' },
       { name: 'Approved social post', value: 'kxp_social_post' },
       { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
@@ -1329,7 +1330,8 @@ const commands = [
     .setDescription('KlineO alias: change an XP reward value from Discord.')
     .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
       { name: 'Qualifying message', value: 'kxp_message' },
-      { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
+      { name: 'Official voice · 15-minute listening', value: 'kxp_voice_interval' },
+      { name: 'Official voice · speaker participation bonus', value: 'kxp_voice_speaker_bonus' },
       { name: 'Valid referral', value: 'kxp_valid_referral' },
       { name: 'Approved social post', value: 'kxp_social_post' },
       { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
@@ -1352,9 +1354,11 @@ const commands = [
   new SlashCommandBuilder()
     .setName('voice-event')
     .setDescription('Staff: control official voice events that can earn XP.')
-    .addSubcommand((s) => s.setName('start').setDescription('Start voice XP for an official event.')
-      .addChannelOption((o) => o.setName('channel').setDescription('Event voice channel').setRequired(true).addChannelTypes(ChannelType.GuildVoice))
+    .addSubcommand((s) => s.setName('start').setDescription('Start XP for an official voice or Stage event.')
+      .addChannelOption((o) => o.setName('channel').setDescription('Official event Voice/Stage channel').setRequired(true).addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice))
       .addStringOption((o) => o.setName('name').setDescription('Event name').setRequired(true).setMaxLength(80)))
+    .addSubcommand((s) => s.setName('speaker').setDescription('Staff: confirm a speaker bonus for the active official event.')
+      .addUserOption((o) => o.setName('member').setDescription('Verified member who participated as a speaker').setRequired(true)))
     .addSubcommand((s) => s.setName('stop').setDescription('Stop the currently active voice XP event.'))
     .addSubcommand((s) => s.setName('status').setDescription('Show the currently active voice XP event.')),
 
@@ -2836,7 +2840,7 @@ function getKxpBreakdown(userId) {
     const amount = Number(row.amount ?? 0);
     const reason = String(row.reason ?? '');
     if (reason.startsWith('Meaningful message') || reason.startsWith('Qualified community message') || reason.startsWith('Reversed qualified community message')) out.messages += amount;
-    else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:')) out.voice += amount;
+    else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:') || reason.startsWith('Official voice speaker:')) out.voice += amount;
     else if (reason.startsWith('Server boost daily reward:')) out.boosts += amount;
     else if (reason.startsWith('Approved KlineO social contribution') || reason.startsWith('Creator reaction')) out.social += amount;
     else if (reason.startsWith('Valid bug report')) out.bugs += amount;
@@ -3133,7 +3137,9 @@ function kxpRulesContent() {
 
 **Earn ${label}**
 • Qualified message: **+${getSettingInt('kxp_message')}**
-• Official voice: **+${getSettingInt('kxp_voice_interval')} / ${getSettingInt('voice_interval_minutes')} min**
+• Official voice listening: **+${getSettingInt('kxp_voice_interval')} / ${getSettingInt('voice_interval_minutes')} qualifying min**
+• Official voice speaker participation: **+${getSettingInt('kxp_voice_speaker_bonus')} once/event**
+• Normal Discord voice calls: **tracked for attendance only; no ${label}**
 • Active Server Boost: **+${getSettingInt('kxp_boost_daily')} per active boost/day**
 • Valid referral: **+${getSettingInt('kxp_valid_referral')}**
 • Approved social post: **+${getSettingInt('kxp_social_post')}**
