@@ -190,6 +190,29 @@ const SCHEMA_SQL = `
     PRIMARY KEY (event_id, user_id)
   );
 
+  CREATE TABLE IF NOT EXISTS voice_event_speakers (
+    event_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    hand_raised_at INTEGER,
+    speaker_started_at INTEGER,
+    awarded_at INTEGER,
+    awarded_by TEXT,
+    PRIMARY KEY (event_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    joined_at INTEGER NOT NULL,
+    left_at INTEGER,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    official_event_id INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_voice_sessions_user_open ON voice_sessions(user_id, left_at);
+  CREATE INDEX IF NOT EXISTS idx_voice_sessions_joined_at ON voice_sessions(joined_at);
+
 
   CREATE TABLE IF NOT EXISTS message_candidates (
     message_id TEXT PRIMARY KEY,
@@ -444,7 +467,8 @@ const DEFAULT_SETTINGS = {
   module_liquidity_studio: '1',
   xp_label: 'KXP',
   kxp_message: '1',
-  kxp_voice_interval: '1',
+  kxp_voice_interval: '2',
+  kxp_voice_speaker_bonus: '2',
   kxp_valid_referral: '1',
   kxp_social_post: '2',
   creator_reaction_threshold: '100',
@@ -505,6 +529,13 @@ function initializeGuildDatabase(database) {
 
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     database.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  const voiceRewardMigration = database.prepare("SELECT value FROM settings WHERE key='voice_rewards_v109_migrated'").get();
+  if (!voiceRewardMigration) {
+    const currentVoiceAward = database.prepare("SELECT value FROM settings WHERE key='kxp_voice_interval'").get()?.value;
+    if (String(currentVoiceAward ?? '') === '1') database.prepare("UPDATE settings SET value='2' WHERE key='kxp_voice_interval'").run();
+    database.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('voice_rewards_v109_migrated', ?)").run(String(Date.now()));
   }
 
   // Compatibility migration if an existing guild database is ever copied into the sharded layout.
