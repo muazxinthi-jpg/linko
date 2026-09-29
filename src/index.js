@@ -3127,35 +3127,23 @@ function kxpRulesContent() {
   return `**${label} — Experience Points**
 
 **Ranks**
-• OBSERVER — 0
-• SCOUT — 300
-• ANALYST — 1,000
-• OPERATOR — 2,000
-• STRATEGIST — 10,000
-• VANGUARD — 25,000
-• PRIME — 50,000+ (highest rank; lifetime ${label} keeps growing)
+OBSERVER 0 · SCOUT 300 · ANALYST 1,000 · OPERATOR 2,000 · STRATEGIST 10,000 · VANGUARD 25,000 · PRIME 50,000+
 
 **Earn ${label}**
 • Qualified message: **+${getSettingInt('kxp_message')}**
 • Official voice listening: **+${getSettingInt('kxp_voice_interval')} / ${getSettingInt('voice_interval_minutes')} qualifying min**
-• Official voice speaker participation: **+${getSettingInt('kxp_voice_speaker_bonus')} once/event**
-• Normal Discord voice calls: **tracked for attendance only; no ${label}**
-• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} per active boost/day**
+• Official Stage speaker: **+${getSettingInt('kxp_voice_speaker_bonus')} once/event** after hand raise + promotion + at least 1 minute as speaker
+• Normal Discord voice: **attendance tracked, 0 ${label}**
+• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} / active boost/day**
 • Valid referral: **+${getSettingInt('kxp_valid_referral')}**
 • Approved social post: **+${getSettingInt('kxp_social_post')}**
 • KREATOR milestone: **+${getSettingInt('creator_reaction_kxp')} / ${getSettingInt('creator_reaction_threshold')} verified reactions**
 • Valid bug report: **+${getSettingInt('kxp_bug_report')}**
 • First-time X / Telegram / EVM / Solana submission: **+${getSettingInt('kxp_profile_submission')} each**
 
-Referral rewards require verification, 7 days retained, and activity across at least **${getSettingInt('referral_activity_min_days')} days**.
+Referrals require verification, 7 days retained and activity across at least **${getSettingInt('referral_activity_min_days')} days**. Message rewards are impact-scored; spam, duplicates and trivial messages do not qualify.
 
-Boost rewards are daily loyalty rewards. LINKO detects active boosters automatically; staff can verify extra active boosts when Discord cannot expose the exact multi-boost count.
-
-Staff may award audited manual ${label} for verified KlineO product/trading activity. Rewards are for verified usage or contribution, not profit/loss.
-
-Message ${label} is impact-scored; spam, duplicates and trivial messages do not qualify.
-
-Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, \`/leaderboard\`.
+Use `/rank`, `/points`, `/invite`, `/invites`, `/leaderboard`.
 
 [KLINEO-KXP]`;
 }
@@ -4609,7 +4597,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.8 project-aware multi-server features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.9 voice-attendance and official-event features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -4979,7 +4967,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.8 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.9 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
