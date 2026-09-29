@@ -190,6 +190,29 @@ const SCHEMA_SQL = `
     PRIMARY KEY (event_id, user_id)
   );
 
+  CREATE TABLE IF NOT EXISTS voice_event_speakers (
+    event_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    hand_raised_at INTEGER,
+    speaker_started_at INTEGER,
+    awarded_at INTEGER,
+    awarded_by TEXT,
+    PRIMARY KEY (event_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS voice_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    joined_at INTEGER NOT NULL,
+    left_at INTEGER,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    official_event_id INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_voice_sessions_user_open ON voice_sessions(user_id, left_at);
+  CREATE INDEX IF NOT EXISTS idx_voice_sessions_joined_at ON voice_sessions(joined_at);
+
 
   CREATE TABLE IF NOT EXISTS message_candidates (
     message_id TEXT PRIMARY KEY,
@@ -444,7 +467,8 @@ const DEFAULT_SETTINGS = {
   module_liquidity_studio: '1',
   xp_label: 'KXP',
   kxp_message: '1',
-  kxp_voice_interval: '1',
+  kxp_voice_interval: '2',
+  kxp_voice_speaker_bonus: '2',
   kxp_valid_referral: '1',
   kxp_social_post: '2',
   creator_reaction_threshold: '100',
@@ -505,6 +529,13 @@ function initializeGuildDatabase(database) {
 
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     database.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  const voiceRewardMigration = database.prepare("SELECT value FROM settings WHERE key='voice_rewards_v109_migrated'").get();
+  if (!voiceRewardMigration) {
+    const currentVoiceAward = database.prepare("SELECT value FROM settings WHERE key='kxp_voice_interval'").get()?.value;
+    if (String(currentVoiceAward ?? '') === '1') database.prepare("UPDATE settings SET value='2' WHERE key='kxp_voice_interval'").run();
+    database.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('voice_rewards_v109_migrated', ?)").run(String(Date.now()));
   }
 
   // Compatibility migration if an existing guild database is ever copied into the sharded layout.
@@ -1284,7 +1315,8 @@ const commands = [
     .setDescription('Staff: change an XP reward value from Discord.')
     .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
       { name: 'Qualifying message', value: 'kxp_message' },
-      { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
+      { name: 'Official voice · 15-minute listening', value: 'kxp_voice_interval' },
+      { name: 'Official voice · speaker participation bonus', value: 'kxp_voice_speaker_bonus' },
       { name: 'Valid referral', value: 'kxp_valid_referral' },
       { name: 'Approved social post', value: 'kxp_social_post' },
       { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
@@ -1298,7 +1330,8 @@ const commands = [
     .setDescription('KlineO alias: change an XP reward value from Discord.')
     .addStringOption((o) => o.setName('event').setDescription('XP event').setRequired(true).addChoices(
       { name: 'Qualifying message', value: 'kxp_message' },
-      { name: 'Voice 15-minute interval', value: 'kxp_voice_interval' },
+      { name: 'Official voice · 15-minute listening', value: 'kxp_voice_interval' },
+      { name: 'Official voice · speaker participation bonus', value: 'kxp_voice_speaker_bonus' },
       { name: 'Valid referral', value: 'kxp_valid_referral' },
       { name: 'Approved social post', value: 'kxp_social_post' },
       { name: 'Creator reaction milestone', value: 'creator_reaction_kxp' },
@@ -1321,9 +1354,11 @@ const commands = [
   new SlashCommandBuilder()
     .setName('voice-event')
     .setDescription('Staff: control official voice events that can earn XP.')
-    .addSubcommand((s) => s.setName('start').setDescription('Start voice XP for an official event.')
-      .addChannelOption((o) => o.setName('channel').setDescription('Event voice channel').setRequired(true).addChannelTypes(ChannelType.GuildVoice))
+    .addSubcommand((s) => s.setName('start').setDescription('Start XP for an official voice or Stage event.')
+      .addChannelOption((o) => o.setName('channel').setDescription('Official event Voice/Stage channel').setRequired(true).addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice))
       .addStringOption((o) => o.setName('name').setDescription('Event name').setRequired(true).setMaxLength(80)))
+    .addSubcommand((s) => s.setName('speaker').setDescription('Staff: confirm a speaker bonus for the active official event.')
+      .addUserOption((o) => o.setName('member').setDescription('Verified member who participated as a speaker').setRequired(true)))
     .addSubcommand((s) => s.setName('stop').setDescription('Stop the currently active voice XP event.'))
     .addSubcommand((s) => s.setName('status').setDescription('Show the currently active voice XP event.')),
 
@@ -1431,7 +1466,7 @@ const commands = [
       .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
       .addStringOption((o) => o.setName('description').setDescription('Event description').setMaxLength(1000))
-      .addChannelOption((o) => o.setName('voice').setDescription('Optional voice room').addChannelTypes(ChannelType.GuildVoice)))
+      .addChannelOption((o) => o.setName('voice').setDescription('Optional Voice/Stage room').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)))
     .addSubcommand((sc) => sc.setName('list').setDescription('List upcoming/live events.'))
     .addSubcommand((sc) => sc.setName('start').setDescription('Start an event and its official voice-XP window.')
       .addIntegerOption((o) => o.setName('id').setDescription('Event ID').setRequired(true).setMinValue(1)))
@@ -1962,7 +1997,7 @@ async function updateEventMessage(guild, id) {
 async function recordLiveEventAttendance(guild, row) {
   if (!row.voice_channel_id) return;
   const channel = guild.channels.cache.get(row.voice_channel_id);
-  if (!channel || channel.type !== ChannelType.GuildVoice) return;
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) return;
   for (const member of channel.members.values()) {
     if (member.user.bot || !hasVerifiedRole(member)) continue;
     db.prepare(`INSERT INTO event_attendance (event_id, user_id, first_seen_at, last_seen_at, minutes) VALUES (?, ?, ?, ?, 1)
@@ -2805,7 +2840,7 @@ function getKxpBreakdown(userId) {
     const amount = Number(row.amount ?? 0);
     const reason = String(row.reason ?? '');
     if (reason.startsWith('Meaningful message') || reason.startsWith('Qualified community message') || reason.startsWith('Reversed qualified community message')) out.messages += amount;
-    else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:')) out.voice += amount;
+    else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:') || reason.startsWith('Official voice speaker:')) out.voice += amount;
     else if (reason.startsWith('Server boost daily reward:')) out.boosts += amount;
     else if (reason.startsWith('Approved KlineO social contribution') || reason.startsWith('Creator reaction')) out.social += amount;
     else if (reason.startsWith('Valid bug report')) out.bugs += amount;
@@ -3092,31 +3127,21 @@ function kxpRulesContent() {
   return `**${label} — Experience Points**
 
 **Ranks**
-• OBSERVER — 0
-• SCOUT — 300
-• ANALYST — 1,000
-• OPERATOR — 2,000
-• STRATEGIST — 10,000
-• VANGUARD — 25,000
-• PRIME — 50,000+ (highest rank; lifetime ${label} keeps growing)
+OBSERVER 0 · SCOUT 300 · ANALYST 1,000 · OPERATOR 2,000 · STRATEGIST 10,000 · VANGUARD 25,000 · PRIME 50,000+
 
 **Earn ${label}**
 • Qualified message: **+${getSettingInt('kxp_message')}**
-• Official voice: **+${getSettingInt('kxp_voice_interval')} / ${getSettingInt('voice_interval_minutes')} min**
-• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} per active boost/day**
+• Official voice listening: **+${getSettingInt('kxp_voice_interval')} / ${getSettingInt('voice_interval_minutes')} qualifying min**
+• Official Stage speaker: **+${getSettingInt('kxp_voice_speaker_bonus')} once/event** after hand raise + promotion + at least 1 minute as speaker
+• Normal Discord voice: **attendance tracked, 0 ${label}**
+• Active Server Boost: **+${getSettingInt('kxp_boost_daily')} / active boost/day**
 • Valid referral: **+${getSettingInt('kxp_valid_referral')}**
 • Approved social post: **+${getSettingInt('kxp_social_post')}**
 • KREATOR milestone: **+${getSettingInt('creator_reaction_kxp')} / ${getSettingInt('creator_reaction_threshold')} verified reactions**
 • Valid bug report: **+${getSettingInt('kxp_bug_report')}**
 • First-time X / Telegram / EVM / Solana submission: **+${getSettingInt('kxp_profile_submission')} each**
 
-Referral rewards require verification, 7 days retained, and activity across at least **${getSettingInt('referral_activity_min_days')} days**.
-
-Boost rewards are daily loyalty rewards. LINKO detects active boosters automatically; staff can verify extra active boosts when Discord cannot expose the exact multi-boost count.
-
-Staff may award audited manual ${label} for verified KlineO product/trading activity. Rewards are for verified usage or contribution, not profit/loss.
-
-Message ${label} is impact-scored; spam, duplicates and trivial messages do not qualify.
+Referrals require verification, 7 days retained and activity across at least **${getSettingInt('referral_activity_min_days')} days**. Message rewards are impact-scored; spam, duplicates and trivial messages do not qualify.
 
 Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, \`/leaderboard\`.
 
@@ -3552,7 +3577,7 @@ async function buildKlineO(guild) {
       '• `/impact-status` / `/mark-impactful` / `/remove-message-xp` — impact review',
       '• `/impact-settings` / `/set-impact` — impact rules',
       '• `/xp-settings` / `/set-xp` — XP economy',
-      '• `/voice-event start/stop/status` — official voice XP',
+      '• `/voice-event start/stop/status/speaker` — official voice XP + speaker bonus',
       '',
       '**Leaderboards + wallets**',
       '• `/leaderboard-settings` — visibility controls',
@@ -4199,6 +4224,69 @@ async function checkPendingReferrals(guild) {
   scheduleLeaderboardUpdate(guild);
 }
 
+function activeVoiceEventForChannel(channelId) {
+  const event = getActiveVoiceEvent();
+  return event && String(event.channel_id) === String(channelId) ? event : null;
+}
+
+function closeOpenVoiceSession(userId, channelId = null, leftAt = now()) {
+  const row = channelId
+    ? db.prepare('SELECT * FROM voice_sessions WHERE user_id = ? AND channel_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1').get(userId, channelId)
+    : db.prepare('SELECT * FROM voice_sessions WHERE user_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1').get(userId);
+  if (!row) return null;
+  const end = Math.max(Number(row.joined_at), Number(leftAt));
+  const seconds = Math.max(0, Math.floor((end - Number(row.joined_at)) / 1000));
+  db.prepare('UPDATE voice_sessions SET left_at = ?, duration_seconds = ? WHERE id = ?').run(end, seconds, row.id);
+  return { ...row, left_at: end, duration_seconds: seconds };
+}
+
+function openVoiceSession(userId, channelId, joinedAt = now()) {
+  closeOpenVoiceSession(userId, null, joinedAt);
+  const active = activeVoiceEventForChannel(channelId);
+  const result = db.prepare('INSERT INTO voice_sessions (user_id, channel_id, joined_at, official_event_id) VALUES (?, ?, ?, ?)')
+    .run(userId, channelId, joinedAt, active?.id ?? null);
+  return Number(result.lastInsertRowid);
+}
+
+function noteStageHandRaise(eventId, userId, raisedAt = now()) {
+  db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, hand_raised_at) VALUES (?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET hand_raised_at = COALESCE(voice_event_speakers.hand_raised_at, excluded.hand_raised_at)`).run(eventId, userId, raisedAt);
+}
+function noteStageSpeakerStarted(eventId, userId, startedAt = now()) {
+  db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, speaker_started_at) VALUES (?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET speaker_started_at = COALESCE(voice_event_speakers.speaker_started_at, excluded.speaker_started_at)`).run(eventId, userId, startedAt);
+}
+
+async function awardOfficialSpeakerBonus(guild, event, member, actorId = null, requireHandRaise = false) {
+  if (!event || !member || member.user?.bot || !hasVerifiedRole(member)) return { awarded: false, reason: 'Member must be verified.' };
+  if (String(member.voice?.channelId ?? '') !== String(event.channel_id)) return { awarded: false, reason: 'Member must currently be in the active official event channel.' };
+  const existing = db.prepare('SELECT * FROM voice_event_speakers WHERE event_id = ? AND user_id = ?').get(event.id, member.id);
+  if (existing?.awarded_at) return { awarded: false, reason: 'Speaker bonus already awarded for this event.' };
+  if (requireHandRaise && !existing?.hand_raised_at) return { awarded: false, reason: 'No Stage hand raise was recorded.' };
+  const award = Math.max(0, getSettingInt('kxp_voice_speaker_bonus'));
+  if (!award) return { awarded: false, reason: 'Speaker bonus is disabled.' };
+  const ts = now();
+  db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, speaker_started_at, awarded_at, awarded_by) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET speaker_started_at = COALESCE(voice_event_speakers.speaker_started_at, excluded.speaker_started_at), awarded_at = excluded.awarded_at, awarded_by = excluded.awarded_by`)
+    .run(event.id, member.id, ts, ts, actorId);
+  await addXp(guild, member.id, award, `Official voice speaker: ${event.name}`, actorId);
+  return { awarded: true, amount: award };
+}
+
+async function reconcileVoiceSessions(guild) {
+  const activeHumans = new Map();
+  for (const channel of guild.channels.cache.values()) {
+    if (![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) continue;
+    for (const member of channel.members.values()) if (!member.user.bot) activeHumans.set(member.id, channel.id);
+  }
+  const openRows = db.prepare('SELECT * FROM voice_sessions WHERE left_at IS NULL').all();
+  for (const row of openRows) {
+    const actualChannel = activeHumans.get(row.user_id);
+    if (actualChannel === row.channel_id) { activeHumans.delete(row.user_id); continue; }
+    closeOpenVoiceSession(row.user_id, row.channel_id, now());
+  }
+  for (const [userId, channelId] of activeHumans) openVoiceSession(userId, channelId, now());
+}
 function getActiveVoiceEvent() {
   return db.prepare('SELECT * FROM voice_events WHERE active = 1 ORDER BY id DESC LIMIT 1').get();
 }
@@ -4221,24 +4309,37 @@ async function processVoiceEventMinute(guild) {
   const event = getActiveVoiceEvent();
   if (!event) return;
   const channel = guild.channels.cache.get(event.channel_id);
-  if (!channel || channel.type !== ChannelType.GuildVoice) return;
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) return;
   const humans = [...channel.members.values()].filter((m) => !m.user.bot);
   if (humans.length < 2) return;
   const intervalMinutes = Math.max(1, getSettingInt('voice_interval_minutes'));
   const award = Math.max(0, getSettingInt('kxp_voice_interval'));
-  if (!award) return;
   for (const member of humans) {
     if (!hasVerifiedRole(member)) continue;
     const state = member.voice;
     if (!state.channelId || state.selfDeaf || state.serverDeaf) continue;
-    db.prepare(`INSERT INTO voice_event_progress (event_id, user_id, qualified_minutes) VALUES (?, ?, 1)
-      ON CONFLICT(event_id, user_id) DO UPDATE SET qualified_minutes = qualified_minutes + 1`).run(event.id, member.id);
-    const progress = Number(db.prepare('SELECT qualified_minutes FROM voice_event_progress WHERE event_id = ? AND user_id = ?').get(event.id, member.id)?.qualified_minutes ?? 0);
-    if (progress >= intervalMinutes) {
-      const intervals = Math.floor(progress / intervalMinutes);
-      const remainder = progress % intervalMinutes;
-      db.prepare('UPDATE voice_event_progress SET qualified_minutes = ? WHERE event_id = ? AND user_id = ?').run(remainder, event.id, member.id);
-      await addXp(guild, member.id, intervals * award, `Official voice event: ${event.name}`);
+
+    if (award > 0) {
+      db.prepare(`INSERT INTO voice_event_progress (event_id, user_id, qualified_minutes) VALUES (?, ?, 1)
+        ON CONFLICT(event_id, user_id) DO UPDATE SET qualified_minutes = qualified_minutes + 1`).run(event.id, member.id);
+      const progress = Number(db.prepare('SELECT qualified_minutes FROM voice_event_progress WHERE event_id = ? AND user_id = ?').get(event.id, member.id)?.qualified_minutes ?? 0);
+      if (progress >= intervalMinutes) {
+        const intervals = Math.floor(progress / intervalMinutes);
+        const remainder = progress % intervalMinutes;
+        db.prepare('UPDATE voice_event_progress SET qualified_minutes = ? WHERE event_id = ? AND user_id = ?').run(remainder, event.id, member.id);
+        await addXp(guild, member.id, intervals * award, `Official voice event: ${event.name}`);
+      }
+    }
+
+    if (channel.type === ChannelType.GuildStageVoice && state.suppress === false) {
+      const speaker = db.prepare('SELECT * FROM voice_event_speakers WHERE event_id = ? AND user_id = ?').get(event.id, member.id);
+      if (speaker?.hand_raised_at && speaker?.speaker_started_at && !speaker?.awarded_at && now() - Number(speaker.speaker_started_at) >= 60000) {
+        const result = await awardOfficialSpeakerBonus(guild, event, member, null, true);
+        if (result.awarded) {
+          const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+          if (log) await log.send(`🎤 **Official speaker bonus** — ${member} raised their hand and remained a Stage speaker for at least 1 minute during **${event.name}**. **+${result.amount} ${xpLabel()}**.`).catch(() => {});
+        }
+      }
     }
   }
 }
@@ -4486,6 +4587,7 @@ client.once('clientReady', async () => {
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
+        await reconcileVoiceSessions(fullGuild);
         await cacheInvites(fullGuild);
         await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
         await syncAnnouncementChannelPermissions(fullGuild).catch((error) => logLinkoError('announcement-permissions', error));
@@ -4495,7 +4597,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.8 project-aware multi-server features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.9 voice-attendance and official-event features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -4581,12 +4683,31 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   const guild = newState?.guild ?? oldState?.guild;
   const member = newState?.member ?? oldState?.member;
   if (!guild || !isAllowedGuild(guild.id) || !member || member.user?.bot) return;
-  if (newState.channelId && newState.channelId !== oldState.channelId) {
-    return runWithGuild(guild.id, () => {
-      touchActivity(member.id, 'voice');
+  return runWithGuild(guild.id, async () => {
+    const oldChannelId = oldState.channelId;
+    const newChannelId = newState.channelId;
+
+    if (oldChannelId !== newChannelId) {
+      if (oldChannelId) closeOpenVoiceSession(member.id, oldChannelId, now());
+      if (newChannelId) {
+        openVoiceSession(member.id, newChannelId, now());
+        touchActivity(member.id, 'voice');
+      }
       scheduleHealthUpdate(guild);
-    });
-  }
+    }
+
+    const active = getActiveVoiceEvent();
+    if (!active || String(active.channel_id) !== String(newChannelId ?? oldChannelId ?? '')) return;
+    const channel = guild.channels.cache.get(active.channel_id);
+    if (!channel || channel.type !== ChannelType.GuildStageVoice) return;
+
+    const oldRaised = Number(oldState.requestToSpeakTimestamp ?? 0);
+    const newRaised = Number(newState.requestToSpeakTimestamp ?? 0);
+    if (newRaised > 0 && newRaised !== oldRaised) noteStageHandRaise(active.id, member.id, newRaised);
+
+    const promotedToSpeaker = oldState.suppress === true && newState.suppress === false && newChannelId === active.channel_id;
+    if (promotedToSpeaker) noteStageSpeakerStarted(active.id, member.id, now());
+  });
 });
 client.on('inviteCreate', (invite) => {
   if (!isAllowedGuild(invite.guild?.id)) return;
@@ -4846,7 +4967,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.8 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.9 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -5269,7 +5390,7 @@ client.on('interactionCreate', async (interaction) => {
         }
         db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), id);
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-        return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ' Official voice ${xpLabel()} is active.' : ''}`);
+        return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ` Official voice ${xpLabel()} is active.` : ''}`);
       }
       if (action === 'end') {
         await endCommunityEvent(interaction.guild, id, interaction.user.id, false);
@@ -5800,7 +5921,9 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       const label = xpLabel();
       return interaction.reply({ content: `**${interaction.guild.name} ${label} SETTINGS**
 Message: **+${getSettingInt('kxp_message')} ${label}**
-Voice: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
+Official voice listening: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
+Official voice speaker: **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once per event**
+Normal voice calls: **attendance only, 0 ${label}**
 Server boost: **+${getSettingInt('kxp_boost_daily')} ${label} per active boost per day**
 Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}**
 Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
@@ -5856,15 +5979,25 @@ Public = visible to verified members. Private = visible only to staff.`, ephemer
 Event: **${active.name}**
 Channel: <#${active.channel_id}>
 Started: <t:${Math.floor(active.started_at / 1000)}:R>
-Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('voice_interval_minutes')} qualifying minutes**` : `No voice ${label} event is active.`, ephemeral: true });
+Listening reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('voice_interval_minutes')} qualifying minutes**
+Speaker bonus: **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once/event**` : `No voice ${label} event is active.`, ephemeral: true });
       }
       if (action === 'start') {
         const channel = interaction.options.getChannel('channel', true);
         const name = interaction.options.getString('name', true).trim();
         const id = await startVoiceEvent(interaction.guild, channel, name, interaction.user.id);
         const eventsChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
-        if (eventsChannel) await eventsChannel.send(`🎙️ **Official voice event started:** ${name}\nJoin <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes** while this event is active. At least 2 real users must be present.`).catch(() => {});
+        if (eventsChannel) await eventsChannel.send(`🎙️ **Official voice event started:** ${name}\nJoin <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes** while this event is active. At least 2 real users must be present. Participating speakers can earn **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once per event**. Normal voice calls outside an official event earn **0 ${label}**.`).catch(() => {});
         return interaction.reply({ content: `✅ Voice ${label} event #${id} started in ${channel}.`, ephemeral: true });
+      }
+      if (action === 'speaker') {
+        const active = getActiveVoiceEvent();
+        if (!active) return interaction.reply({ content: `No voice ${label} event is active.`, ephemeral: true });
+        const user = interaction.options.getUser('member', true);
+        const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+        if (!member) return interaction.reply({ content: 'Member is not available in this server.', ephemeral: true });
+        const result = await awardOfficialSpeakerBonus(interaction.guild, active, member, interaction.user.id, false);
+        return interaction.reply({ content: result.awarded ? `✅ Awarded **+${result.amount} ${label}** speaker participation bonus to ${member}.` : `No speaker bonus awarded: ${result.reason}`, ephemeral: true });
       }
       if (action === 'stop') {
         const ended = await stopVoiceEvent();

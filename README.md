@@ -1,3 +1,37 @@
+# LINKO v10.9.0
+
+LINKO v10.9 separates **voice analytics** from **voice rewards**.
+
+## All voice attendance
+
+LINKO now records human joins/leaves for every Discord Voice and Stage channel in each managed Guild. These sessions are analytics-only and do **not** award XP/KXP.
+
+Stored session data includes member, channel, join time, leave time and duration. Open sessions are reconciled when the bot restarts.
+
+## Official voice XP
+
+Only a staff-started official `/voice-event` can award voice XP:
+
+- Listening: **+2 XP/KXP per 15 qualifying minutes** by default.
+- Normal Discord voice calls outside an official event: **0 XP/KXP**.
+- At least 2 real users must be present for official listening time to qualify.
+- Members must be verified and not self/server deafened.
+
+## Speaker participation
+
+Official events support both Voice and Stage channels.
+
+- In a Stage event, LINKO records a hand raise.
+- The member must then be promoted to speaker and remain a speaker for at least 1 minute.
+- LINKO awards **+2 XP/KXP once per official event** by default.
+- The once-per-event guard prevents repeated speaker farming.
+- For normal Voice channels, staff can confirm genuine speaker participation with `/voice-event speaker`.
+
+`/set-xp` / `/set-kxp` can change the listening reward and speaker-participation bonus independently.
+
+Community events can also use Voice or Stage channels for attendance recording.
+
+---
 # LINKO v10.8.0
 
 LINKO v10.8 makes every managed Guild project-aware before setup completes.
