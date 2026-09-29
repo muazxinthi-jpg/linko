@@ -1,4 +1,4 @@
-# LINKO v10.8 Test Checklist
+# LINKO v10.9 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,21 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Voice attendance + official XP tests
+
+- Join and leave a normal Discord Voice channel with no official event active. Confirm a `voice_sessions` row is created/closed and **no XP/KXP is awarded**.
+- Move between two Voice/Stage channels. Confirm LINKO closes the first session and opens a second session.
+- Restart LINKO while a member is in voice. Confirm open-session reconciliation does not create duplicate open sessions.
+- Run `/voice-event start` in a normal Voice channel. Confirm verified listeners receive the configured reward only after each 15 qualifying minutes and only when at least 2 real users are present.
+- Confirm self-deafened/server-deafened members do not accrue official listening minutes.
+- Run `/voice-event start` in a Stage channel. Confirm an audience member raising a hand is recorded.
+- Promote that member to speaker. Confirm no immediate speaker XP is awarded.
+- Keep the member as a Stage speaker for at least 1 minute. Confirm the configured speaker bonus is awarded exactly once.
+- Demote/re-promote the same member. Confirm no second speaker bonus is awarded for the same event.
+- In a normal Voice official event, run `/voice-event speaker member:<user>` and confirm staff can award the once-per-event speaker bonus manually.
+- Confirm `/kxp-settings` shows listening reward, speaker bonus and `Normal voice calls: attendance only, 0 KXP`.
+- Confirm `/set-kxp event:Official voice · 15-minute listening` and `Official voice · speaker participation bonus` can be changed independently.
+- Create a managed community event using a Stage channel and confirm actual attendance is recorded.
 ## Project Profile + welcome tests
 
 Before continuing to the server-profile tests:
