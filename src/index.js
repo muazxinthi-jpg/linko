@@ -3143,7 +3143,7 @@ OBSERVER 0 · SCOUT 300 · ANALYST 1,000 · OPERATOR 2,000 · STRATEGIST 10,000 
 
 Referrals require verification, 7 days retained and activity across at least **${getSettingInt('referral_activity_min_days')} days**. Message rewards are impact-scored; spam, duplicates and trivial messages do not qualify.
 
-Use `/rank`, `/points`, `/invite`, `/invites`, `/leaderboard`.
+Use \`/rank\`, \`/points\`, \`/invite\`, \`/invites\`, \`/leaderboard\`.
 
 [KLINEO-KXP]`;
 }
