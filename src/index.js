@@ -4264,6 +4264,10 @@ function noteStageHandRaise(eventId, userId, raisedAt = now()) {
   db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, hand_raised_at) VALUES (?, ?, ?)
     ON CONFLICT(event_id, user_id) DO UPDATE SET hand_raised_at = COALESCE(voice_event_speakers.hand_raised_at, excluded.hand_raised_at)`).run(eventId, userId, raisedAt);
 }
+function noteStageSpeakerStarted(eventId, userId, startedAt = now()) {
+  db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, speaker_started_at) VALUES (?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET speaker_started_at = COALESCE(voice_event_speakers.speaker_started_at, excluded.speaker_started_at)`).run(eventId, userId, startedAt);
+}
 
 async function awardOfficialSpeakerBonus(guild, event, member, actorId = null, requireHandRaise = false) {
   if (!event || !member || member.user?.bot || !hasVerifiedRole(member)) return { awarded: false, reason: 'Member must be verified.' };
@@ -4322,19 +4326,32 @@ async function processVoiceEventMinute(guild) {
   if (humans.length < 2) return;
   const intervalMinutes = Math.max(1, getSettingInt('voice_interval_minutes'));
   const award = Math.max(0, getSettingInt('kxp_voice_interval'));
-  if (!award) return;
   for (const member of humans) {
     if (!hasVerifiedRole(member)) continue;
     const state = member.voice;
     if (!state.channelId || state.selfDeaf || state.serverDeaf) continue;
-    db.prepare(`INSERT INTO voice_event_progress (event_id, user_id, qualified_minutes) VALUES (?, ?, 1)
-      ON CONFLICT(event_id, user_id) DO UPDATE SET qualified_minutes = qualified_minutes + 1`).run(event.id, member.id);
-    const progress = Number(db.prepare('SELECT qualified_minutes FROM voice_event_progress WHERE event_id = ? AND user_id = ?').get(event.id, member.id)?.qualified_minutes ?? 0);
-    if (progress >= intervalMinutes) {
-      const intervals = Math.floor(progress / intervalMinutes);
-      const remainder = progress % intervalMinutes;
-      db.prepare('UPDATE voice_event_progress SET qualified_minutes = ? WHERE event_id = ? AND user_id = ?').run(remainder, event.id, member.id);
-      await addXp(guild, member.id, intervals * award, `Official voice event: ${event.name}`);
+
+    if (award > 0) {
+      db.prepare(`INSERT INTO voice_event_progress (event_id, user_id, qualified_minutes) VALUES (?, ?, 1)
+        ON CONFLICT(event_id, user_id) DO UPDATE SET qualified_minutes = qualified_minutes + 1`).run(event.id, member.id);
+      const progress = Number(db.prepare('SELECT qualified_minutes FROM voice_event_progress WHERE event_id = ? AND user_id = ?').get(event.id, member.id)?.qualified_minutes ?? 0);
+      if (progress >= intervalMinutes) {
+        const intervals = Math.floor(progress / intervalMinutes);
+        const remainder = progress % intervalMinutes;
+        db.prepare('UPDATE voice_event_progress SET qualified_minutes = ? WHERE event_id = ? AND user_id = ?').run(remainder, event.id, member.id);
+        await addXp(guild, member.id, intervals * award, `Official voice event: ${event.name}`);
+      }
+    }
+
+    if (channel.type === ChannelType.GuildStageVoice && state.suppress === false) {
+      const speaker = db.prepare('SELECT * FROM voice_event_speakers WHERE event_id = ? AND user_id = ?').get(event.id, member.id);
+      if (speaker?.hand_raised_at && speaker?.speaker_started_at && !speaker?.awarded_at && now() - Number(speaker.speaker_started_at) >= 60000) {
+        const result = await awardOfficialSpeakerBonus(guild, event, member, null, true);
+        if (result.awarded) {
+          const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+          if (log) await log.send(`🎤 **Official speaker bonus** — ${member} raised their hand and remained a Stage speaker for at least 1 minute during **${event.name}**. **+${result.amount} ${xpLabel()}**.`).catch(() => {});
+        }
+      }
     }
   }
 }
@@ -4701,13 +4718,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     if (newRaised > 0 && newRaised !== oldRaised) noteStageHandRaise(active.id, member.id, newRaised);
 
     const promotedToSpeaker = oldState.suppress === true && newState.suppress === false && newChannelId === active.channel_id;
-    if (promotedToSpeaker) {
-      const result = await awardOfficialSpeakerBonus(guild, active, member, null, true);
-      if (result.awarded) {
-        const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-        if (log) await log.send(`🎤 **Official speaker bonus** — ${member} raised their hand and joined the Stage as a speaker during **${active.name}**. **+${result.amount} ${xpLabel()}**.`).catch(() => {});
-      }
-    }
+    if (promotedToSpeaker) noteStageSpeakerStarted(active.id, member.id, now());
   });
 });
 client.on('inviteCreate', (invite) => {
