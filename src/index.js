@@ -1466,7 +1466,7 @@ const commands = [
       .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
       .addStringOption((o) => o.setName('description').setDescription('Event description').setMaxLength(1000))
-      .addChannelOption((o) => o.setName('voice').setDescription('Optional voice room').addChannelTypes(ChannelType.GuildVoice)))
+      .addChannelOption((o) => o.setName('voice').setDescription('Optional Voice/Stage room').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)))
     .addSubcommand((sc) => sc.setName('list').setDescription('List upcoming/live events.'))
     .addSubcommand((sc) => sc.setName('start').setDescription('Start an event and its official voice-XP window.')
       .addIntegerOption((o) => o.setName('id').setDescription('Event ID').setRequired(true).setMinValue(1)))
@@ -1997,7 +1997,7 @@ async function updateEventMessage(guild, id) {
 async function recordLiveEventAttendance(guild, row) {
   if (!row.voice_channel_id) return;
   const channel = guild.channels.cache.get(row.voice_channel_id);
-  if (!channel || channel.type !== ChannelType.GuildVoice) return;
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) return;
   for (const member of channel.members.values()) {
     if (member.user.bot || !hasVerifiedRole(member)) continue;
     db.prepare(`INSERT INTO event_attendance (event_id, user_id, first_seen_at, last_seen_at, minutes) VALUES (?, ?, ?, ?, 1)
@@ -5402,7 +5402,7 @@ client.on('interactionCreate', async (interaction) => {
         }
         db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), id);
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-        return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ' Official voice ${xpLabel()} is active.' : ''}`);
+        return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ` Official voice ${xpLabel()} is active.` : ''}`);
       }
       if (action === 'end') {
         await endCommunityEvent(interaction.guild, id, interaction.user.id, false);
