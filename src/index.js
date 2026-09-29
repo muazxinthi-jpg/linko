@@ -4236,6 +4236,65 @@ async function checkPendingReferrals(guild) {
   scheduleLeaderboardUpdate(guild);
 }
 
+function activeVoiceEventForChannel(channelId) {
+  const event = getActiveVoiceEvent();
+  return event && String(event.channel_id) === String(channelId) ? event : null;
+}
+
+function closeOpenVoiceSession(userId, channelId = null, leftAt = now()) {
+  const row = channelId
+    ? db.prepare('SELECT * FROM voice_sessions WHERE user_id = ? AND channel_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1').get(userId, channelId)
+    : db.prepare('SELECT * FROM voice_sessions WHERE user_id = ? AND left_at IS NULL ORDER BY id DESC LIMIT 1').get(userId);
+  if (!row) return null;
+  const end = Math.max(Number(row.joined_at), Number(leftAt));
+  const seconds = Math.max(0, Math.floor((end - Number(row.joined_at)) / 1000));
+  db.prepare('UPDATE voice_sessions SET left_at = ?, duration_seconds = ? WHERE id = ?').run(end, seconds, row.id);
+  return { ...row, left_at: end, duration_seconds: seconds };
+}
+
+function openVoiceSession(userId, channelId, joinedAt = now()) {
+  closeOpenVoiceSession(userId, null, joinedAt);
+  const active = activeVoiceEventForChannel(channelId);
+  const result = db.prepare('INSERT INTO voice_sessions (user_id, channel_id, joined_at, official_event_id) VALUES (?, ?, ?, ?)')
+    .run(userId, channelId, joinedAt, active?.id ?? null);
+  return Number(result.lastInsertRowid);
+}
+
+function noteStageHandRaise(eventId, userId, raisedAt = now()) {
+  db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, hand_raised_at) VALUES (?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET hand_raised_at = COALESCE(voice_event_speakers.hand_raised_at, excluded.hand_raised_at)`).run(eventId, userId, raisedAt);
+}
+
+async function awardOfficialSpeakerBonus(guild, event, member, actorId = null, requireHandRaise = false) {
+  if (!event || !member || member.user?.bot || !hasVerifiedRole(member)) return { awarded: false, reason: 'Member must be verified.' };
+  if (String(member.voice?.channelId ?? '') !== String(event.channel_id)) return { awarded: false, reason: 'Member must currently be in the active official event channel.' };
+  const existing = db.prepare('SELECT * FROM voice_event_speakers WHERE event_id = ? AND user_id = ?').get(event.id, member.id);
+  if (existing?.awarded_at) return { awarded: false, reason: 'Speaker bonus already awarded for this event.' };
+  if (requireHandRaise && !existing?.hand_raised_at) return { awarded: false, reason: 'No Stage hand raise was recorded.' };
+  const award = Math.max(0, getSettingInt('kxp_voice_speaker_bonus'));
+  if (!award) return { awarded: false, reason: 'Speaker bonus is disabled.' };
+  const ts = now();
+  db.prepare(`INSERT INTO voice_event_speakers (event_id, user_id, speaker_started_at, awarded_at, awarded_by) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET speaker_started_at = COALESCE(voice_event_speakers.speaker_started_at, excluded.speaker_started_at), awarded_at = excluded.awarded_at, awarded_by = excluded.awarded_by`)
+    .run(event.id, member.id, ts, ts, actorId);
+  await addXp(guild, member.id, award, `Official voice speaker: ${event.name}`, actorId);
+  return { awarded: true, amount: award };
+}
+
+async function reconcileVoiceSessions(guild) {
+  const activeHumans = new Map();
+  for (const channel of guild.channels.cache.values()) {
+    if (![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) continue;
+    for (const member of channel.members.values()) if (!member.user.bot) activeHumans.set(member.id, channel.id);
+  }
+  const openRows = db.prepare('SELECT * FROM voice_sessions WHERE left_at IS NULL').all();
+  for (const row of openRows) {
+    const actualChannel = activeHumans.get(row.user_id);
+    if (actualChannel === row.channel_id) { activeHumans.delete(row.user_id); continue; }
+    closeOpenVoiceSession(row.user_id, row.channel_id, now());
+  }
+  for (const [userId, channelId] of activeHumans) openVoiceSession(userId, channelId, now());
+}
 function getActiveVoiceEvent() {
   return db.prepare('SELECT * FROM voice_events WHERE active = 1 ORDER BY id DESC LIMIT 1').get();
 }
@@ -4258,7 +4317,7 @@ async function processVoiceEventMinute(guild) {
   const event = getActiveVoiceEvent();
   if (!event) return;
   const channel = guild.channels.cache.get(event.channel_id);
-  if (!channel || channel.type !== ChannelType.GuildVoice) return;
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) return;
   const humans = [...channel.members.values()].filter((m) => !m.user.bot);
   if (humans.length < 2) return;
   const intervalMinutes = Math.max(1, getSettingInt('voice_interval_minutes'));
