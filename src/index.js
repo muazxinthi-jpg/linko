@@ -2049,6 +2049,28 @@ async function processCommunityEvents(guild) {
     if (now() >= scheduledEnd) await endCommunityEvent(guild, row.id, null, true);
   }
 }
+function voiceMetricsBetween(start, end) {
+  const rows = db.prepare(`SELECT user_id, joined_at, left_at FROM voice_sessions
+    WHERE joined_at < ? AND COALESCE(left_at, ?) > ?`).all(end, end, start);
+  const users = new Set();
+  let seconds = 0;
+  for (const row of rows) {
+    const from = Math.max(Number(row.joined_at), Number(start));
+    const to = Math.min(Number(row.left_at ?? end), Number(end));
+    if (to <= from) continue;
+    users.add(String(row.user_id));
+    seconds += Math.floor((to - from) / 1000);
+  }
+  return { participants: users.size, seconds };
+}
+function formatVoiceDuration(seconds) {
+  const mins = Math.max(0, Math.floor(Number(seconds ?? 0) / 60));
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  if (hours && rem) return `${hours}h ${rem}m`;
+  if (hours) return `${hours}h`;
+  return `${mins}m`;
+}
 function healthMetrics(guild, days = 7) {
   const cutoff = now() - days * 86400000;
   const humans = guild.members.cache.filter((m) => !m.user.bot);
@@ -2064,6 +2086,7 @@ function healthMetrics(guild, days = 7) {
   const validReferrals = Number(db.prepare("SELECT COUNT(*) AS c FROM xp_log WHERE created_at >= ? AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0").get(cutoff)?.c ?? 0);
   const social = Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status = 'approved' AND reviewed_at >= ?").get(cutoff)?.c ?? 0);
   const suggestions = Number(db.prepare('SELECT COUNT(*) AS c FROM product_suggestions WHERE created_at >= ?').get(cutoff)?.c ?? 0);
+  const voice = voiceMetricsBetween(cutoff, now());
   const eventAttendees = Number(db.prepare(`SELECT COUNT(DISTINCT ea.user_id) AS c FROM event_attendance ea JOIN community_events ce ON ce.id = ea.event_id WHERE COALESCE(ce.ended_at, ce.start_at) >= ?`).get(cutoff)?.c ?? 0);
   const activated = Number(db.prepare(`SELECT COUNT(*) AS c
     FROM users u
@@ -2079,7 +2102,7 @@ function healthMetrics(guild, days = 7) {
   const activationRate = verifications ? Math.min(100, Math.round((activated / verifications) * 100)) : null;
   const rankCounts = Object.fromEntries(RANKS.map((r) => [r.name, 0]));
   for (const m of humans.values()) if (verifiedRole && m.roles.cache.has(verifiedRole.id)) rankCounts[rankForXp(getXp(m.id)).name]++;
-  return { days, total: humans.size, verified, online, joins, verifications, activeMembers, activeRate, contributors, qualifiedMessages, validReferrals, social, suggestions, eventAttendees, activated, activationRate, rankCounts };
+  return { days, total: humans.size, verified, online, joins, verifications, activeMembers, activeRate, contributors, qualifiedMessages, validReferrals, social, suggestions, voiceParticipants: voice.participants, voiceSeconds: voice.seconds, eventAttendees, activated, activationRate, rankCounts };
 }
 function buildHealthEmbed(guild, days = 7) {
   const m = healthMetrics(guild, days);
@@ -2088,7 +2111,7 @@ function buildHealthEmbed(guild, days = 7) {
     .addFields(
       { name: 'Community', value: `Members: **${m.total}**\nVerified: **${m.verified}**\nOnline now: **${m.online}**`, inline: true },
       { name: `${days}d growth`, value: `New joins: **${m.joins}**\nVerified: **${m.verifications}**\nActivation: **${m.activationRate}%**`, inline: true },
-      { name: `${days}d engagement`, value: `Active members: **${m.activeMembers}** (**${m.activeRate}%**)\nQualified messages: **${m.qualifiedMessages}**\nEvent attendees: **${m.eventAttendees}**`, inline: true },
+      { name: `${days}d engagement`, value: `Active members: **${m.activeMembers}** (**${m.activeRate}%**)\nQualified messages: **${m.qualifiedMessages}**\nVoice participants: **${m.voiceParticipants}** (${formatVoiceDuration(m.voiceSeconds)})\nEvent attendees: **${m.eventAttendees}**`, inline: true },
       { name: 'Growth loops', value: `Valid referrals: **${m.validReferrals}**\nApproved social posts: **${m.social}**\nProduct suggestions: **${m.suggestions}**`, inline: true },
       { name: 'Rank distribution', value: ranks || 'No data' },
     ).setFooter({ text: '[KLINEO-COMMUNITY-HEALTH] · Auto-updated by LINKO' }).setTimestamp();
@@ -3722,9 +3745,10 @@ function healthPeriodMetrics(days, offsetPeriods = 0) {
   const validReferrals = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0`).get(start, end)?.c ?? 0);
   const social = Number(db.prepare(`SELECT COUNT(*) AS c FROM social_submissions WHERE status='approved' AND ${between('reviewed_at')}`).get(start, end)?.c ?? 0);
   const suggestions = Number(db.prepare(`SELECT COUNT(*) AS c FROM product_suggestions WHERE ${between('created_at')}`).get(start, end)?.c ?? 0);
+  const voice = voiceMetricsBetween(start, end);
   const eventAttendees = Number(db.prepare(`SELECT COUNT(DISTINCT ea.user_id) AS c FROM event_attendance ea JOIN community_events ce ON ce.id=ea.event_id WHERE ${between('COALESCE(ce.ended_at, ce.start_at)')}`).get(start, end)?.c ?? 0);
 
-  return { start, end, joins, verifications, activeMembers, contributors, qualifiedMessages, validReferrals, social, suggestions, eventAttendees };
+  return { start, end, joins, verifications, activeMembers, contributors, qualifiedMessages, validReferrals, social, suggestions, voiceParticipants: voice.participants, voiceSeconds: voice.seconds, eventAttendees };
 }
 
 function metricTrend(current, previous) {
@@ -3916,6 +3940,10 @@ async function generateHealthCard(guild, days = 7) {
       ctx.strokeRect(size*0.20,size*0.43,size*0.08,size*0.16);
       ctx.beginPath(); ctx.moveTo(size*0.31,size*0.60); ctx.lineTo(size*0.36,size*0.76); ctx.stroke();
       ctx.beginPath(); ctx.arc(size*0.63,size*0.50,size*0.18,-0.8,0.8); ctx.stroke();
+    } else if (kind === 'voice') {
+      ctx.beginPath(); ctx.arc(size*0.39,size*0.46,size*0.12,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(size*0.39,size*0.46,size*0.22,-0.9,0.9); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(size*0.66,size*0.34); ctx.lineTo(size*0.66,size*0.66); ctx.moveTo(size*0.58,size*0.42); ctx.quadraticCurveTo(size*0.53,size*0.50,size*0.58,size*0.58); ctx.stroke();
     } else if (kind === 'calendar') {
       drawRoundRect(ctx,size*0.24,size*0.28,size*0.52,size*0.48,size*0.05); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(size*0.24,size*0.41); ctx.lineTo(size*0.76,size*0.41); ctx.moveTo(size*0.37,size*0.22); ctx.lineTo(size*0.37,size*0.34); ctx.moveTo(size*0.63,size*0.22); ctx.lineTo(size*0.63,size*0.34); ctx.stroke();
@@ -4038,31 +4066,31 @@ async function generateHealthCard(guild, days = 7) {
   const secondary = [
     { label:['Verified','Members'], value:compactMetric(m.verified), note:`${verifiedRate}% verified`, icon:'shield' },
     { label:['Social','Posts'], value:compactMetric(m.social), note:'approved', icon:'social' },
-    { label:['Event','Attendees'], value:compactMetric(m.eventAttendees), note:`last ${days}d`, icon:'calendar' },
+    { label:['Voice','Participants'], value:compactMetric(m.voiceParticipants), note:`${formatVoiceDuration(m.voiceSeconds)} total`, icon:'voice' },
+    { label:['Event','Attendees'], value:compactMetric(m.eventAttendees), note:m.eventAttendees ? `last ${days}d` : 'no official events', icon:'calendar' },
     { label:['Referrals'], value:compactMetric(m.validReferrals), note:'valid', icon:'link' },
     { label:['Suggestions'], value:compactMetric(m.suggestions), note:'submitted', icon:'bulb' },
   ];
-  const secX = [58, 365, 672, 979, 1286];
+  const secX = [58, 305, 552, 799, 1046, 1293];
 
   secondary.forEach((item, index) => {
     const x = secX[index];
     if (index > 0) {
       ctx.fillStyle = divider;
       ctx.globalAlpha = 0.62;
-      ctx.fillRect(x - 24, 689, 2, 125);
+      ctx.fillRect(x - 18, 689, 2, 125);
       ctx.globalAlpha = 1;
     }
-    drawIconTile(x, 688, item.icon, 58);
+    drawIconTile(x, 688, item.icon, 54);
     ctx.fillStyle = ink;
-    ctx.font = '800 17px sans-serif';
-    item.label.forEach((line, li) => ctx.fillText(line, x + 82, 710 + li * 21));
-    ctx.font = '900 43px monospace';
-    ctx.fillText(item.value, x + 82, 785);
+    ctx.font = '800 15px sans-serif';
+    item.label.forEach((line, li) => ctx.fillText(line, x + 68, 709 + li * 19));
+    ctx.font = '900 37px monospace';
+    ctx.fillText(item.value, x + 68, 782);
     ctx.fillStyle = softInk;
-    ctx.font = '700 13px sans-serif';
-    ctx.fillText(item.note, x + 82, 810);
+    ctx.font = '700 11px sans-serif';
+    ctx.fillText(item.note, x + 68, 807);
   });
-
   ctx.fillStyle = divider;
   ctx.fillRect(58, 835, 1484, 2);
 
@@ -4080,7 +4108,7 @@ async function generateHealthCard(guild, days = 7) {
   ctx.textAlign = 'left';
 
   const activationCaption = m.activationRate == null ? 'no new verifications yet' : `${m.activationRate}% activation among new verifications`;
-  const caption = `${communityName()} Community Health, last ${days} days: ${m.activeMembers} active members (${m.activeRate}% of the community), ${m.qualifiedMessages} qualified messages, ${m.joins} new joins and ${activationCaption}. ${insight}`;
+  const caption = `${communityName()} Community Health, last ${days} days: ${m.activeMembers} active members (${m.activeRate}% of the community), ${m.qualifiedMessages} qualified messages, ${m.voiceParticipants} voice participants (${formatVoiceDuration(m.voiceSeconds)}), ${m.joins} new joins and ${activationCaption}. ${insight}`;
   return { buffer: canvas.toBuffer('image/png'), caption, status: healthCardStatus(m, previous).label };
 }
 
@@ -4597,7 +4625,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.9 voice-attendance and official-event features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.10 health voice-metrics features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -4967,7 +4995,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.9 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.10 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);

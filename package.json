@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.9.0",
+  "version": "10.10.0",
   "private": true,
-  "description": "LINKO v10.9.0 — voice attendance analytics, official-event XP controls, project-aware multi-server community operations",
+  "description": "LINKO v10.10.0 — community health voice metrics, official-event attendance, and project-aware multi-server operations",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

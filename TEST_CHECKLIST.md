@@ -1,4 +1,4 @@
-# LINKO v10.9 Test Checklist
+# LINKO v10.10 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,15 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Community Health voice-metric tests
+
+- Join a normal Voice channel and remain connected. Run `/refresh-health` before leaving and confirm **Voice Participants** includes the member immediately.
+- Confirm the Voice Participants note includes live cumulative voice time without requiring the session to end.
+- Leave the Voice channel, refresh health again, and confirm the participant count remains unique while total voice time is finalized.
+- Join multiple voice channels in the same health window and confirm the same member counts once as a Voice Participant.
+- Confirm **Event Attendees** remains separate from Voice Participants and stays zero when no LINKO-managed official event attendance exists.
+- Confirm normal voice participation changes analytics only and does not award XP/KXP.
+- Confirm the visual card renders all six lower-row metrics without clipping at 1600×900.
 ## Voice attendance + official XP tests
 
 - Join and leave a normal Discord Voice channel with no official event active. Confirm a `voice_sessions` row is created/closed and **no XP/KXP is awarded**.

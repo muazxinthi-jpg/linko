@@ -1,3 +1,18 @@
+# LINKO v10.10.0
+
+LINKO v10.10 connects the v10.9 voice-session tracker to Community Health.
+
+## Community Health voice metrics
+
+- **Voice Participants** counts unique members who participated in any Discord Voice or Stage session during the selected health window.
+- The note under Voice Participants shows cumulative tracked voice time for that window.
+- Open/live sessions are included immediately; members do not need to leave voice before they count.
+- **Event Attendees** remains separate and counts attendance recorded for LINKO-managed official community events.
+- Normal voice attendance remains analytics-only and awards **0 XP/KXP** unless an official `/voice-event` is active.
+
+The visual Community Health card now displays six lower-row metrics: Verified Members, Social Posts, Voice Participants, Event Attendees, Referrals and Suggestions.
+
+---
 # LINKO v10.9.0
 
 LINKO v10.9 separates **voice analytics** from **voice rewards**.
