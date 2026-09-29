@@ -3589,7 +3589,7 @@ async function buildKlineO(guild) {
       '• `/impact-status` / `/mark-impactful` / `/remove-message-xp` — impact review',
       '• `/impact-settings` / `/set-impact` — impact rules',
       '• `/xp-settings` / `/set-xp` — XP economy',
-      '• `/voice-event start/stop/status` — official voice XP',
+      '• `/voice-event start/stop/status/speaker` — official voice XP + speaker bonus',
       '',
       '**Leaderboards + wallets**',
       '• `/leaderboard-settings` — visibility controls',
@@ -5896,7 +5896,9 @@ These are user-submitted public identifiers/addresses. LINKO does not verify wal
       const label = xpLabel();
       return interaction.reply({ content: `**${interaction.guild.name} ${label} SETTINGS**
 Message: **+${getSettingInt('kxp_message')} ${label}**
-Voice: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
+Official voice listening: **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying event minutes**
+Official voice speaker: **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once per event**
+Normal voice calls: **attendance only, 0 ${label}**
 Server boost: **+${getSettingInt('kxp_boost_daily')} ${label} per active boost per day**
 Valid referral: **+${getSettingInt('kxp_valid_referral')} ${label}**
 Approved social post: **+${getSettingInt('kxp_social_post')} ${label}**
@@ -5952,15 +5954,25 @@ Public = visible to verified members. Private = visible only to staff.`, ephemer
 Event: **${active.name}**
 Channel: <#${active.channel_id}>
 Started: <t:${Math.floor(active.started_at / 1000)}:R>
-Reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('voice_interval_minutes')} qualifying minutes**` : `No voice ${label} event is active.`, ephemeral: true });
+Listening reward: **+${getSettingInt('kxp_voice_interval')} ${label} / ${getSettingInt('voice_interval_minutes')} qualifying minutes**
+Speaker bonus: **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once/event**` : `No voice ${label} event is active.`, ephemeral: true });
       }
       if (action === 'start') {
         const channel = interaction.options.getChannel('channel', true);
         const name = interaction.options.getString('name', true).trim();
         const id = await startVoiceEvent(interaction.guild, channel, name, interaction.user.id);
         const eventsChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
-        if (eventsChannel) await eventsChannel.send(`🎙️ **Official voice event started:** ${name}\nJoin <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes** while this event is active. At least 2 real users must be present.`).catch(() => {});
+        if (eventsChannel) await eventsChannel.send(`🎙️ **Official voice event started:** ${name}\nJoin <#${channel.id}>. Verified members earn **+${getSettingInt('kxp_voice_interval')} ${label} per ${getSettingInt('voice_interval_minutes')} qualifying minutes** while this event is active. At least 2 real users must be present. Participating speakers can earn **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once per event**. Normal voice calls outside an official event earn **0 ${label}**.`).catch(() => {});
         return interaction.reply({ content: `✅ Voice ${label} event #${id} started in ${channel}.`, ephemeral: true });
+      }
+      if (action === 'speaker') {
+        const active = getActiveVoiceEvent();
+        if (!active) return interaction.reply({ content: `No voice ${label} event is active.`, ephemeral: true });
+        const user = interaction.options.getUser('member', true);
+        const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+        if (!member) return interaction.reply({ content: 'Member is not available in this server.', ephemeral: true });
+        const result = await awardOfficialSpeakerBonus(interaction.guild, active, member, interaction.user.id, false);
+        return interaction.reply({ content: result.awarded ? `✅ Awarded **+${result.amount} ${label}** speaker participation bonus to ${member}.` : `No speaker bonus awarded: ${result.reason}`, ephemeral: true });
       }
       if (action === 'stop') {
         const ended = await stopVoiceEvent();
