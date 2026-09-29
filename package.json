@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.8.0",
+  "version": "10.9.0",
   "private": true,
-  "description": "LINKO v10.8.0 — project-aware multi-server onboarding, richer welcome context, per-server XP labels, KREATOR campaigns and batch channel management",
+  "description": "LINKO v10.9.0 — voice attendance analytics, official-event XP controls, project-aware multi-server community operations",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
