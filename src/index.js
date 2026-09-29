@@ -4582,6 +4582,7 @@ client.once('clientReady', async () => {
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
         for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
+        await reconcileVoiceSessions(fullGuild);
         await cacheInvites(fullGuild);
         await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
         await syncAnnouncementChannelPermissions(fullGuild).catch((error) => logLinkoError('announcement-permissions', error));
@@ -4677,12 +4678,37 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   const guild = newState?.guild ?? oldState?.guild;
   const member = newState?.member ?? oldState?.member;
   if (!guild || !isAllowedGuild(guild.id) || !member || member.user?.bot) return;
-  if (newState.channelId && newState.channelId !== oldState.channelId) {
-    return runWithGuild(guild.id, () => {
-      touchActivity(member.id, 'voice');
+  return runWithGuild(guild.id, async () => {
+    const oldChannelId = oldState.channelId;
+    const newChannelId = newState.channelId;
+
+    if (oldChannelId !== newChannelId) {
+      if (oldChannelId) closeOpenVoiceSession(member.id, oldChannelId, now());
+      if (newChannelId) {
+        openVoiceSession(member.id, newChannelId, now());
+        touchActivity(member.id, 'voice');
+      }
       scheduleHealthUpdate(guild);
-    });
-  }
+    }
+
+    const active = getActiveVoiceEvent();
+    if (!active || String(active.channel_id) !== String(newChannelId ?? oldChannelId ?? '')) return;
+    const channel = guild.channels.cache.get(active.channel_id);
+    if (!channel || channel.type !== ChannelType.GuildStageVoice) return;
+
+    const oldRaised = Number(oldState.requestToSpeakTimestamp ?? 0);
+    const newRaised = Number(newState.requestToSpeakTimestamp ?? 0);
+    if (newRaised > 0 && newRaised !== oldRaised) noteStageHandRaise(active.id, member.id, newRaised);
+
+    const promotedToSpeaker = oldState.suppress === true && newState.suppress === false && newChannelId === active.channel_id;
+    if (promotedToSpeaker) {
+      const result = await awardOfficialSpeakerBonus(guild, active, member, null, true);
+      if (result.awarded) {
+        const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+        if (log) await log.send(`🎤 **Official speaker bonus** — ${member} raised their hand and joined the Stage as a speaker during **${active.name}**. **+${result.amount} ${xpLabel()}**.`).catch(() => {});
+      }
+    }
+  });
 });
 client.on('inviteCreate', (invite) => {
   if (!isAllowedGuild(invite.guild?.id)) return;
