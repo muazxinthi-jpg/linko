@@ -2095,6 +2095,21 @@ async function createNativeScheduledEvent(guild, row) {
   db.prepare('UPDATE community_events SET native_scheduled_event_id=? WHERE id=?').run(nativeEvent.id, row.id);
   return nativeEvent;
 }
+async function backfillNativeScheduledEvents(guild) {
+  const rows = db.prepare("SELECT * FROM community_events WHERE status='planned' AND native_scheduled_event_id IS NULL ORDER BY start_at ASC").all();
+  for (let row of rows) {
+    if (Number(row.start_at) <= now()) continue;
+    try {
+      await preparePlannedCommunityEventVisibility(guild, row);
+      row = db.prepare('SELECT * FROM community_events WHERE id=?').get(row.id);
+      const nativeEvent = await createNativeScheduledEvent(guild, row);
+      const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+      if (log && nativeEvent) await log.send(`📅 Backfilled LINKO event **#${row.id} ${row.title}** into Discord Scheduled Events.`).catch(() => {});
+    } catch (error) {
+      logLinkoError(`native-event-backfill:#${row.id}`, error);
+    }
+  }
+}
 async function syncNativeScheduledEventStatus(guild, row, status) {
   if (!row?.native_scheduled_event_id) return false;
   const nativeEvent = await guild.scheduledEvents.fetch(row.native_scheduled_event_id).catch(() => null);
@@ -4806,6 +4821,7 @@ client.once('clientReady', async () => {
         await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
         await syncAnnouncementChannelPermissions(fullGuild).catch((error) => logLinkoError('announcement-permissions', error));
         await syncEventsChannelVisibility(fullGuild).catch((error) => logLinkoError('events-channel-visibility', error));
+        await backfillNativeScheduledEvents(fullGuild).catch((error) => logLinkoError('native-events-backfill', error));
         await backfillRecentActivity(fullGuild, getSettingInt('health_window_days') || 7).catch((error) => logLinkoError('activity-backfill', error));
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
@@ -4851,7 +4867,7 @@ client.on('guildScheduledEventUpdate', async (_oldEvent, nativeEvent) => {
         if (channel) {
           await applyCommunityEventAccess(nativeEvent.guild, row).catch((error) => logLinkoError('native-event-access', error));
           const active = getActiveVoiceEvent();
-          if (!active) await startVoiceEvent(nativeEvent.guild, channel, row.title, nativeEvent.creatorId || null).catch((error) => logLinkoError('native-event-voice-start', error));
+          if (!active) await startVoiceEvent(nativeEvent.guild, channel, row.title, nativeEvent.creatorId || client.user.id).catch((error) => logLinkoError('native-event-voice-start', error));
         }
       }
       db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), row.id);
