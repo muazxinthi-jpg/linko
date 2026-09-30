@@ -13,6 +13,9 @@ import {
   Client,
   EmbedBuilder,
   GatewayIntentBits,
+  GuildScheduledEventEntityType,
+  GuildScheduledEventPrivacyLevel,
+  GuildScheduledEventStatus,
   ModalBuilder,
   PermissionFlagsBits,
   Partials,
@@ -325,6 +328,7 @@ const SCHEMA_SQL = `
     created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     public_message_id TEXT,
+    native_scheduled_event_id TEXT,
     event_access TEXT NOT NULL DEFAULT 'verified',
     permission_snapshot_json TEXT,
     permissions_applied_at INTEGER,
@@ -530,6 +534,7 @@ function initializeGuildDatabase(database) {
   ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'community_events', 'native_scheduled_event_id', 'TEXT');
   ensureSqliteColumn(database, 'community_events', 'event_access', "TEXT NOT NULL DEFAULT 'verified'");
   ensureSqliteColumn(database, 'community_events', 'permission_snapshot_json', 'TEXT');
   ensureSqliteColumn(database, 'community_events', 'permissions_applied_at', 'INTEGER');
@@ -856,6 +861,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildScheduledEvents,
     GatewayIntentBits.GuildInvites,
     GatewayIntentBits.GuildPresences,
   ],
@@ -2038,6 +2044,79 @@ function liveCommunityEventForChannel(channelId) {
   try { return db.prepare("SELECT * FROM community_events WHERE status='live' AND voice_channel_id=? ORDER BY id DESC LIMIT 1").get(String(channelId)) ?? null; }
   catch { return null; }
 }
+async function syncEventsChannelVisibility(guild) {
+  const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
+  if (!channel) return false;
+  const everyone = guild.roles.everyone;
+  const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const overwrites = [
+    overwrite(everyone.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]),
+    ...(verified ? [overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])] : []),
+    ...staff.map((role) => overwrite(role.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+  ];
+  await channel.permissionOverwrites.set(overwrites, 'LINKO public events visibility');
+  return true;
+}
+async function preparePlannedCommunityEventVisibility(guild, row) {
+  if (!row?.voice_channel_id || row.event_access !== 'everyone') return false;
+  const channel = guild.channels.cache.get(row.voice_channel_id);
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) throw new Error('Event Voice/Stage room is missing.');
+  const snapshot = row.permission_snapshot_json || permissionSnapshot(channel);
+  const rows = parsePermissionSnapshot(snapshot);
+  overwriteWithAccess(rows, guild.roles.everyone.id, 0, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.Connect]);
+  await channel.permissionOverwrites.set(rows, `LINKO event #${row.id} planned visibility`);
+  db.prepare('UPDATE community_events SET permission_snapshot_json=?, permissions_applied_at=?, permissions_restored_at=NULL WHERE id=?').run(snapshot, now(), row.id);
+  return true;
+}
+async function createNativeScheduledEvent(guild, row) {
+  if (row.native_scheduled_event_id) return guild.scheduledEvents.fetch(row.native_scheduled_event_id).catch(() => null);
+  const start = new Date(Number(row.start_at));
+  const end = new Date(Number(row.start_at) + Number(row.duration_minutes) * 60000);
+  let entityType = GuildScheduledEventEntityType.External;
+  const options = {
+    name: row.title.slice(0, 100),
+    description: (row.description || `${communityName()} community event`).slice(0, 1000),
+    scheduledStartTime: start,
+    scheduledEndTime: end,
+    privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
+    reason: `LINKO community event #${row.id}`,
+  };
+  if (row.voice_channel_id) {
+    const channel = guild.channels.cache.get(row.voice_channel_id);
+    if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) throw new Error('Event Voice/Stage room is missing.');
+    entityType = channel.type === ChannelType.GuildStageVoice ? GuildScheduledEventEntityType.StageInstance : GuildScheduledEventEntityType.Voice;
+    options.channel = channel.id;
+  } else {
+    options.entityMetadata = { location: `${communityName()} Discord` };
+  }
+  options.entityType = entityType;
+  const nativeEvent = await guild.scheduledEvents.create(options);
+  db.prepare('UPDATE community_events SET native_scheduled_event_id=? WHERE id=?').run(nativeEvent.id, row.id);
+  return nativeEvent;
+}
+async function backfillNativeScheduledEvents(guild) {
+  const rows = db.prepare("SELECT * FROM community_events WHERE status='planned' AND native_scheduled_event_id IS NULL ORDER BY start_at ASC").all();
+  for (let row of rows) {
+    if (Number(row.start_at) <= now()) continue;
+    try {
+      await preparePlannedCommunityEventVisibility(guild, row);
+      row = db.prepare('SELECT * FROM community_events WHERE id=?').get(row.id);
+      const nativeEvent = await createNativeScheduledEvent(guild, row);
+      const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+      if (log && nativeEvent) await log.send(`📅 Backfilled LINKO event **#${row.id} ${row.title}** into Discord Scheduled Events.`).catch(() => {});
+    } catch (error) {
+      logLinkoError(`native-event-backfill:#${row.id}`, error);
+    }
+  }
+}
+async function syncNativeScheduledEventStatus(guild, row, status) {
+  if (!row?.native_scheduled_event_id) return false;
+  const nativeEvent = await guild.scheduledEvents.fetch(row.native_scheduled_event_id).catch(() => null);
+  if (!nativeEvent || nativeEvent.status === status) return !!nativeEvent;
+  await nativeEvent.setStatus(status, `LINKO event #${row.id} status sync`);
+  return true;
+}
 async function applyCommunityEventAccess(guild, row) {
   if (!row?.voice_channel_id || row.event_access === 'existing') return false;
   const channel = guild.channels.cache.get(row.voice_channel_id);
@@ -2123,6 +2202,7 @@ async function endCommunityEvent(guild, id, actorId = null, automatic = false) {
   const row = db.prepare('SELECT * FROM community_events WHERE id = ?').get(id);
   if (!row || !['planned','live'].includes(row.status)) return null;
   db.prepare('UPDATE community_events SET status = ?, ended_at = ? WHERE id = ?').run('ended', now(), id);
+  await syncNativeScheduledEventStatus(guild, { ...row, status: 'ended' }, GuildScheduledEventStatus.Completed).catch((error) => logLinkoError('native-event-complete', error));
   const active = getActiveVoiceEvent();
   if (active && row.voice_channel_id && active.channel_id === row.voice_channel_id) await stopVoiceEvent(guild).catch(() => {});
   await restoreCommunityEventAccess(guild, row).catch((error) => logLinkoError('event-permission-restore', error));
@@ -3575,7 +3655,7 @@ async function buildKlineO(guild) {
   await setLeaderboardChannelVisibility(guild, 'referrals', getSetting('referral_leaderboard_visibility'));
   channels.rankUps = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.rankUps, topic: `${communityName()} community rank progression.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.referrals = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referrals, topic: `Use /invite and /invites. Valid referrals earn ${xpLabel()}.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.events = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.events, topic: 'Official community events, AMAs and campaigns.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  channels.events = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.events, topic: 'Official community events, AMAs and campaigns.' }, [overwrite(everyone.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]))]);
 
   setSetupPhase('06/11 · Create optional modules + higher-level + voice spaces');
   if (moduleEnabled('signal_room')) {
@@ -4740,13 +4820,15 @@ client.once('clientReady', async () => {
         await cacheInvites(fullGuild);
         await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
         await syncAnnouncementChannelPermissions(fullGuild).catch((error) => logLinkoError('announcement-permissions', error));
+        await syncEventsChannelVisibility(fullGuild).catch((error) => logLinkoError('events-channel-visibility', error));
+        await backfillNativeScheduledEvents(fullGuild).catch((error) => logLinkoError('native-events-backfill', error));
         await backfillRecentActivity(fullGuild, getSettingInt('health_window_days') || 7).catch((error) => logLinkoError('activity-backfill', error));
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.12 simple UTC event date-time features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.13 native Discord Scheduled Events features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -4774,6 +4856,39 @@ client.once('clientReady', async () => {
   }
 });
 
+client.on('guildScheduledEventUpdate', async (_oldEvent, nativeEvent) => {
+  if (!nativeEvent?.guild || !isAllowedGuild(nativeEvent.guild.id)) return;
+  return runWithGuild(nativeEvent.guild.id, async () => {
+    const row = db.prepare('SELECT * FROM community_events WHERE native_scheduled_event_id=?').get(nativeEvent.id);
+    if (!row) return;
+    if (nativeEvent.status === GuildScheduledEventStatus.Active && row.status === 'planned') {
+      if (row.voice_channel_id) {
+        const channel = nativeEvent.guild.channels.cache.get(row.voice_channel_id);
+        if (channel) {
+          await applyCommunityEventAccess(nativeEvent.guild, row).catch((error) => logLinkoError('native-event-access', error));
+          const active = getActiveVoiceEvent();
+          if (!active) await startVoiceEvent(nativeEvent.guild, channel, row.title, nativeEvent.creatorId || client.user.id).catch((error) => logLinkoError('native-event-voice-start', error));
+        }
+      }
+      db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), row.id);
+      await updateEventMessage(nativeEvent.guild, row.id);
+      scheduleModInboxUpdate(nativeEvent.guild); scheduleHealthUpdate(nativeEvent.guild);
+      return;
+    }
+    if (nativeEvent.status === GuildScheduledEventStatus.Completed && ['planned','live'].includes(row.status)) {
+      await endCommunityEvent(nativeEvent.guild, row.id, null, false);
+      return;
+    }
+    if (nativeEvent.status === GuildScheduledEventStatus.Canceled && ['planned','live'].includes(row.status)) {
+      const active = getActiveVoiceEvent();
+      if (active && row.voice_channel_id && active.channel_id === row.voice_channel_id) await stopVoiceEvent().catch(() => {});
+      await restoreCommunityEventAccess(nativeEvent.guild, row).catch((error) => logLinkoError('native-event-permission-restore', error));
+      db.prepare('UPDATE community_events SET status=?, ended_at=? WHERE id=?').run('cancelled', now(), row.id);
+      await updateEventMessage(nativeEvent.guild, row.id);
+      scheduleModInboxUpdate(nativeEvent.guild); scheduleHealthUpdate(nativeEvent.guild);
+    }
+  });
+});
 client.on('guildMemberAdd', async (member) => {
   if (!isAllowedGuild(member.guild.id) || member.user.bot) return;
   return runWithGuild(member.guild.id, async () => {
@@ -5520,14 +5635,25 @@ client.on('interactionCreate', async (interaction) => {
         const access = voice ? (interaction.options.getString('access') || 'everyone') : 'existing';
         const result = db.prepare('INSERT INTO community_events (title,description,start_at,duration_minutes,voice_channel_id,event_access,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)').run(title, description, startAt, duration, voice?.id || null, access, interaction.user.id, now());
         const id = Number(result.lastInsertRowid);
-        const row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+        let row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+        try {
+          await preparePlannedCommunityEventVisibility(interaction.guild, row);
+          row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+          await createNativeScheduledEvent(interaction.guild, row);
+          row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+        } catch (error) {
+          const latest = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+          await restoreCommunityEventAccess(interaction.guild, latest).catch(() => {});
+          db.prepare('DELETE FROM community_events WHERE id=?').run(id);
+          return interaction.editReply(`Could not publish the Discord Scheduled Event. Make sure LINKO has **Manage Events** permission and access to the selected Voice/Stage room. ${String(error?.message ?? error).slice(0, 180)}`);
+        }
         const eventsChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
         if (eventsChannel) {
           const msg = await eventsChannel.send({ embeds: [buildEventEmbed(row)], components: eventButtons(id, row.status) });
           db.prepare('UPDATE community_events SET public_message_id=? WHERE id=?').run(msg.id, id);
         }
         scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-        return interaction.editReply(`✅ Event **#${id} ${title}** published.${voice ? ` Room access: **${eventAccessLabel(access)}**.` : ''}`);
+        return interaction.editReply(`✅ Event **#${id} ${title}** published in **Discord Events** and #events.${voice ? ` Room access: **${eventAccessLabel(access)}**.` : ''}`);
       }
       if (action === 'list') {
         const rows = db.prepare("SELECT * FROM community_events WHERE status IN ('planned','live') ORDER BY start_at ASC LIMIT 20").all();
@@ -5539,15 +5665,18 @@ client.on('interactionCreate', async (interaction) => {
         if (!row.voice_channel_id) return interaction.editReply('This event has no Voice/Stage room.');
         if (!['planned','live'].includes(row.status)) return interaction.editReply(`Event is already **${eventStatusLabel(row.status)}**.`);
         const access = interaction.options.getString('type', true);
-        if (row.status === 'live' && access === 'existing') {
+        if (row.status === 'planned') {
+          if (row.permission_snapshot_json && row.event_access === 'everyone') await restoreCommunityEventAccess(interaction.guild, row);
+          db.prepare('UPDATE community_events SET event_access=?, permissions_restored_at=NULL WHERE id=?').run(access, id);
+          const updated = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+          if (access === 'everyone') await preparePlannedCommunityEventVisibility(interaction.guild, updated);
+        } else if (access === 'existing') {
           await restoreCommunityEventAccess(interaction.guild, row);
           db.prepare('UPDATE community_events SET event_access=? WHERE id=?').run(access, id);
         } else {
           db.prepare('UPDATE community_events SET event_access=? WHERE id=?').run(access, id);
-          if (row.status === 'live') {
-            const updated = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
-            await applyCommunityEventAccess(interaction.guild, updated);
-          }
+          const updated = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+          await applyCommunityEventAccess(interaction.guild, updated);
         }
         await updateEventMessage(interaction.guild, id);
         return interaction.editReply(`✅ Event **#${id} ${row.title}** room access → **${eventAccessLabel(access)}**.${row.status === 'live' ? ' Applied immediately.' : ' It will apply when the event starts.'}`);
@@ -5569,6 +5698,8 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
         db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), id);
+        const liveRow = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+        await syncNativeScheduledEventStatus(interaction.guild, liveRow, GuildScheduledEventStatus.Active).catch((error) => logLinkoError('native-event-start', error));
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
         return interaction.editReply(`🔴 Event **#${id} ${row.title}** is now LIVE.${row.voice_channel_id ? ` Official voice ${xpLabel()} is active.` : ''}`);
       }
@@ -5581,9 +5712,11 @@ client.on('interactionCreate', async (interaction) => {
         if (row.status === 'live') {
           const active = getActiveVoiceEvent();
           if (active && row.voice_channel_id && active.channel_id === row.voice_channel_id) await stopVoiceEvent().catch(() => {});
-          await restoreCommunityEventAccess(interaction.guild, row).catch((error) => logLinkoError('event-permission-restore', error));
         }
+        await restoreCommunityEventAccess(interaction.guild, row).catch((error) => logLinkoError('event-permission-restore', error));
         db.prepare('UPDATE community_events SET status=?, ended_at=? WHERE id=?').run('cancelled', now(), id);
+        const cancelledRow = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+        await syncNativeScheduledEventStatus(interaction.guild, cancelledRow, GuildScheduledEventStatus.Canceled).catch((error) => logLinkoError('native-event-cancel', error));
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
         return interaction.editReply(`Cancelled event **#${id} ${row.title}**.`);
       }

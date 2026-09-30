@@ -1,4 +1,4 @@
-# LINKO v10.12 Test Checklist
+# LINKO v10.13 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,19 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Native Discord Scheduled Event tests
+
+- Create a future Voice event with **Everyone in Server** access and confirm it appears in Discord's server-level **Events** panel.
+- Confirm an unverified member can see the native event and the public/read-only `#events` channel before the event begins.
+- Before start, confirm the Everyone event Voice/Stage room is visible to `@everyone` but cannot be joined early.
+- Start the event with `/event start` and confirm `@everyone` can connect/speak and the native Discord event becomes Active.
+- Start the event from Discord's native Events UI and confirm LINKO marks its event LIVE, applies room access, and starts official voice tracking.
+- End the event with `/event end` and confirm the native event completes and exact pre-event room permissions are restored.
+- Cancel a planned Everyone event and confirm planned room visibility is removed and original permissions are restored.
+- Cancel from Discord's native Events UI and confirm LINKO cancels its internal event and restores room permissions.
+- Create a **Verified Members** event and confirm only members with access to its restricted Voice/Stage room can see the native event.
+- Restart LINKO with a future legacy/planned event that has no native event ID and confirm it is backfilled once into Discord Events.
+- Confirm `#events` remains public/read-only for `@everyone`, while staff can post.
 ## Simple UTC event scheduling tests
 
 - Create an event with `date:20-10-2026` and `time:16:00`; confirm LINKO publishes it for 16:00 UTC.
