@@ -1,3 +1,20 @@
+# LINKO v10.11.0
+
+LINKO v10.11 adds safe per-event Voice/Stage access control and prevents setup sync from relocking a live event room.
+
+## Event room access
+
+- `/event create` can set room access to **Everyone in Server**, **Verified Members**, or **Keep Current Channel Permissions**.
+- Events with a Voice/Stage room default to **Everyone in Server** when no access option is supplied.
+- `/event access` can change access before an event starts or while it is live.
+- When an event starts, LINKO snapshots the channel's exact permission overwrites before applying event access.
+- When the event ends or is cancelled, LINKO restores the exact pre-event permission snapshot.
+- `/setup-linko` preserves permissions and parent placement for any Voice room currently attached to a live LINKO event, preventing the setup sync from relocking it.
+- Event attendance counts all human attendees. Official voice-event XP remains limited to verified members and keeps the existing anti-farming rules.
+
+Existing events created before v10.11 retain the previous **Verified Members** default unless staff explicitly changes their access.
+
+---
 # LINKO v10.10.0
 
 LINKO v10.10 connects the v10.9 voice-session tracker to Community Health.
