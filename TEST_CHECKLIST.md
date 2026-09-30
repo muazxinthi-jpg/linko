@@ -1,4 +1,4 @@
-# LINKO v10.10 Test Checklist
+# LINKO v10.11 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,20 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Event room access + permission-restore tests
+
+- Create an event with a Voice room and **Everyone in Server** access. Start it and confirm an unverified server member can view and connect to the room.
+- Create an event with **Verified Members** access. Start it and confirm verified members/staff can enter while unverified members cannot.
+- Create an event with **Keep Current Channel Permissions** and confirm LINKO does not change the room when the event starts.
+- While an event is planned, run `/event access` and confirm the selected access appears in the event embed/list.
+- While an event is live, switch between Everyone and Verified access and confirm the change applies immediately.
+- While a live event is using Everyone access, run `/setup-linko confirm:true` and confirm the event room remains open; setup must not overwrite or reparent the live event room.
+- End a live event and confirm the exact pre-event channel permission overwrites are restored.
+- Cancel a live event and confirm the exact pre-event channel permission overwrites are restored.
+- Allow an event to reach its automatic scheduled end and confirm permissions are restored automatically.
+- Confirm all non-bot attendees are recorded in event attendance, including unverified attendees in Everyone events.
+- Confirm official voice XP is still awarded only to verified members who satisfy the existing voice-event qualification rules.
+- Restart LINKO during a live event, then end the event and confirm the stored permission snapshot can still be restored.
 ## Community Health voice-metric tests
 
 - Join a normal Voice channel and remain connected. Run `/refresh-health` before leaving and confirm **Voice Participants** includes the member immediately.
