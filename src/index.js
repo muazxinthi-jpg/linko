@@ -1471,7 +1471,8 @@ const commands = [
     .setDescription('Staff: manage community community events.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create and publish a community event.')
       .addStringOption((o) => o.setName('title').setDescription('Event title').setRequired(true).setMaxLength(100))
-      .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
+      .addStringOption((o) => o.setName('date').setDescription('UTC date, DD-MM-YYYY, e.g. 20-10-2026').setRequired(true).setMaxLength(10))
+      .addStringOption((o) => o.setName('time').setDescription('UTC time, 24-hour HH:MM, e.g. 16:00').setRequired(true).setMaxLength(5))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
       .addStringOption((o) => o.setName('description').setDescription('Event description').setMaxLength(1000))
       .addChannelOption((o) => o.setName('voice').setDescription('Optional Voice/Stage room').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice))
@@ -1968,11 +1969,34 @@ async function setSuggestionStatus(guild, id, status, actorId, note = '') {
   if (member) await member.send(`💡 Your ${communityName()} suggestion **#${id} — ${row.title}** is now **${suggestionStatusLabel(status)}**.${note ? `\nStaff note: ${note}` : ''}`).catch(() => {});
   scheduleModInboxUpdate(guild); scheduleHealthUpdate(guild);
 }
-function parseEventStart(raw) {
-  const text = String(raw ?? '').trim();
-  if (!/(Z|[+-]\d\d:\d\d)$/i.test(text)) throw new Error('Use an ISO time with timezone, e.g. 2026-09-27T18:00Z.');
-  const ts = Date.parse(text);
-  if (!Number.isFinite(ts)) throw new Error('Invalid event start time. Use e.g. 2026-09-27T18:00Z.');
+function parseEventStartUtc(dateRaw, timeRaw) {
+  const dateText = String(dateRaw ?? '').trim();
+  const timeText = String(timeRaw ?? '').trim();
+  const dateMatch = dateText.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (!dateMatch) throw new Error('Invalid event date. Use DD-MM-YYYY, e.g. 20-10-2026.');
+  const timeMatch = timeText.match(/^(\d{2}):(\d{2})$/);
+  if (!timeMatch) throw new Error('Invalid event time. Use 24-hour UTC HH:MM, e.g. 16:00.');
+  const [, dd, mm, yyyy] = dateMatch;
+  const [, hh, min] = timeMatch;
+  const day = Number(dd);
+  const month = Number(mm);
+  const year = Number(yyyy);
+  const hour = Number(hh);
+  const minute = Number(min);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error('Invalid UTC date/time. Use e.g. Date 20-10-2026 and Time 16:00.');
+  }
+  const ts = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  const check = new Date(ts);
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day ||
+    check.getUTCHours() !== hour ||
+    check.getUTCMinutes() !== minute
+  ) {
+    throw new Error('Invalid UTC date/time. Use e.g. Date 20-10-2026 and Time 16:00.');
+  }
   return ts;
 }
 function eventRsvpCounts(id) {
@@ -4722,7 +4746,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.11 event-access permission features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.12 simple UTC event date-time features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5485,8 +5509,11 @@ client.on('interactionCreate', async (interaction) => {
       if (eventLong) await interaction.deferReply({ ephemeral: true });
       if (action === 'create') {
         const title = interaction.options.getString('title', true).trim();
-        const startAt = parseEventStart(interaction.options.getString('start', true));
-        if (startAt < now() - 60000) return interaction.editReply('Event start time must be in the future.');
+        const startAt = parseEventStartUtc(
+          interaction.options.getString('date', true),
+          interaction.options.getString('time', true),
+        );
+        if (startAt < now() - 60000) return interaction.editReply('Event start time must be in the future. Date and time are interpreted as UTC.');
         const duration = interaction.options.getInteger('duration', true);
         const description = interaction.options.getString('description')?.trim() || '';
         const voice = interaction.options.getChannel('voice');
