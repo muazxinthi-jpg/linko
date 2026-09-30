@@ -1,3 +1,20 @@
+# LINKO v10.13.0
+
+LINKO v10.13 makes LINKO events first-class Discord Scheduled Events.
+
+## Native Discord Events
+
+- `/event create` now creates both the LINKO event record and a native Discord Scheduled Event, so it appears in the server's **Events** panel.
+- Existing future LINKO events without a native Discord event are backfilled automatically on startup.
+- The `#events` channel is public/read-only for `@everyone`, while staff retain posting access.
+- For **Everyone in Server** Voice/Stage events, LINKO makes the event room visible while scheduled but keeps `Connect` blocked until the event goes live. This lets all server members see the native Discord event without entering early.
+- At `/event start` (or when staff starts the native Discord event), LINKO opens the event room according to its selected access and starts official voice tracking.
+- Native Discord event state and LINKO event state stay synchronized for start, completion, and cancellation.
+- When the event ends/cancels, the exact pre-event Voice/Stage permission snapshot is restored.
+
+Discord notes that scheduled events tied to restricted voice channels are only visible to members who can view that channel. LINKO therefore prepares planned visibility for whole-community events while preserving connect restrictions until the event starts.
+
+---
 # LINKO v10.12.0
 
 LINKO v10.12 simplifies event scheduling for staff.
