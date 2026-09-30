@@ -2089,7 +2089,7 @@ async function recordLiveEventAttendance(guild, row) {
   const channel = guild.channels.cache.get(row.voice_channel_id);
   if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) return;
   for (const member of channel.members.values()) {
-    if (member.user.bot || !hasVerifiedRole(member)) continue;
+    if (member.user.bot) continue;
     db.prepare(`INSERT INTO event_attendance (event_id, user_id, first_seen_at, last_seen_at, minutes) VALUES (?, ?, ?, ?, 1)
       ON CONFLICT(event_id, user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at, minutes = minutes + 1`)
       .run(row.id, member.id, now(), now());
@@ -5481,7 +5481,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'event') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       const action = interaction.options.getSubcommand();
-      const eventLong = ['create','start','end','cancel'].includes(action);
+      const eventLong = ['create','access','start','end','cancel'].includes(action);
       if (eventLong) await interaction.deferReply({ ephemeral: true });
       if (action === 'create') {
         const title = interaction.options.getString('title', true).trim();
@@ -5509,8 +5509,8 @@ client.on('interactionCreate', async (interaction) => {
       const id = interaction.options.getInteger('id', true);
       const row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);      if (!row) return eventLong ? interaction.editReply('Event not found.') : interaction.reply({ content: 'Event not found.', ephemeral: true });
       if (action === 'access') {
-        if (!row.voice_channel_id) return interaction.reply({ content: 'This event has no Voice/Stage room.', ephemeral: true });
-        if (!['planned','live'].includes(row.status)) return interaction.reply({ content: `Event is already **${eventStatusLabel(row.status)}**.`, ephemeral: true });
+        if (!row.voice_channel_id) return interaction.editReply('This event has no Voice/Stage room.');
+        if (!['planned','live'].includes(row.status)) return interaction.editReply(`Event is already **${eventStatusLabel(row.status)}**.`);
         const access = interaction.options.getString('type', true);
         if (row.status === 'live' && access === 'existing') {
           await restoreCommunityEventAccess(interaction.guild, row);
@@ -5523,7 +5523,7 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
         await updateEventMessage(interaction.guild, id);
-        return interaction.reply({ content: `✅ Event **#${id} ${row.title}** room access → **${eventAccessLabel(access)}**.${row.status === 'live' ? ' Applied immediately.' : ' It will apply when the event starts.'}`, ephemeral: true });
+        return interaction.editReply(`✅ Event **#${id} ${row.title}** room access → **${eventAccessLabel(access)}**.${row.status === 'live' ? ' Applied immediately.' : ' It will apply when the event starts.'}`);
       }
       if (action === 'start') {
         if (!['planned'].includes(row.status)) return interaction.editReply(`Event is already **${eventStatusLabel(row.status)}**.`);
