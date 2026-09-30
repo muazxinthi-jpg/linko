@@ -325,6 +325,10 @@ const SCHEMA_SQL = `
     created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     public_message_id TEXT,
+    event_access TEXT NOT NULL DEFAULT 'verified',
+    permission_snapshot_json TEXT,
+    permissions_applied_at INTEGER,
+    permissions_restored_at INTEGER,
     reminded_30 INTEGER NOT NULL DEFAULT 0,
     reminded_5 INTEGER NOT NULL DEFAULT 0,
     started_at INTEGER,
@@ -526,6 +530,10 @@ function initializeGuildDatabase(database) {
   ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'community_events', 'event_access', "TEXT NOT NULL DEFAULT 'verified'");
+  ensureSqliteColumn(database, 'community_events', 'permission_snapshot_json', 'TEXT');
+  ensureSqliteColumn(database, 'community_events', 'permissions_applied_at', 'INTEGER');
+  ensureSqliteColumn(database, 'community_events', 'permissions_restored_at', 'INTEGER');
 
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     database.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(key, value);
@@ -1466,8 +1474,20 @@ const commands = [
       .addStringOption((o) => o.setName('start').setDescription('ISO UTC time, e.g. 2026-09-27T18:00Z').setRequired(true).setMaxLength(40))
       .addIntegerOption((o) => o.setName('duration').setDescription('Duration in minutes').setRequired(true).setMinValue(15).setMaxValue(720))
       .addStringOption((o) => o.setName('description').setDescription('Event description').setMaxLength(1000))
-      .addChannelOption((o) => o.setName('voice').setDescription('Optional Voice/Stage room').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice)))
+      .addChannelOption((o) => o.setName('voice').setDescription('Optional Voice/Stage room').addChannelTypes(ChannelType.GuildVoice, ChannelType.GuildStageVoice))
+      .addStringOption((o) => o.setName('access').setDescription('Who may enter the event Voice/Stage room').addChoices(
+        { name: 'Everyone in Server', value: 'everyone' },
+        { name: 'Verified Members', value: 'verified' },
+        { name: 'Keep Current Channel Permissions', value: 'existing' },
+      )))
     .addSubcommand((sc) => sc.setName('list').setDescription('List upcoming/live events.'))
+    .addSubcommand((sc) => sc.setName('access').setDescription('Change who can enter an event Voice/Stage room.')
+      .addIntegerOption((o) => o.setName('id').setDescription('Event ID').setRequired(true).setMinValue(1))
+      .addStringOption((o) => o.setName('type').setDescription('Event room access').setRequired(true).addChoices(
+        { name: 'Everyone in Server', value: 'everyone' },
+        { name: 'Verified Members', value: 'verified' },
+        { name: 'Keep Current Channel Permissions', value: 'existing' },
+      )))
     .addSubcommand((sc) => sc.setName('start').setDescription('Start an event and its official voice-XP window.')
       .addIntegerOption((o) => o.setName('id').setDescription('Event ID').setRequired(true).setMinValue(1)))
     .addSubcommand((sc) => sc.setName('end').setDescription('End an event.')
@@ -1961,6 +1981,73 @@ function eventRsvpCounts(id) {
   for (const r of rows) if (r.status in out) out[r.status] = Number(r.c);
   return out;
 }
+function eventAccessLabel(access) {
+  return ({ everyone: 'Everyone in Server', verified: 'Verified Members', existing: 'Keep Current Channel Permissions' })[access] ?? 'Verified Members';
+}
+function permissionSnapshot(channel) {
+  return JSON.stringify([...channel.permissionOverwrites.cache.values()].map((ow) => ({
+    id: ow.id,
+    type: ow.type,
+    allow: ow.allow.bitfield.toString(),
+    deny: ow.deny.bitfield.toString(),
+  })));
+}
+function parsePermissionSnapshot(raw) {
+  if (!raw) return [];
+  const rows = JSON.parse(raw);
+  if (!Array.isArray(rows)) throw new Error('Invalid event permission snapshot.');
+  return rows.map((row) => ({ id: String(row.id), type: Number(row.type), allow: BigInt(row.allow ?? '0'), deny: BigInt(row.deny ?? '0') }));
+}
+function overwriteWithAccess(rows, id, type, allowBits = [], denyBits = []) {
+  const allowMask = allowBits.reduce((mask, bit) => mask | bit, 0n);
+  const denyMask = denyBits.reduce((mask, bit) => mask | bit, 0n);
+  const touched = allowMask | denyMask;
+  let row = rows.find((item) => item.id === String(id));
+  if (!row) { row = { id: String(id), type, allow: 0n, deny: 0n }; rows.push(row); }
+  row.type = type;
+  row.allow = (BigInt(row.allow) & ~touched) | allowMask;
+  row.deny = (BigInt(row.deny) & ~touched) | denyMask;
+  return rows;
+}
+function liveCommunityEventForChannel(channelId) {
+  if (!channelId) return null;
+  try { return db.prepare("SELECT * FROM community_events WHERE status='live' AND voice_channel_id=? ORDER BY id DESC LIMIT 1").get(String(channelId)) ?? null; }
+  catch { return null; }
+}
+async function applyCommunityEventAccess(guild, row) {
+  if (!row?.voice_channel_id || row.event_access === 'existing') return false;
+  const channel = guild.channels.cache.get(row.voice_channel_id);
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) throw new Error('Event Voice/Stage room is missing.');
+  let snapshot = row.permission_snapshot_json;
+  if (!snapshot || Number(row.permissions_restored_at)) snapshot = permissionSnapshot(channel);
+  const rows = parsePermissionSnapshot(snapshot);
+  const everyone = guild.roles.everyone;
+  const access = row.event_access === 'everyone' ? 'everyone' : 'verified';
+  if (access === 'everyone') {
+    overwriteWithAccess(rows, everyone.id, 0, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak], []);
+  } else {
+    overwriteWithAccess(rows, everyone.id, 0, [], [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect]);
+    const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+    if (!verified) throw new Error('VERIFIED MEMBER role is missing. Run /setup-linko first.');
+    overwriteWithAccess(rows, verified.id, 0, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak], []);
+    for (const name of staffRoleNames()) {
+      const role = guild.roles.cache.find((r) => r.name === name);
+      if (role) overwriteWithAccess(rows, role.id, 0, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak], []);
+    }
+  }
+  await channel.permissionOverwrites.set(rows, `LINKO event #${row.id} access: ${eventAccessLabel(access)}`);
+  db.prepare('UPDATE community_events SET permission_snapshot_json=?, permissions_applied_at=?, permissions_restored_at=NULL WHERE id=?').run(snapshot, now(), row.id);
+  return true;
+}
+async function restoreCommunityEventAccess(guild, row) {
+  if (!row?.voice_channel_id || !row.permission_snapshot_json || Number(row.permissions_restored_at)) return false;
+  const channel = guild.channels.cache.get(row.voice_channel_id);
+  if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) return false;
+  const rows = parsePermissionSnapshot(row.permission_snapshot_json);
+  await channel.permissionOverwrites.set(rows, `LINKO event #${row.id} restore previous permissions`);
+  db.prepare('UPDATE community_events SET permissions_restored_at=? WHERE id=?').run(now(), row.id);
+  return true;
+}
 function eventStatusLabel(status) { return ({ planned: 'Scheduled', live: 'LIVE', ended: 'Ended', cancelled: 'Cancelled' })[status] ?? status; }
 function buildEventEmbed(row) {
   const counts = eventRsvpCounts(row.id);
@@ -1974,7 +2061,10 @@ function buildEventEmbed(row) {
       { name: 'Starts', value: `<t:${startSec}:F>\n<t:${startSec}:R>`, inline: true },
       { name: 'Ends', value: `<t:${endSec}:t>`, inline: true },
       { name: 'RSVP', value: `✅ Going: **${counts.going}**\n⭐ Interested: **${counts.interested}**`, inline: true },
-      ...(row.voice_channel_id ? [{ name: 'Voice room', value: `<#${row.voice_channel_id}>`, inline: true }] : []),
+      ...(row.voice_channel_id ? [
+        { name: 'Voice room', value: `<#${row.voice_channel_id}>`, inline: true },
+        { name: 'Room access', value: `**${eventAccessLabel(row.event_access)}**`, inline: true },
+      ] : []),
     ).setFooter({ text: `${communityName()} Event #${row.id}` });
   return e;
 }
@@ -2011,6 +2101,7 @@ async function endCommunityEvent(guild, id, actorId = null, automatic = false) {
   db.prepare('UPDATE community_events SET status = ?, ended_at = ? WHERE id = ?').run('ended', now(), id);
   const active = getActiveVoiceEvent();
   if (active && row.voice_channel_id && active.channel_id === row.voice_channel_id) await stopVoiceEvent(guild).catch(() => {});
+  await restoreCommunityEventAccess(guild, row).catch((error) => logLinkoError('event-permission-restore', error));
   await updateEventMessage(guild, id);
   const eventsChannel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
   if (eventsChannel) {
@@ -3121,8 +3212,13 @@ async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = 
     if (!c && spec.reuseDefaultVoice) c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && !x.parentId && x.name === 'General');
     if (!c) c = await guild.channels.create({ name: spec.name, type: ChannelType.GuildVoice, parent: category.id, userLimit: spec.userLimit ?? 0, permissionOverwrites, reason: 'LINKO KlineO setup' });
     else {
-      await c.edit({ name: spec.name, parent: category.id, userLimit: spec.userLimit ?? 0, reason: 'LINKO setup sync' });
-      await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
+      const liveEvent = liveCommunityEventForChannel(c.id);
+      if (liveEvent) {
+        await c.edit({ name: spec.name, userLimit: spec.userLimit ?? 0, reason: `LINKO setup sync · preserving live event #${liveEvent.id} access` });
+      } else {
+        await c.edit({ name: spec.name, parent: category.id, userLimit: spec.userLimit ?? 0, reason: 'LINKO setup sync' });
+        await c.permissionOverwrites.set(permissionOverwrites, 'LINKO setup sync');
+      }
     }
     return c;
   } catch (error) { throw contextualError(`Voice channel ${spec.name}`, error); }
@@ -3601,6 +3697,7 @@ async function buildKlineO(guild) {
       '• `/impact-settings` / `/set-impact` — impact rules',
       '• `/xp-settings` / `/set-xp` — XP economy',
       '• `/voice-event start/stop/status/speaker` — official voice XP + speaker bonus',
+      '• `/event create/access/start/end/cancel` — events with Everyone/Verified room access + automatic permission restore',
       '',
       '**Leaderboards + wallets**',
       '• `/leaderboard-settings` — visibility controls',
@@ -4625,7 +4722,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.10 health voice-metrics features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.11 event-access permission features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5393,7 +5490,8 @@ client.on('interactionCreate', async (interaction) => {
         const duration = interaction.options.getInteger('duration', true);
         const description = interaction.options.getString('description')?.trim() || '';
         const voice = interaction.options.getChannel('voice');
-        const result = db.prepare('INSERT INTO community_events (title,description,start_at,duration_minutes,voice_channel_id,created_by,created_at) VALUES (?,?,?,?,?,?,?)').run(title, description, startAt, duration, voice?.id || null, interaction.user.id, now());
+        const access = voice ? (interaction.options.getString('access') || 'everyone') : 'existing';
+        const result = db.prepare('INSERT INTO community_events (title,description,start_at,duration_minutes,voice_channel_id,event_access,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)').run(title, description, startAt, duration, voice?.id || null, access, interaction.user.id, now());
         const id = Number(result.lastInsertRowid);
         const row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
         const eventsChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'events' && c.isTextBased());
@@ -5402,19 +5500,46 @@ client.on('interactionCreate', async (interaction) => {
           db.prepare('UPDATE community_events SET public_message_id=? WHERE id=?').run(msg.id, id);
         }
         scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
-        return interaction.editReply(`✅ Event **#${id} ${title}** published.`);
+        return interaction.editReply(`✅ Event **#${id} ${title}** published.${voice ? ` Room access: **${eventAccessLabel(access)}**.` : ''}`);
       }
       if (action === 'list') {
         const rows = db.prepare("SELECT * FROM community_events WHERE status IN ('planned','live') ORDER BY start_at ASC LIMIT 20").all();
-        return interaction.reply({ content: rows.length ? rows.map((r) => `#${r.id} **${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>`).join('\n') : 'No upcoming/live events.', ephemeral: true });
+        return interaction.reply({ content: rows.length ? rows.map((r) => `#${r.id} **${r.title}** — ${eventStatusLabel(r.status)} — <t:${Math.floor(Number(r.start_at)/1000)}:F>${r.voice_channel_id ? ` — ${eventAccessLabel(r.event_access)}` : ''}`).join('\n') : 'No upcoming/live events.', ephemeral: true });
       }
       const id = interaction.options.getInteger('id', true);
       const row = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);      if (!row) return eventLong ? interaction.editReply('Event not found.') : interaction.reply({ content: 'Event not found.', ephemeral: true });
+      if (action === 'access') {
+        if (!row.voice_channel_id) return interaction.reply({ content: 'This event has no Voice/Stage room.', ephemeral: true });
+        if (!['planned','live'].includes(row.status)) return interaction.reply({ content: `Event is already **${eventStatusLabel(row.status)}**.`, ephemeral: true });
+        const access = interaction.options.getString('type', true);
+        if (row.status === 'live' && access === 'existing') {
+          await restoreCommunityEventAccess(interaction.guild, row);
+          db.prepare('UPDATE community_events SET event_access=? WHERE id=?').run(access, id);
+        } else {
+          db.prepare('UPDATE community_events SET event_access=? WHERE id=?').run(access, id);
+          if (row.status === 'live') {
+            const updated = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+            await applyCommunityEventAccess(interaction.guild, updated);
+          }
+        }
+        await updateEventMessage(interaction.guild, id);
+        return interaction.reply({ content: `✅ Event **#${id} ${row.title}** room access → **${eventAccessLabel(access)}**.${row.status === 'live' ? ' Applied immediately.' : ' It will apply when the event starts.'}`, ephemeral: true });
+      }
       if (action === 'start') {
         if (!['planned'].includes(row.status)) return interaction.editReply(`Event is already **${eventStatusLabel(row.status)}**.`);
         if (row.voice_channel_id) {
           const channel = interaction.guild.channels.cache.get(row.voice_channel_id);
-          if (channel) await startVoiceEvent(interaction.guild, channel, row.title, interaction.user.id);
+          if (!channel) return interaction.editReply('Event Voice/Stage room is missing.');
+          const activeVoice = getActiveVoiceEvent();
+          if (activeVoice) return interaction.editReply(`Another official voice event is already active: **${activeVoice.name}**.`);
+          try {
+            await applyCommunityEventAccess(interaction.guild, row);
+            await startVoiceEvent(interaction.guild, channel, row.title, interaction.user.id);
+          } catch (error) {
+            const latest = db.prepare('SELECT * FROM community_events WHERE id=?').get(id);
+            await restoreCommunityEventAccess(interaction.guild, latest).catch(() => {});
+            throw error;
+          }
         }
         db.prepare('UPDATE community_events SET status=?, started_at=? WHERE id=?').run('live', now(), id);
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
@@ -5429,6 +5554,7 @@ client.on('interactionCreate', async (interaction) => {
         if (row.status === 'live') {
           const active = getActiveVoiceEvent();
           if (active && row.voice_channel_id && active.channel_id === row.voice_channel_id) await stopVoiceEvent().catch(() => {});
+          await restoreCommunityEventAccess(interaction.guild, row).catch((error) => logLinkoError('event-permission-restore', error));
         }
         db.prepare('UPDATE community_events SET status=?, ended_at=? WHERE id=?').run('cancelled', now(), id);
         await updateEventMessage(interaction.guild, id); scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild);
