@@ -1,3 +1,24 @@
+# LINKO v10.12.0
+
+LINKO v10.12 simplifies event scheduling for staff.
+
+## Simple UTC event date + time
+
+`/event create` now uses two straightforward required fields instead of an ISO timestamp:
+
+- `date`: `DD-MM-YYYY`
+- `time`: `HH:MM` in 24-hour **UTC**
+
+Example:
+
+```text
+Date: 20-10-2026
+Time: 16:00
+```
+
+LINKO validates real calendar dates and 24-hour times, then converts them internally to UTC timestamps for Discord.
+
+---
 # LINKO v10.11.0
 
 LINKO v10.11 adds safe per-event Voice/Stage access control and prevents setup sync from relocking a live event room.

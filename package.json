@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.11.0",
+  "version": "10.12.0",
   "private": true,
-  "description": "LINKO v10.11.0 — event room access control with permission restore, multi-server community operations, and voice/event analytics",
+  "description": "LINKO v10.12.0 — simple UTC event date/time scheduling, safe event room access, and multi-server community operations",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
