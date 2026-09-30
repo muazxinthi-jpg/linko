@@ -1,4 +1,4 @@
-# LINKO v10.11 Test Checklist
+# LINKO v10.12 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,14 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Simple UTC event scheduling tests
+
+- Create an event with `date:20-10-2026` and `time:16:00`; confirm LINKO publishes it for 16:00 UTC.
+- Reject malformed dates such as `2026-10-20`, `20/10/2026`, or missing leading zeroes.
+- Reject malformed times such as `4pm`, `16.00`, `24:00`, or `16:75`.
+- Reject impossible dates such as `31-02-2026`.
+- Reject a valid UTC date/time that is already in the past.
+- Confirm the event embed still renders Discord-localized timestamps correctly for each member.
 ## Event room access + permission-restore tests
 
 - Create an event with a Voice room and **Everyone in Server** access. Start it and confirm an unverified server member can view and connect to the room.
