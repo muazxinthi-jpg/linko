@@ -52,19 +52,7 @@ Existing language roles/channels are migrated into the catalog and existing memb
 ---
 # LINKO v10.15.0
 
-LINKO v10.15 adds member-requested language communities to MY LINKO PROFILE.
-
-## Language requests
-
-- The **Languages** profile section always shows **REQUEST A LANGUAGE** when a member's language is missing.
-- If no language communities exist yet, members are prompted to request one instead of seeing a dead end.
-- Requests capture language name, optional flag/emoji, and optional context.
-- Pending requests are posted privately to the staff moderation channel with **Approve + Create** and **Decline** buttons.
-- The Moderator Inbox now counts pending language requests.
-- Approval reuses LINKO's language-manager logic to create the `LANG · <Language>` role and private language channel.
-- The requester is automatically assigned the new language role and added to the new channel.
-- If the requested language already exists, LINKO joins the requester to the existing language community instead of creating a duplicate.
-- Declined requests do not block the member from requesting another language later.
+LINKO v10.15 introduced member language requests. **Its direct “approve → create channel” behavior is superseded by v10.16.** Current behavior uses the approved language catalog + demand threshold documented above.
 
 ---
 # LINKO v10.14.0
