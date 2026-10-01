@@ -321,6 +321,13 @@ const SCHEMA_SQL = `
     review_message_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS language_request_supporters (
+    request_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (request_id, user_id)
+  );
+
   CREATE TABLE IF NOT EXISTS language_catalog_custom (
     language_key TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -3609,6 +3616,24 @@ async function showProfileLanguagesSelect(interaction) {
     components,
     ephemeral: true,
   });
+}
+async function updateLanguagePreferencesForScope(guild, member, scopeEntries, selectedKeys) {
+  const selected = new Set(selectedKeys);
+  for (const entry of scopeEntries) {
+    if (selected.has(entry.key)) {
+      db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, entry.key, now());
+      await syncPreferredLanguageRole(guild, member, entry, true);
+      await ensureLanguageDemandReview(guild, entry.key);
+    } else {
+      db.prepare('DELETE FROM language_preferences WHERE user_id=? AND language_key=?').run(member.id, entry.key);
+      await syncPreferredLanguageRole(guild, member, entry, false);
+    }
+  }
+  db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
+  const total = Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE user_id=?').get(member.id)?.c ?? 0);
+  db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(total > 0 ? 1 : 0, member.id);
+  scheduleHealthUpdate(guild);
+  return total;
 }
 async function awardFirstSubmissionKxp(guild, userId, item, label, actorId = null) {
   const exists = db.prepare('SELECT 1 FROM profile_submission_rewards WHERE user_id = ? AND item = ?').get(userId, item);
