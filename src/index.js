@@ -2583,6 +2583,7 @@ function modInboxCounts() {
     founders: moduleEnabled('founder_hub') ? Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0) : 0,
     suggestions: Number(db.prepare("SELECT COUNT(*) AS c FROM product_suggestions WHERE status IN ('submitted','reviewing')").get()?.c ?? 0),
     languageRequests: Number(db.prepare("SELECT COUNT(*) AS c FROM language_requests WHERE status='pending'").get()?.c ?? 0),
+    languageDemand: Number(db.prepare("SELECT COUNT(*) AS c FROM language_demand_reviews WHERE status='pending'").get()?.c ?? 0),
     impact: Number(db.prepare('SELECT COUNT(*) AS c FROM message_candidates WHERE awarded=0 AND revoked=0 AND created_at >= ?').get(cutoff)?.c ?? 0),
     events: Number(db.prepare("SELECT COUNT(*) AS c FROM community_events WHERE status IN ('planned','live')").get()?.c ?? 0),
     unverified: Number(db.prepare('SELECT COUNT(*) AS c FROM users WHERE joined_at >= ? AND verified_at IS NULL').get(cutoff)?.c ?? 0),
@@ -2592,11 +2593,11 @@ function modInboxCounts() {
 }
 function buildModInboxEmbed() {
   const c = modInboxCounts();
-  const total = c.social + c.founders + c.suggestions + c.languageRequests;
+  const total = c.social + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
   return new EmbedBuilder().setColor(total ? BRAND.rose : BRAND.emerald).setTitle('📥 LINKO Moderator Inbox')
     .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**` : '**No pending review items.**')
     .addFields(
-      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nLanguage requests: **${c.languageRequests}**`, inline: true },
+      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nLanguage demand reviews: **${c.languageDemand}**`, inline: true },
       { name: 'Operations', value: `Impact candidates evaluating: **${c.impact}**\nUpcoming/live events: **${c.events}**\nNew unverified (7d): **${c.unverified}**\nJoin source missing: **${c.unattributed}**\nAwaiting inviter confirmation: **${c.pendingInviterConfirmations}**`, inline: true },
     ).setFooter({ text: '[KLINEO-MOD-INBOX] · Auto-updated by LINKO' }).setTimestamp();
 }
