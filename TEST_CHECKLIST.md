@@ -1,4 +1,4 @@
-# LINKO v10.14 Test Checklist
+# LINKO v10.15 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,19 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Member language request tests
+
+- With zero configured languages, click Languages from MY LINKO PROFILE and confirm **REQUEST A LANGUAGE** is shown.
+- Submit a language request with name only; confirm it reaches the staff moderation channel and Moderator Inbox count increases.
+- Submit a request with language + flag/emoji + note and confirm all fields render in the private review card.
+- Approve a request and confirm LINKO creates the language role, private language channel, managed-channel record, and language_roles row.
+- Confirm the requester automatically receives the language role and member_languages row after approval.
+- Confirm the requester receives an approval DM with the created channel.
+- Decline a request and confirm the requester receives a decline DM and can request another language later.
+- Request a language that already exists and confirm LINKO joins the member to the existing language instead of creating a duplicate.
+- Submit the same pending language request twice and confirm LINKO blocks the duplicate.
+- With existing languages configured, confirm Languages shows the selector plus **REQUEST A LANGUAGE** for missing languages.
+- Confirm staff `/language-manager create` still works and uses the same creation helper.
 ## Member onboarding + permanent profile tests
 
 - Fresh unverified member clicks **START ONBOARDING** and sees a join-source dropdown without using slash commands.
