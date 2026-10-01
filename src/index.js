@@ -2092,8 +2092,17 @@ async function ensureLanguageDemandReview(guild, languageKey) {
   const entry = languageCatalogEntry(languageKey);
   if (!entry || entry.global || activeLanguageRowForEntry(entry)) return false;
   const count = languageDemandCount(languageKey);
-  if (count < LANGUAGE_DEMAND_THRESHOLD) return false;
   const existing = db.prepare('SELECT * FROM language_demand_reviews WHERE language_key=?').get(languageKey);
+  if (count < LANGUAGE_DEMAND_THRESHOLD) {
+    if (existing?.status === 'pending' && existing.review_message_id) {
+      const reviewChannel = staffLanguageReviewChannel(guild);
+      const msg = reviewChannel ? await reviewChannel.messages.fetch(existing.review_message_id).catch(() => null) : null;
+      if (msg) await msg.edit({ embeds: [languageDemandEmbed(entry, count, 'waiting')], components: [] }).catch(() => {});
+      db.prepare("UPDATE language_demand_reviews SET status='waiting',last_notified_count=?,updated_at=?,updated_by=NULL WHERE language_key=?").run(count, now(), languageKey);
+      scheduleModInboxUpdate(guild);
+    }
+    return false;
+  }
   if (existing?.status === 'created') return false;
   if (existing?.status === 'not_now' && count < Number(existing.last_notified_count || 0) + LANGUAGE_DEMAND_THRESHOLD) return false;
   const reviewChannel = staffLanguageReviewChannel(guild);
@@ -3624,11 +3633,11 @@ async function updateLanguagePreferencesForScope(guild, member, scopeEntries, se
     if (selected.has(entry.key)) {
       db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, entry.key, now());
       await syncPreferredLanguageRole(guild, member, entry, true);
-      await ensureLanguageDemandReview(guild, entry.key);
     } else {
       db.prepare('DELETE FROM language_preferences WHERE user_id=? AND language_key=?').run(member.id, entry.key);
       await syncPreferredLanguageRole(guild, member, entry, false);
     }
+    await ensureLanguageDemandReview(guild, entry.key);
   }
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   const total = Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE user_id=?').get(member.id)?.c ?? 0);
@@ -5605,6 +5614,8 @@ client.on('interactionCreate', async (interaction) => {
         if (!entry) throw new Error('Approved language could not be added to the catalog.');
         for (const userId of supporterIds) {
           db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(userId, entry.key, now());
+          db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(userId);
+          db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(userId);
           const member = await interaction.guild.members.fetch(userId).catch(() => null);
           if (member) {
             await syncPreferredLanguageRole(interaction.guild, member, entry, true);
