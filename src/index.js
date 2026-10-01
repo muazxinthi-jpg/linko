@@ -3976,6 +3976,7 @@ async function buildKlineO(guild) {
     '[KLINEO-MEMBER-COMMANDS]',
   ];
   await seedMessage(channels.botCommands, '[KLINEO-MEMBER-COMMANDS]', { content: memberCommands.join('\n') });
+  await ensureMemberProfileLauncher(guild);
 
   if (channels.modCommands) {
     const modCommands1 = [
@@ -5022,6 +5023,7 @@ client.once('clientReady', async () => {
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
+        await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
         console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.14 member onboarding + profile features.');
