@@ -5725,57 +5725,62 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.update({ content: '✅ Interests updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId === 'linko_profile_languages_select') {
+    if (interaction.isStringSelectMenu() && ['linko_profile_languages_base','linko_profile_languages_custom'].includes(interaction.customId)) {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, 'update');
-      const selected = new Set(interaction.values);
-      const rows = languageRows().slice(0, 25);
-      for (const row of rows) {
-        const role = interaction.guild.roles.cache.get(row.role_id);
-        if (!role) continue;
-        if (selected.has(row.role_id)) {
-          if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${communityName()} profile language`);
-          db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
-        } else {
-          if (member.roles.cache.has(role.id)) await member.roles.remove(role, `${communityName()} profile language removed`);
-          db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
-        }
-      }
-      db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
-      db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(selected.size > 0 ? 1 : 0, member.id);
-      scheduleHealthUpdate(interaction.guild);
-      return interaction.update({ content: '✅ Languages updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
+      ensureCatalogFromExistingLanguageRoles();
+      const scopeEntries = interaction.customId === 'linko_profile_languages_base'
+        ? BASE_LANGUAGE_CATALOG
+        : customLanguageCatalogRows().slice(0, 25).map((r) => languageCatalogEntry(r.language_key)).filter(Boolean);
+      await updateLanguagePreferencesForScope(interaction.guild, member, scopeEntries, interaction.values);
+      const selectedLabels = languagePreferenceKeys(member.id).map((key) => languageCatalogEntry(key)).filter(Boolean).map((entry) => `${entry.emoji} ${entry.name}`);
+      return interaction.update({
+        content: `✅ Preferred languages saved.\n${selectedLabels.length ? selectedLabels.join(' · ') : 'No preferred languages selected.'}`,
+        embeds: [buildMemberProfileEmbed(interaction.guild, member)],
+        components: [profileActionRow()],
+      });
     }
     if (interaction.isModalSubmit() && interaction.customId === 'linko_language_request_modal') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
+      ensureCatalogFromExistingLanguageRoles();
       const languageName = interaction.fields.getTextInputValue('language').trim();
       const emoji = interaction.fields.getTextInputValue('emoji').trim() || '🌐';
       const note = interaction.fields.getTextInputValue('note').trim();
       if (!languageName || languageName.length < 2) return interaction.reply({ content: 'Enter a valid language name.', ephemeral: true });
-      const existing = db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(languageName);
-      if (existing) {
-        const role = interaction.guild.roles.cache.get(existing.role_id);
-        if (role && !member.roles.cache.has(role.id)) await member.roles.add(role, 'Joined existing language from request flow');
-        db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(member.id, existing.role_id, now());
+      const existingEntry = languageCatalogFindByInput(languageName);
+      if (existingEntry) {
+        db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, existingEntry.key, now());
+        await syncPreferredLanguageRole(interaction.guild, member, existingEntry, true);
+        await ensureLanguageDemandReview(interaction.guild, existingEntry.key);
         db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
         db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(member.id);
-        return interaction.reply({ content: `✅ **${existing.name}** already exists. I added it to your profile${existing.channel_id ? ` → <#${existing.channel_id}>` : ''}.`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+        const active = activeLanguageRowForEntry(existingEntry);
+        return interaction.reply({
+          content: `ℹ️ **${existingEntry.emoji} ${existingEntry.name}** is already in the approved language catalog. I added it to your preferences.${existingEntry.global ? ' English stays in the main global community.' : active?.channel_id ? ` You now have access to <#${active.channel_id}>.` : ` Current demand: **${languageDemandCount(existingEntry.key)}/${LANGUAGE_DEMAND_THRESHOLD}** before staff review.`}`,
+          embeds: [buildMemberProfileEmbed(interaction.guild, member)],
+          components: [profileActionRow()],
+          ephemeral: true,
+        });
       }
-      const duplicate = db.prepare("SELECT * FROM language_requests WHERE user_id=? AND LOWER(language_name)=LOWER(?) AND status='pending' LIMIT 1").get(member.id, languageName);
-      if (duplicate) return interaction.reply({ content: `You already have pending language request **#${duplicate.id} ${duplicate.language_name}**. Staff will review it.`, ephemeral: true });
+      const normalized = normalizeLanguageInput(languageName);
+      const pendingRows = db.prepare("SELECT * FROM language_requests WHERE status='pending' ORDER BY id DESC").all();
+      const duplicate = pendingRows.find((row) => normalizeLanguageInput(row.language_name) === normalized);
+      if (duplicate) {
+        db.prepare('INSERT OR IGNORE INTO language_request_supporters (request_id,user_id,created_at) VALUES (?,?,?)').run(duplicate.id, member.id, now());
+        return interaction.reply({ content: `ℹ️ **${duplicate.language_name}** is already pending staff review as request **#${duplicate.id}**. I recorded your interest too, so no duplicate request was created.`, ephemeral: true });
+      }
       const result = db.prepare('INSERT INTO language_requests (user_id,language_name,emoji,note,created_at) VALUES (?,?,?,?,?)').run(member.id, languageName, emoji, note || null, now());
       const id = Number(result.lastInsertRowid);
+      db.prepare('INSERT OR IGNORE INTO language_request_supporters (request_id,user_id,created_at) VALUES (?,?,?)').run(id, member.id, now());
       let row = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-      const reviewChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'moderation' && c.isTextBased())
-        ?? interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-commands' && c.isTextBased())
-        ?? interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+      const reviewChannel = staffLanguageReviewChannel(interaction.guild);
       if (!reviewChannel) return interaction.reply({ content: 'Language request saved, but the staff review channel is missing. Please alert a moderator.', ephemeral: true });
       const msg = await reviewChannel.send({ embeds: [languageRequestEmbed(row)], components: [languageRequestReviewButtons(id)] });
       db.prepare('UPDATE language_requests SET review_message_id=? WHERE id=?').run(msg.id, id);
       row = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
       scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Language request **#${id} · ${languageName}** submitted to ${communityName()} staff. If approved, LINKO will create the private language community and add you automatically.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Request **#${id} · ${languageName}** was sent to staff to consider adding it to the official language catalog. It will **not** create a channel automatically.`, ephemeral: true });
     }
     if (interaction.isModalSubmit() && interaction.customId === 'linko_member_socials_modal') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
