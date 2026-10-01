@@ -321,6 +321,31 @@ const SCHEMA_SQL = `
     review_message_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS language_catalog_custom (
+    language_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    emoji TEXT NOT NULL DEFAULT '🌐',
+    created_at INTEGER NOT NULL,
+    approved_by TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS language_preferences (
+    user_id TEXT NOT NULL,
+    language_key TEXT NOT NULL,
+    selected_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, language_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS language_demand_reviews (
+    language_key TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    review_message_id TEXT,
+    last_notified_count INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS product_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -1061,6 +1086,36 @@ const INTERESTS = [
 ];
 const INTEREST_ROLE_PREFIX = 'INTEREST · ';
 const LANGUAGE_ROLE_PREFIX = 'LANG · ';
+
+const LANGUAGE_DEMAND_THRESHOLD = 3;
+const BASE_LANGUAGE_CATALOG = [
+  { key: 'english', name: 'English (Global)', emoji: '🌐', global: true, aliases: ['english', 'global english'] },
+  { key: 'hindi', name: 'Hindi', emoji: '🇮🇳', aliases: ['hindi', 'hindhi', 'hindy'] },
+  { key: 'urdu', name: 'Urdu', emoji: '🇵🇰', aliases: ['urdu'] },
+  { key: 'arabic', name: 'Arabic', emoji: '🌍', aliases: ['arabic'] },
+  { key: 'german', name: 'German', emoji: '🇩🇪', aliases: ['german', 'deutsch', 'germany'] },
+  { key: 'french', name: 'French', emoji: '🇫🇷', aliases: ['french', 'francais', 'français', 'france'] },
+  { key: 'spanish', name: 'Spanish', emoji: '🇪🇸', aliases: ['spanish', 'espanol', 'español'] },
+  { key: 'portuguese', name: 'Portuguese', emoji: '🇵🇹', aliases: ['portuguese', 'portugues', 'português'] },
+  { key: 'italian', name: 'Italian', emoji: '🇮🇹', aliases: ['italian', 'italiano', 'italy'] },
+  { key: 'polish', name: 'Polish', emoji: '🇵🇱', aliases: ['polish', 'polski', 'poland'] },
+  { key: 'czech', name: 'Czech', emoji: '🇨🇿', aliases: ['czech', 'cesky', 'čeština'] },
+  { key: 'croatian', name: 'Croatian', emoji: '🇭🇷', aliases: ['croatian', 'hrvatski', 'croatia'] },
+  { key: 'romanian', name: 'Romanian', emoji: '🇷🇴', aliases: ['romanian', 'romana', 'română', 'romania'] },
+  { key: 'turkish', name: 'Turkish', emoji: '🇹🇷', aliases: ['turkish', 'turkce', 'türkçe'] },
+  { key: 'indonesian', name: 'Indonesian', emoji: '🇮🇩', aliases: ['indonesian', 'bahasa indonesia'] },
+  { key: 'vietnamese', name: 'Vietnamese', emoji: '🇻🇳', aliases: ['vietnamese'] },
+  { key: 'chinese', name: 'Chinese', emoji: '🇨🇳', aliases: ['chinese', 'mandarin', 'simplified chinese'] },
+  { key: 'korean', name: 'Korean', emoji: '🇰🇷', aliases: ['korean'] },
+  { key: 'japanese', name: 'Japanese', emoji: '🇯🇵', aliases: ['japanese'] },
+  { key: 'bengali', name: 'Bengali', emoji: '🇧🇩', aliases: ['bengali', 'bangla'] },
+  { key: 'tamil', name: 'Tamil', emoji: '🇮🇳', aliases: ['tamil'] },
+];
+function normalizeLanguageInput(raw) {
+  return String(raw ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function baseLanguageByKey(key) { return BASE_LANGUAGE_CATALOG.find((x) => x.key === key) ?? null; }
+
 
 function baseChannelName(name = '') {
   const i = name.indexOf('・');
