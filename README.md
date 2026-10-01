@@ -1,3 +1,32 @@
+# LINKO v10.14.0
+
+LINKO v10.14 replaces command-first member onboarding with a permanent, button-driven member profile experience.
+
+## Member onboarding
+
+- `#verify` now uses **START ONBOARDING** instead of requiring `/join-source` first.
+- New members choose their join source from a dropdown.
+- If they were invited by a member, LINKO uses Discord invite detection when available or a native member selector when needed.
+- An inviter does **not** need to be verified for the invited member to continue verification.
+- Referral rewards stay pending until the inviter is verified/eligible and any required confirmation is complete.
+- `/join-source` remains available as a manual fallback.
+
+## MY LINKO PROFILE
+
+- Every verified member has a permanent private profile dashboard available from the **MY LINKO PROFILE** button in `#bot-commands` or `/profile`.
+- The dashboard can be reopened at any time, including months after verification.
+- Optional editable sections: Socials, Interests, Languages, EVM wallet and Solana wallet.
+- Socials use Discord modals; interests/languages use native selectors; wallets use a private modal.
+- Optional profile details never expire and never block normal community access.
+- Existing `/wallet`, `/interest`, `/language`, `/onboarding` and related commands remain for backwards compatibility.
+
+## Referral safety
+
+- The referred member's verification is now independent from inviter verification.
+- LINKO checks inviter eligibility again before referral KXP is actually awarded.
+- A pending unverified inviter can later verify and complete referral confirmation without forcing the referred member to redo onboarding.
+
+---
 # LINKO v10.13.0
 
 LINKO v10.13 makes LINKO events first-class Discord Scheduled Events.
