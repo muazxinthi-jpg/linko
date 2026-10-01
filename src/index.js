@@ -3421,7 +3421,7 @@ function memberProfileCompletion(userId) {
   const profile = walletProfile(userId);
   const socialDone = !!(profile?.x_account || profile?.telegram_account || profile?.linkedin_account);
   const interests = db.prepare('SELECT interest FROM user_interests WHERE user_id=? ORDER BY interest').all(userId);
-  const languages = db.prepare('SELECT role_id FROM member_languages WHERE user_id=? ORDER BY role_id').all(userId);
+  const languages = db.prepare('SELECT language_key FROM language_preferences WHERE user_id=? ORDER BY language_key').all(userId);
   const wallets = walletRows(userId);
   return { profile, socialDone, interests, languages, wallets, completed: [socialDone, interests.length > 0, languages.length > 0, wallets.length > 0].filter(Boolean).length, total: 4 };
 }
@@ -3432,7 +3432,7 @@ function buildMemberProfileEmbed(guild, member) {
   const xp = getXp(userId);
   const rank = rankForXp(xp);
   const interestLabels = data.interests.map((r) => interestByKey(r.interest)?.[1] ?? r.interest);
-  const languageLabels = data.languages.map((r) => db.prepare('SELECT name,emoji FROM language_roles WHERE role_id=?').get(r.role_id)).filter(Boolean).map((r) => `${r.emoji || '🌐'} ${r.name}`);
+  const languageLabels = data.languages.map((r) => languageCatalogEntry(r.language_key)).filter(Boolean).map((r) => `${r.emoji || '🌐'} ${r.name}`);
   const walletLabels = data.wallets.map((r) => `${walletNetworkLabel(r.network)} · ${maskWallet(r.address)}`);
   let referral = 'Not applicable';
   if (attribution?.source === 'member' && attribution.inviter_id) {
@@ -3564,25 +3564,49 @@ async function showProfileInterestsSelect(interaction) {
 async function showProfileLanguagesSelect(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
-  const rows = languageRows().slice(0, 25);
-  const requestRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('linko_language_request').setLabel('REQUEST A LANGUAGE').setStyle(ButtonStyle.Primary),
-  );
-  if (!rows.length) {
-    const pending = db.prepare("SELECT * FROM language_requests WHERE user_id=? AND status='pending' ORDER BY id DESC LIMIT 1").get(member.id);
-    const pendingText = pending ? `\n\nYour request **#${pending.id} ${pending.language_name}** is currently pending staff review.` : '';
-    return interaction.reply({
-      content: `**No language communities are configured yet.**\nRequest the language you would like to use and LINKO will send it to moderators for approval.${pendingText}`,
-      components: [requestRow],
-      ephemeral: true,
-    });
+  ensureCatalogFromExistingLanguageRoles();
+  const selected = new Set(languagePreferenceKeys(member.id));
+  const baseMenu = new StringSelectMenuBuilder()
+    .setCustomId('linko_profile_languages_base')
+    .setPlaceholder('Choose preferred languages')
+    .setMinValues(0)
+    .setMaxValues(BASE_LANGUAGE_CATALOG.length);
+  baseMenu.addOptions(BASE_LANGUAGE_CATALOG.map((entry) => {
+    const active = activeLanguageRowForEntry(entry);
+    const demand = languageDemandCount(entry.key);
+    const description = entry.global ? 'Main global community' : active ? 'Language community active' : `${demand}/${LANGUAGE_DEMAND_THRESHOLD} interested before staff review`;
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(`${entry.emoji} ${entry.name}`.slice(0, 100))
+      .setValue(entry.key)
+      .setDescription(description.slice(0, 100))
+      .setDefault(selected.has(entry.key));
+  }));
+  const components = [new ActionRowBuilder().addComponents(baseMenu)];
+  const custom = customLanguageCatalogRows().slice(0, 25);
+  if (custom.length) {
+    const customMenu = new StringSelectMenuBuilder()
+      .setCustomId('linko_profile_languages_custom')
+      .setPlaceholder('More approved languages')
+      .setMinValues(0)
+      .setMaxValues(custom.length);
+    customMenu.addOptions(custom.map((row) => {
+      const entry = languageCatalogEntry(row.language_key);
+      const active = activeLanguageRowForEntry(entry);
+      const demand = languageDemandCount(row.language_key);
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(`${row.emoji || '🌐'} ${row.name}`.slice(0, 100))
+        .setValue(row.language_key)
+        .setDescription((active ? 'Language community active' : `${demand}/${LANGUAGE_DEMAND_THRESHOLD} interested before staff review`).slice(0, 100))
+        .setDefault(selected.has(row.language_key));
+    }));
+    components.push(new ActionRowBuilder().addComponents(customMenu));
   }
-  const selected = new Set(db.prepare('SELECT role_id FROM member_languages WHERE user_id=?').all(member.id).map((r) => r.role_id));
-  const menu = new StringSelectMenuBuilder().setCustomId('linko_profile_languages_select').setPlaceholder('Choose language communities').setMinValues(0).setMaxValues(rows.length);
-  menu.addOptions(rows.map((row) => new StringSelectMenuOptionBuilder().setLabel(`${row.emoji || '🌐'} ${row.name}`.slice(0, 100)).setValue(row.role_id).setDefault(selected.has(row.role_id))));
+  components.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('linko_language_request').setLabel('REQUEST ANOTHER LANGUAGE').setStyle(ButtonStyle.Secondary),
+  ));
   return interaction.reply({
-    content: '**Your language communities**\nSelect any that apply. If your language is missing, request it below.',
-    components: [new ActionRowBuilder().addComponents(menu), requestRow],
+    content: `**Preferred languages**\nChoose as many as you use. **🌐 English (Global)** stays in the main community and never creates a separate channel. Other languages are demand-tracked first; at **${LANGUAGE_DEMAND_THRESHOLD} members**, staff can activate a dedicated language community.`,
+    components,
     ephemeral: true,
   });
 }
