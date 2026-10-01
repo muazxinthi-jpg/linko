@@ -5332,10 +5332,12 @@ client.once('clientReady', async () => {
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
+        ensureCatalogFromExistingLanguageRoles();
+        for (const entry of languageCatalog()) await ensureLanguageDemandReview(fullGuild, entry.key).catch((error) => logLinkoError(`language-demand:${entry.key}`, error));
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.15 language request features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.16 predefined language demand features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6192,7 +6194,7 @@ client.on('interactionCreate', async (interaction) => {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       const a = activationRow(member.id);
       const interests = db.prepare('SELECT interest FROM user_interests WHERE user_id = ? ORDER BY interest').all(member.id).map((r) => interestByKey(r.interest)?.[1] ?? r.interest);
-      const langs = db.prepare('SELECT lr.name FROM member_languages ml JOIN language_roles lr ON lr.role_id=ml.role_id WHERE ml.user_id=? AND lr.archived=0 ORDER BY lr.name').all(member.id).map((r) => r.name);
+      const langs = languagePreferenceKeys(member.id).map((key) => languageCatalogEntry(key)).filter(Boolean).map((entry) => `${entry.emoji} ${entry.name}`);
       const languageAvailable = languageRows().length > 0;
       const steps = [
         ['Verified', hasVerifiedRole(member)], ['Choose an interest', interests.length > 0],
@@ -6246,14 +6248,18 @@ client.on('interactionCreate', async (interaction) => {
       const role = interaction.options.getRole('role', true);
       const row = db.prepare('SELECT * FROM language_roles WHERE role_id=? AND archived=0').get(role.id);
       if (!row) return interaction.editReply('That is not an active LINKO language role.');
+      ensureCatalogFromExistingLanguageRoles();
+      const entry = languageCatalogFindByInput(row.name);
       if (action === 'add') {
         await member.roles.add(role, `${communityName()} language self-selection`);
         db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
+        if (entry) db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, entry.key, now());
       } else {
         await member.roles.remove(role, `${communityName()} language removed`);
         db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
+        if (entry) db.prepare('DELETE FROM language_preferences WHERE user_id=? AND language_key=?').run(member.id, entry.key);
       }
-      const count = Number(db.prepare('SELECT COUNT(*) AS c FROM member_languages WHERE user_id=?').get(member.id)?.c ?? 0);
+      const count = Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE user_id=?').get(member.id)?.c ?? 0);
       db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(count > 0 ? 1 : 0, member.id);
       scheduleHealthUpdate(interaction.guild);
       return interaction.editReply(`${action === 'add' ? '✅ Joined' : 'Left'} **${row.name}**${row.channel_id && action === 'add' ? ` → <#${row.channel_id}>` : ''}.`);
