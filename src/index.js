@@ -20,7 +20,10 @@ import {
   PermissionFlagsBits,
   Partials,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
+  UserSelectMenuBuilder,
   TextInputStyle,
 } from 'discord.js';
 
@@ -529,6 +532,7 @@ function initializeGuildDatabase(database) {
 
   ensureSqliteColumn(database, 'wallet_profiles', 'x_account', 'TEXT');
   ensureSqliteColumn(database, 'wallet_profiles', 'telegram_account', 'TEXT');
+  ensureSqliteColumn(database, 'wallet_profiles', 'linkedin_account', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'campaign_id', 'INTEGER');
   ensureSqliteColumn(database, 'social_submissions', 'creator_eligible', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
@@ -1120,6 +1124,7 @@ const commands = [
     .setDescription('Legacy shortcut: tell LINKO who invited you.')
     .addUserOption((o) => o.setName('member').setDescription('The community member who invited you').setRequired(true)),
   new SlashCommandBuilder().setName('commands').setDescription('Show the community member command guide.'),
+  new SlashCommandBuilder().setName('profile').setDescription('Open your private LINKO member profile and onboarding dashboard.'),
 
   new SlashCommandBuilder()
     .setName('wallet')
@@ -2625,8 +2630,8 @@ function buildWelcomeEmbed(channels) {
 }
 function buildVerifyEmbed() {
   const name = communityName();
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Verify & enter ${name}`)
-    .setDescription(`Before verification, run **/join-source** and tell LINKO how you joined ${name}. Then complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Join ${name}`)
+    .setDescription(`Click **START ONBOARDING**. LINKO will ask how you joined, handle referral attribution, then let you verify and enter the community as **OBSERVER**. No slash commands are required.\n\nAfter verification, your optional socials, interests, languages and payout wallets can be added or updated anytime from **MY LINKO PROFILE**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
     .setFooter({ text: '[KLINEO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
@@ -2681,7 +2686,7 @@ async function refreshBrandMessages(guild) {
   if (welcome && verify) {
     const channels = { rules: ch('rules'), verify };
     if (channels.rules) await seedMessage(welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
-    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success));
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('linko_onboarding_start').setLabel('START ONBOARDING').setStyle(ButtonStyle.Success));
     await seedMessage(verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [row] });
   }
   if (links) await seedMessage(links, '[KLINEO-OFFICIAL-LINKS]', { embeds: [buildOfficialLinksEmbed()] });
@@ -3648,7 +3653,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
   channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('how'), topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Use LINKO member commands here: /rank /points /leaderboard /invite /invites /join-source /confirm-invited /wallet /submit-post /social-card /apply-founder.' }, verifiedBase);
+  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Open MY LINKO PROFILE here, or use member commands such as /profile /rank /points /leaderboard /invite /wallet /submit-post.' }, verifiedBase);
   channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('leaderboard'), topic: `${communityName()} Top 50 ${xpLabel()} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `${communityName()} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   await setLeaderboardChannelVisibility(guild, 'kxp', getSetting('kxp_leaderboard_visibility'));
@@ -3734,7 +3739,7 @@ async function buildKlineO(guild) {
   for (const [key, name, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name, topic }, staffPrivate);
 
   setSetupPhase('09/11 · Seed verification, rules, docs + command guides');
-  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success));
+  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('linko_onboarding_start').setLabel('START ONBOARDING').setStyle(ButtonStyle.Success));
   await seedMessage(channels.verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [verifyButton] });
   await seedMessage(channels.welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
   const rulesLines = [
@@ -3765,9 +3770,10 @@ async function buildKlineO(guild) {
     `• \`/rank\` / \`/points\` — rank and ${xpLabel()} balance`,
     '• `/leaderboard` — XP/referral leaderboards',
     '• `/invite` / `/invites` — tracked invites and referral stats',
-    `• \`/join-source\` — required before verification; tell LINKO how you joined ${communityName()}`,
-    '• `/confirm-invited @member` — confirm a pending referral',
-    '• `/wallet view/set/remove/primary` — submit X + Telegram + EVM/Solana wallet; no signing',
+    `• **MY LINKO PROFILE** button / \`/profile\` — permanent private profile dashboard`,
+    `• \`/join-source\` — legacy/manual join-source option; START ONBOARDING is easier`,
+    '• `/confirm-invited @member` — confirm a pending referral after you are verified',
+    '• `/wallet view/set/remove/primary` — legacy/manual wallet controls; profile buttons are easier',
     ...(moduleEnabled('kreator') ? [
       `• \`/submit-post\` — submit ${communityName()} social content for ${xpLabel()} review`,
       '• `/leaderboard type:Kreators` — lifetime KREATOR leaderboard',
@@ -4828,7 +4834,7 @@ client.once('clientReady', async () => {
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.13 native Discord Scheduled Events features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.14 member onboarding + profile features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
