@@ -4578,6 +4578,8 @@ async function checkPendingReferrals(guild) {
     if (!member || member.user.bot || !hasVerifiedRole(member)) continue;
     const attribution = getJoinAttribution(ref.member_id);
     if (!attribution || attribution.source !== 'member' || !Number(attribution.source_confirmed) || !Number(attribution.inviter_confirmed) || attribution.inviter_id !== ref.inviter_id) continue;
+    const eligibleInviter = await guild.members.fetch(ref.inviter_id).catch(() => null);
+    if (!eligibleInviter || eligibleInviter.user.bot || (!hasVerifiedRole(eligibleInviter) && !hasStaffRole(eligibleInviter))) continue;
     const activity = referralActivityCount(ref.member_id, ref.joined_at);
     const activeDays = referralActivityDays(ref.member_id, ref.joined_at);
     if (activity < Math.max(1, getSettingInt('referral_activity_min_events'))) continue;
@@ -5461,27 +5463,9 @@ client.on('interactionCreate', async (interaction) => {
       if (existingAttribution?.detected_inviter_id && inviterUser.id !== existingAttribution.detected_inviter_id) {
         return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. Staff must resolve that attribution before a different inviter can be selected.`, ephemeral: true });
       }
-      const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: `The inviter must currently be a verified ${name} member.`, ephemeral: true });
-      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: `The selected inviter must have been a ${name} member before you joined.`, ephemeral: true });
-
-      const existingReferral = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(member.id);
-      if (existingReferral && existingReferral.inviter_id !== inviter.id) return interaction.reply({ content: `LINKO already has a different pending inviter: <@${existingReferral.inviter_id}>. Ask staff to resolve the attribution.`, ephemeral: true });
-      if (!existingReferral) db.prepare('INSERT INTO referrals (member_id, inviter_id, invite_code, joined_at, valid_awarded) VALUES (?, ?, ?, ?, 0)').run(member.id, inviter.id, `self:${member.id}`, joinedAt);
-
-      const detectedMatch = existingAttribution?.detected_inviter_id === inviter.id;
-      upsertJoinAttribution(member.id, {
-        source: 'member', inviterId: inviter.id, detectedInviterId: existingAttribution?.detected_inviter_id ?? null,
-        sourceConfirmed: 1, inviterConfirmed: detectedMatch ? 1 : 0,
-      });
-      db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
-      const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-      if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${detectedMatch ? 'LINKO invite detection already confirms the inviter.' : 'Awaiting inviter confirmation.'}`).catch(() => {});
-      if (!detectedMatch) {
-        await inviter.send(`🤝 **${name} referral confirmation**\n${member.user.username} says you personally invited them to ${name}. If correct, go to the ${name} server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
-      }
-      scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${name}.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
+      const recorded = await recordMemberJoinSource(interaction.guild, member, inviterUser);
+      if (!recorded.ok) return interaction.reply({ content: recorded.message, ephemeral: true });
+      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${name}. ${recorded.eligible ? (recorded.detectedMatch ? 'Referral attribution is already confirmed.' : 'Referral attribution is pending inviter confirmation.') : 'Your inviter is not verified yet, but that does **not** block your verification. Their referral credit remains pending until they become eligible.'}`, components: [verificationButtonRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'confirm-invited') {
