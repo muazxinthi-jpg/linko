@@ -37,19 +37,6 @@ Use this checklist before merging the multi-server release into production.
 - Submit the same missing language from another member while pending and confirm no duplicate request is created; supporter interest is recorded.
 - Restart LINKO with existing language roles/member_languages and confirm they migrate into standardized/custom preferences without losing access.
 - Confirm `/language-manager create` refuses arbitrary non-catalog languages and still works for approved catalog languages.
-## Member language request tests
-
-- With zero configured languages, click Languages from MY LINKO PROFILE and confirm **REQUEST A LANGUAGE** is shown.
-- Submit a language request with name only; confirm it reaches the staff moderation channel and Moderator Inbox count increases.
-- Submit a request with language + flag/emoji + note and confirm all fields render in the private review card.
-- Approve a request and confirm LINKO creates the language role, private language channel, managed-channel record, and language_roles row.
-- Confirm the requester automatically receives the language role and member_languages row after approval.
-- Confirm the requester receives an approval DM with the created channel.
-- Decline a request and confirm the requester receives a decline DM and can request another language later.
-- Request a language that already exists and confirm LINKO joins the member to the existing language instead of creating a duplicate.
-- Submit the same pending language request twice and confirm LINKO blocks the duplicate.
-- With existing languages configured, confirm Languages shows the selector plus **REQUEST A LANGUAGE** for missing languages.
-- Confirm staff `/language-manager create` still works and uses the same creation helper.
 ## Member onboarding + permanent profile tests
 
 - Fresh unverified member clicks **START ONBOARDING** and sees a join-source dropdown without using slash commands.
