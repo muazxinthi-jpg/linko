@@ -4776,10 +4776,10 @@ async function sendWelcomeDm(member) {
 async function verifyMember(interaction) {
   const name = communityName();
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  if (hasVerifiedRole(member)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
+  if (hasVerifiedRole(member)) return interaction.reply({ embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
   const attribution = getJoinAttribution(member.id);
   if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
-    return interaction.reply({ content: `Before you can enter ${name}, run **/join-source** in this server and select how you joined. If a member invited you, select that member. This keeps referral attribution accurate.`, ephemeral: true });
+    return interaction.reply({ content: `Before you can enter ${name}, click **START ONBOARDING** in #verify and select how you joined. You can also use /join-source as a manual fallback.`, ephemeral: true });
   }
   const ageHours = (now() - interaction.user.createdTimestamp) / 3600000;
   if (ageHours < MIN_ACCOUNT_AGE_HOURS) return interaction.reply({ content: `This Discord account is too new to verify yet. Please try again after it is ${MIN_ACCOUNT_AGE_HOURS} hours old.`, ephemeral: true });
@@ -4793,7 +4793,12 @@ async function verifyMember(interaction) {
   if (log) log.send(`✅ ${member} verified and entered ${name} as **OBSERVER**. Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.`).catch(() => {});
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   scheduleHealthUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-  return interaction.reply({ content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Join source recorded as **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' && !Number(attribution.inviter_confirmed) ? ' Your referral remains pending until the inviter confirms it.' : ''} Run \`/onboarding\` to complete your activation checklist.`, ephemeral: true });
+  return interaction.reply({
+    content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Join source: **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' ? ' Referral qualification is handled separately and never affects your community access.' : ''}\n\nYour socials, interests, languages and payout wallets are optional. Add them now or come back months later using **MY LINKO PROFILE** in #bot-commands or /profile.`,
+    embeds: [buildMemberProfileEmbed(interaction.guild, member)],
+    components: [profileActionRow()],
+    ephemeral: true,
+  });
 }
 
 async function createFounderApplicationModal(interaction) {
@@ -5571,7 +5576,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.10 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.14 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Button-based onboarding, permanent member profiles, referrals, native events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -5651,7 +5656,7 @@ client.on('interactionCreate', async (interaction) => {
         upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: existingAttribution?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
         db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
         scheduleModInboxUpdate(interaction.guild);
-        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can now use the **VERIFY & ENTER ${communityNameUpper().slice(0, 24)}** button.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can verify now.`, components: [verificationButtonRow()], ephemeral: true });
       }
 
       let inviterUser = selectedUser;
@@ -5703,7 +5708,7 @@ client.on('interactionCreate', async (interaction) => {
           return `**${walletNetworkLabel(r.network)}${primary === r.network ? ' · PRIMARY' : ''}**\n\`${r.address}\`\nStatus: Submitted · Reward use: ${eligible}`;
         }).join('\n\n') : 'No wallet addresses submitted yet.';
         const profile = walletProfile(interaction.user.id);
-        const socials = `**X:** ${profile?.x_account ?? 'Not submitted'}\n**Telegram:** ${profile?.telegram_account ?? 'Not submitted'}`;
+        const socials = `**X:** ${profile?.x_account ?? 'Not submitted'}\n**Telegram:** ${profile?.telegram_account ?? 'Not submitted'}\n**LinkedIn:** ${profile?.linkedin_account ?? 'Not submitted'}`;
         return interaction.reply({ content: `**KLINEO WALLET + SOCIAL PROFILE**\n\n${socials}\n\n${lines}\n\nLINKO only stores public profile identifiers and public wallet addresses. It never connects to wallets, requests signatures, approvals, seed phrases, private keys or transactions.`, ephemeral: true });
       }
       const network = interaction.options.getString('network', true);
