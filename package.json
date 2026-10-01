@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.13.0",
+  "version": "10.14.0",
   "private": true,
-  "description": "LINKO v10.13.0 — native Discord Scheduled Events, public event discovery, safe room access, and community operations",
+  "description": "LINKO v10.14.0 — button-based onboarding, permanent member profiles, referral eligibility fixes, native Discord events, and multi-server community operations",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

@@ -20,7 +20,10 @@ import {
   PermissionFlagsBits,
   Partials,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
+  UserSelectMenuBuilder,
   TextInputStyle,
 } from 'discord.js';
 
@@ -529,6 +532,7 @@ function initializeGuildDatabase(database) {
 
   ensureSqliteColumn(database, 'wallet_profiles', 'x_account', 'TEXT');
   ensureSqliteColumn(database, 'wallet_profiles', 'telegram_account', 'TEXT');
+  ensureSqliteColumn(database, 'wallet_profiles', 'linkedin_account', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'campaign_id', 'INTEGER');
   ensureSqliteColumn(database, 'social_submissions', 'creator_eligible', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
@@ -1120,6 +1124,7 @@ const commands = [
     .setDescription('Legacy shortcut: tell LINKO who invited you.')
     .addUserOption((o) => o.setName('member').setDescription('The community member who invited you').setRequired(true)),
   new SlashCommandBuilder().setName('commands').setDescription('Show the community member command guide.'),
+  new SlashCommandBuilder().setName('profile').setDescription('Open your private LINKO member profile and onboarding dashboard.'),
 
   new SlashCommandBuilder()
     .setName('wallet')
@@ -2625,8 +2630,8 @@ function buildWelcomeEmbed(channels) {
 }
 function buildVerifyEmbed() {
   const name = communityName();
-  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Verify & enter ${name}`)
-    .setDescription(`Before verification, run **/join-source** and tell LINKO how you joined ${name}. Then complete verification to unlock the community and receive **OBSERVER**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
+  const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Join ${name}`)
+    .setDescription(`Click **START ONBOARDING**. LINKO will ask how you joined, handle referral attribution, then let you verify and enter the community as **OBSERVER**. No slash commands are required.\n\nAfter verification, your optional socials, interests, languages and payout wallets can be added or updated anytime from **MY LINKO PROFILE**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
     .setFooter({ text: '[KLINEO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
@@ -2681,7 +2686,7 @@ async function refreshBrandMessages(guild) {
   if (welcome && verify) {
     const channels = { rules: ch('rules'), verify };
     if (channels.rules) await seedMessage(welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
-    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success));
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('linko_onboarding_start').setLabel('START ONBOARDING').setStyle(ButtonStyle.Success));
     await seedMessage(verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [row] });
   }
   if (links) await seedMessage(links, '[KLINEO-OFFICIAL-LINKS]', { embeds: [buildOfficialLinksEmbed()] });
@@ -3139,6 +3144,189 @@ function normalizeTelegramAccount(raw) {
   return /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(value) ? `@${value}` : null;
 }
 
+function normalizeLinkedInAccount(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    if (host !== 'linkedin.com') return null;
+    return `https://www.linkedin.com${u.pathname.replace(/\/$/, '')}`;
+  } catch { return null; }
+}
+function verificationButtonRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('linko_onboarding_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success),
+  );
+}
+function profileActionRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('linko_profile_socials').setLabel('Socials').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('linko_profile_interests').setLabel('Interests').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('linko_profile_languages').setLabel('Languages').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('linko_profile_wallets').setLabel('Wallets').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('linko_profile_refresh').setLabel('Refresh').setStyle(ButtonStyle.Secondary),
+  );
+}
+function profileLauncherRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('linko_profile_open').setLabel('MY LINKO PROFILE').setStyle(ButtonStyle.Primary),
+  );
+}
+function memberProfileCompletion(userId) {
+  const profile = walletProfile(userId);
+  const socialDone = !!(profile?.x_account || profile?.telegram_account || profile?.linkedin_account);
+  const interests = db.prepare('SELECT interest FROM user_interests WHERE user_id=? ORDER BY interest').all(userId);
+  const languages = db.prepare('SELECT role_id FROM member_languages WHERE user_id=? ORDER BY role_id').all(userId);
+  const wallets = walletRows(userId);
+  return { profile, socialDone, interests, languages, wallets, completed: [socialDone, interests.length > 0, languages.length > 0, wallets.length > 0].filter(Boolean).length, total: 4 };
+}
+function buildMemberProfileEmbed(guild, member) {
+  const userId = member.id;
+  const attribution = getJoinAttribution(userId);
+  const data = memberProfileCompletion(userId);
+  const xp = getXp(userId);
+  const rank = rankForXp(xp);
+  const interestLabels = data.interests.map((r) => interestByKey(r.interest)?.[1] ?? r.interest);
+  const languageLabels = data.languages.map((r) => db.prepare('SELECT name,emoji FROM language_roles WHERE role_id=?').get(r.role_id)).filter(Boolean).map((r) => `${r.emoji || '🌐'} ${r.name}`);
+  const walletLabels = data.wallets.map((r) => `${walletNetworkLabel(r.network)} · ${maskWallet(r.address)}`);
+  let referral = 'Not applicable';
+  if (attribution?.source === 'member' && attribution.inviter_id) {
+    const inviter = guild.members.cache.get(attribution.inviter_id);
+    const eligible = inviter && (hasVerifiedRole(inviter) || hasStaffRole(inviter));
+    referral = `Invited by <@${attribution.inviter_id}> · ${eligible ? (Number(attribution.inviter_confirmed) ? 'confirmed / qualifying' : 'awaiting confirmation') : 'pending inviter verification'}`;
+  }
+  const pct = Math.round((data.completed / data.total) * 100);
+  return new EmbedBuilder().setColor(BRAND.cyan).setTitle(`👤 ${communityName()} · My LINKO Profile`)
+    .setDescription(`Your optional member profile never expires. Come back anytime to add or update details. **${data.completed}/${data.total} optional sections complete (${pct}%)**.`)
+    .addFields(
+      { name: 'Membership', value: `${hasVerifiedRole(member) ? '✅ Verified' : '⬜ Not verified'} · **${rank.name}** · **${xp} ${xpLabel()}**`, inline: false },
+      { name: 'Join source', value: attribution?.source ? `**${joinSourceLabel(attribution.source)}**` : 'Not selected', inline: true },
+      { name: 'Referral', value: referral, inline: true },
+      { name: 'Socials', value: data.socialDone ? [data.profile?.x_account && `X ${data.profile.x_account}`, data.profile?.telegram_account && `TG ${data.profile.telegram_account}`, data.profile?.linkedin_account && `LinkedIn saved`].filter(Boolean).join('\n') : '⬜ Not added', inline: true },
+      { name: 'Interests', value: interestLabels.length ? interestLabels.join(', ') : '⬜ Not selected', inline: true },
+      { name: 'Languages', value: languageLabels.length ? languageLabels.join(', ') : '⬜ Not selected', inline: true },
+      { name: 'Wallets', value: walletLabels.length ? walletLabels.join('\n') : '⬜ Not submitted', inline: true },
+    )
+    .setFooter({ text: 'Socials, interests, languages and wallets are optional and can be updated anytime.' });
+}
+async function showMemberProfile(interaction, mode = 'reply') {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, mode);
+  const payload = { embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true };
+  if (mode === 'update' && interaction.isMessageComponent()) return interaction.update({ embeds: payload.embeds, components: payload.components, content: null });
+  if (interaction.deferred || interaction.replied) return interaction.editReply({ embeds: payload.embeds, components: payload.components, content: null });
+  return interaction.reply(payload);
+}
+async function ensureMemberProfileLauncher(guild) {
+  const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-commands' && c.isTextBased());
+  if (!channel) return false;
+  await seedMessage(channel, '[LINKO-MY-PROFILE]', {
+    content: `**MY LINKO PROFILE**\nUse this anytime to add or update socials, interests, languages and public payout wallet addresses. These details are optional and never expire.\n\n[LINKO-MY-PROFILE]`,
+    components: [profileLauncherRow()],
+  });
+  return true;
+}
+async function recordMemberJoinSource(guild, member, inviterUser) {
+  const name = communityName();
+  const existingAttribution = getJoinAttribution(member.id);
+  const joinedAt = member.joinedTimestamp ?? db.prepare('SELECT joined_at FROM users WHERE user_id=?').get(member.id)?.joined_at ?? now();
+  if (!inviterUser) return { ok: false, message: 'Select the community member who invited you.' };
+  if (inviterUser.id === member.id) return { ok: false, message: 'You cannot select yourself as your inviter.' };
+  if (inviterUser.bot) return { ok: false, message: 'Bots cannot receive referral credit.' };
+  if (existingAttribution?.detected_inviter_id && inviterUser.id !== existingAttribution.detected_inviter_id) {
+    return { ok: false, message: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. Ask a moderator if that attribution is wrong.` };
+  }
+  const inviter = await guild.members.fetch(inviterUser.id).catch(() => null);
+  if (!inviter) return { ok: false, message: `That user is not currently a member of ${name}.` };
+  if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return { ok: false, message: `The selected inviter must have joined ${name} before you.` };
+  const existingReferral = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(member.id);
+  if (existingReferral && existingReferral.inviter_id !== inviter.id) return { ok: false, message: `LINKO already has a different pending inviter: <@${existingReferral.inviter_id}>. Ask staff to resolve the attribution.` };
+  if (!existingReferral) db.prepare('INSERT INTO referrals (member_id, inviter_id, invite_code, joined_at, valid_awarded) VALUES (?, ?, ?, ?, 0)').run(member.id, inviter.id, `self:${member.id}`, joinedAt);
+  const detectedMatch = existingAttribution?.detected_inviter_id === inviter.id;
+  upsertJoinAttribution(member.id, { source: 'member', inviterId: inviter.id, detectedInviterId: existingAttribution?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: detectedMatch ? 1 : 0 });
+  db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
+  const eligible = hasVerifiedRole(inviter) || hasStaffRole(inviter);
+  const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+  if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${eligible ? 'Inviter is verified/eligible.' : 'Inviter is not verified yet; referral reward remains pending.'} ${detectedMatch ? 'Discord invite detection confirms the attribution.' : 'Awaiting inviter confirmation after they are eligible.'}`).catch(() => {});
+  if (!detectedMatch) {
+    const dm = eligible
+      ? `🤝 **${name} referral confirmation**\n${member.user.username} says you invited them. If correct, run **/confirm-invited member:${member.user.username}** in ${name}. Referral rewards remain subject to verification + 7 days + activity checks.`
+      : `🤝 **${name} referral pending**\n${member.user.username} says you invited them. They can verify normally. Your referral credit is safely pending; verify your own ${name} membership first, then run **/confirm-invited member:${member.user.username}**.`;
+    await inviter.send(dm).catch(() => {});
+  }
+  scheduleModInboxUpdate(guild);
+  return { ok: true, inviter, inviterUser, detectedMatch, eligible };
+}
+async function showOnboardingEntry(interaction, mode = 'reply') {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (hasVerifiedRole(member)) return showMemberProfile(interaction, mode === 'update' ? 'update' : 'reply');
+  const attribution = getJoinAttribution(member.id);
+  if (attribution?.source && Number(attribution.source_confirmed)) {
+    const content = `✅ Join source saved as **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` with <@${attribution.inviter_id}>` : ''}. You can verify now. Referral eligibility never blocks your own verification.`;
+    if (mode === 'update' && interaction.isMessageComponent()) return interaction.update({ content, embeds: [], components: [verificationButtonRow()] });
+    return interaction.reply({ content, components: [verificationButtonRow()], ephemeral: true });
+  }
+  const menu = new StringSelectMenuBuilder().setCustomId('linko_onboarding_source').setPlaceholder('How did you find or join this community?').addOptions(
+    new StringSelectMenuOptionBuilder().setLabel('Invited by a community member').setValue('member').setDescription('Select the person who invited you'),
+    new StringSelectMenuOptionBuilder().setLabel('Found community myself').setValue('organic'),
+    new StringSelectMenuOptionBuilder().setLabel('X / social media').setValue('x'),
+    new StringSelectMenuOptionBuilder().setLabel('Telegram').setValue('telegram'),
+    new StringSelectMenuOptionBuilder().setLabel('Event / AMA').setValue('event'),
+    new StringSelectMenuOptionBuilder().setLabel('Partner / creator').setValue('partner'),
+  );
+  const payload = { content: `**Step 1 of 2 · How did you join ${communityName()}?**\nChoose one option below. This is used for community analytics and accurate referral attribution.`, components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true };
+  if (mode === 'update' && interaction.isMessageComponent()) return interaction.update({ content: payload.content, components: payload.components, embeds: [] });
+  return interaction.reply(payload);
+}
+function inviterSelectRow() {
+  const menu = new UserSelectMenuBuilder().setCustomId('linko_onboarding_inviter').setPlaceholder('Select the member who invited you').setMinValues(1).setMaxValues(1);
+  return new ActionRowBuilder().addComponents(menu);
+}
+async function showProfileSocialsModal(interaction) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
+  const profile = walletProfile(member.id);
+  const modal = new ModalBuilder().setCustomId('linko_member_socials_modal').setTitle('My LINKO Socials');
+  const x = new TextInputBuilder().setCustomId('x').setLabel('X username or profile URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(120).setPlaceholder('@username');
+  const telegram = new TextInputBuilder().setCustomId('telegram').setLabel('Telegram username or profile URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(120).setPlaceholder('@username');
+  const linkedin = new TextInputBuilder().setCustomId('linkedin').setLabel('LinkedIn profile URL').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(220).setPlaceholder('linkedin.com/in/username');
+  if (profile?.x_account) x.setValue(profile.x_account);
+  if (profile?.telegram_account) telegram.setValue(profile.telegram_account);
+  if (profile?.linkedin_account) linkedin.setValue(profile.linkedin_account);
+  modal.addComponents(new ActionRowBuilder().addComponents(x), new ActionRowBuilder().addComponents(telegram), new ActionRowBuilder().addComponents(linkedin));
+  return interaction.showModal(modal);
+}
+async function showProfileWalletsModal(interaction) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
+  const current = Object.fromEntries(walletRows(member.id).map((row) => [row.network, row.address]));
+  const modal = new ModalBuilder().setCustomId('linko_member_wallets_modal').setTitle('My LINKO Wallets');
+  const evm = new TextInputBuilder().setCustomId('evm').setLabel('EVM wallet (blank = remove)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('0x...');
+  const sol = new TextInputBuilder().setCustomId('solana').setLabel('Solana wallet (blank = remove)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Public Solana address');
+  if (current.evm) evm.setValue(current.evm);
+  if (current.solana) sol.setValue(current.solana);
+  modal.addComponents(new ActionRowBuilder().addComponents(evm), new ActionRowBuilder().addComponents(sol));
+  return interaction.showModal(modal);
+}
+async function showProfileInterestsSelect(interaction) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
+  const selected = new Set(db.prepare('SELECT interest FROM user_interests WHERE user_id=?').all(member.id).map((r) => r.interest));
+  const menu = new StringSelectMenuBuilder().setCustomId('linko_profile_interests_select').setPlaceholder('Choose your interests').setMinValues(0).setMaxValues(INTERESTS.length);
+  menu.addOptions(INTERESTS.map(([key, label]) => new StringSelectMenuOptionBuilder().setLabel(label).setValue(key).setDefault(selected.has(key))));
+  return interaction.reply({ content: '**Your interests**\nSelect any that apply. You can change these anytime.', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+}
+async function showProfileLanguagesSelect(interaction) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
+  const rows = languageRows().slice(0, 25);
+  if (!rows.length) return interaction.reply({ content: 'No language communities are configured yet. You can return to MY LINKO PROFILE later.', ephemeral: true });
+  const selected = new Set(db.prepare('SELECT role_id FROM member_languages WHERE user_id=?').all(member.id).map((r) => r.role_id));
+  const menu = new StringSelectMenuBuilder().setCustomId('linko_profile_languages_select').setPlaceholder('Choose language communities').setMinValues(0).setMaxValues(rows.length);
+  menu.addOptions(rows.map((row) => new StringSelectMenuOptionBuilder().setLabel(`${row.emoji || '🌐'} ${row.name}`.slice(0, 100)).setValue(row.role_id).setDefault(selected.has(row.role_id))));
+  return interaction.reply({ content: '**Your language communities**\nSelect any that apply. You can change these anytime.', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+}
 async function awardFirstSubmissionKxp(guild, userId, item, label, actorId = null) {
   const exists = db.prepare('SELECT 1 FROM profile_submission_rewards WHERE user_id = ? AND item = ?').get(userId, item);
   if (exists) return 0;
@@ -3648,7 +3836,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
   channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('how'), topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Use LINKO member commands here: /rank /points /leaderboard /invite /invites /join-source /confirm-invited /wallet /submit-post /social-card /apply-founder.' }, verifiedBase);
+  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Open MY LINKO PROFILE here, or use member commands such as /profile /rank /points /leaderboard /invite /wallet /submit-post.' }, verifiedBase);
   channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('leaderboard'), topic: `${communityName()} Top 50 ${xpLabel()} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `${communityName()} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   await setLeaderboardChannelVisibility(guild, 'kxp', getSetting('kxp_leaderboard_visibility'));
@@ -3734,7 +3922,7 @@ async function buildKlineO(guild) {
   for (const [key, name, topic] of staffChannels) channels[key] = await ensureTextChannel(guild, categories.staff, { name, topic }, staffPrivate);
 
   setSetupPhase('09/11 · Seed verification, rules, docs + command guides');
-  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('klineo_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success));
+  const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('linko_onboarding_start').setLabel('START ONBOARDING').setStyle(ButtonStyle.Success));
   await seedMessage(channels.verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [verifyButton] });
   await seedMessage(channels.welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
   const rulesLines = [
@@ -3765,9 +3953,10 @@ async function buildKlineO(guild) {
     `• \`/rank\` / \`/points\` — rank and ${xpLabel()} balance`,
     '• `/leaderboard` — XP/referral leaderboards',
     '• `/invite` / `/invites` — tracked invites and referral stats',
-    `• \`/join-source\` — required before verification; tell LINKO how you joined ${communityName()}`,
-    '• `/confirm-invited @member` — confirm a pending referral',
-    '• `/wallet view/set/remove/primary` — submit X + Telegram + EVM/Solana wallet; no signing',
+    `• **MY LINKO PROFILE** button / \`/profile\` — permanent private profile dashboard`,
+    `• \`/join-source\` — legacy/manual join-source option; START ONBOARDING is easier`,
+    '• `/confirm-invited @member` — confirm a pending referral after you are verified',
+    '• `/wallet view/set/remove/primary` — legacy/manual wallet controls; profile buttons are easier',
     ...(moduleEnabled('kreator') ? [
       `• \`/submit-post\` — submit ${communityName()} social content for ${xpLabel()} review`,
       '• `/leaderboard type:Kreators` — lifetime KREATOR leaderboard',
@@ -3787,6 +3976,7 @@ async function buildKlineO(guild) {
     '[KLINEO-MEMBER-COMMANDS]',
   ];
   await seedMessage(channels.botCommands, '[KLINEO-MEMBER-COMMANDS]', { content: memberCommands.join('\n') });
+  await ensureMemberProfileLauncher(guild);
 
   if (channels.modCommands) {
     const modCommands1 = [
@@ -4437,6 +4627,8 @@ async function checkPendingReferrals(guild) {
     if (!member || member.user.bot || !hasVerifiedRole(member)) continue;
     const attribution = getJoinAttribution(ref.member_id);
     if (!attribution || attribution.source !== 'member' || !Number(attribution.source_confirmed) || !Number(attribution.inviter_confirmed) || attribution.inviter_id !== ref.inviter_id) continue;
+    const eligibleInviter = await guild.members.fetch(ref.inviter_id).catch(() => null);
+    if (!eligibleInviter || eligibleInviter.user.bot || (!hasVerifiedRole(eligibleInviter) && !hasStaffRole(eligibleInviter))) continue;
     const activity = referralActivityCount(ref.member_id, ref.joined_at);
     const activeDays = referralActivityDays(ref.member_id, ref.joined_at);
     if (activity < Math.max(1, getSettingInt('referral_activity_min_events'))) continue;
@@ -4585,10 +4777,10 @@ async function sendWelcomeDm(member) {
 async function verifyMember(interaction) {
   const name = communityName();
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  if (hasVerifiedRole(member)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
+  if (hasVerifiedRole(member)) return interaction.reply({ embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
   const attribution = getJoinAttribution(member.id);
   if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
-    return interaction.reply({ content: `Before you can enter ${name}, run **/join-source** in this server and select how you joined. If a member invited you, select that member. This keeps referral attribution accurate.`, ephemeral: true });
+    return interaction.reply({ content: `Before you can enter ${name}, click **START ONBOARDING** in #verify and select how you joined. You can also use /join-source as a manual fallback.`, ephemeral: true });
   }
   const ageHours = (now() - interaction.user.createdTimestamp) / 3600000;
   if (ageHours < MIN_ACCOUNT_AGE_HOURS) return interaction.reply({ content: `This Discord account is too new to verify yet. Please try again after it is ${MIN_ACCOUNT_AGE_HOURS} hours old.`, ephemeral: true });
@@ -4602,7 +4794,12 @@ async function verifyMember(interaction) {
   if (log) log.send(`✅ ${member} verified and entered ${name} as **OBSERVER**. Join source: **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` · inviter <@${attribution.inviter_id}>` : ''}.`).catch(() => {});
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   scheduleHealthUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-  return interaction.reply({ content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Join source recorded as **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' && !Number(attribution.inviter_confirmed) ? ' Your referral remains pending until the inviter confirms it.' : ''} Run \`/onboarding\` to complete your activation checklist.`, ephemeral: true });
+  return interaction.reply({
+    content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Join source: **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' ? ' Referral qualification is handled separately and never affects your community access.' : ''}\n\nYour socials, interests, languages and payout wallets are optional. Add them now or come back months later using **MY LINKO PROFILE** in #bot-commands or /profile.`,
+    embeds: [buildMemberProfileEmbed(interaction.guild, member)],
+    components: [profileActionRow()],
+    ephemeral: true,
+  });
 }
 
 async function createFounderApplicationModal(interaction) {
@@ -4826,9 +5023,10 @@ client.once('clientReady', async () => {
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
+        await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.13 native Discord Scheduled Events features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.14 member onboarding + profile features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5057,7 +5255,14 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (!interaction.user?.bot) touchActivity(interaction.user.id, interaction.isChatInputCommand() ? 'command' : 'onboarding');
     if (interaction.isButton()) {
-      if (interaction.customId === 'klineo_verify') return verifyMember(interaction);
+      if (interaction.customId === 'klineo_verify' || interaction.customId === 'linko_onboarding_start') return showOnboardingEntry(interaction);
+      if (interaction.customId === 'linko_onboarding_verify') return verifyMember(interaction);
+      if (interaction.customId === 'linko_profile_open') return showMemberProfile(interaction);
+      if (interaction.customId === 'linko_profile_refresh') return showMemberProfile(interaction, 'update');
+      if (interaction.customId === 'linko_profile_socials') return showProfileSocialsModal(interaction);
+      if (interaction.customId === 'linko_profile_interests') return showProfileInterestsSelect(interaction);
+      if (interaction.customId === 'linko_profile_languages') return showProfileLanguagesSelect(interaction);
+      if (interaction.customId === 'linko_profile_wallets') return showProfileWalletsModal(interaction);
       if (interaction.customId === 'project_profile_details_setup' || interaction.customId === 'project_profile_details_edit') {
         if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
         return showProjectProfileDetailsModal(interaction, interaction.customId.endsWith('_setup') ? 'setup' : 'edit');
@@ -5123,6 +5328,148 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    if (interaction.isStringSelectMenu() && interaction.customId === 'linko_onboarding_source') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (hasVerifiedRole(member)) return showMemberProfile(interaction, 'update');
+      const source = interaction.values[0];
+      if (source === 'member') {
+        const existing = getJoinAttribution(member.id);
+        if (existing?.detected_inviter_id) {
+          const inviterUser = await client.users.fetch(existing.detected_inviter_id).catch(() => null);
+          const recorded = await recordMemberJoinSource(interaction.guild, member, inviterUser);
+          if (!recorded.ok) return interaction.update({ content: recorded.message, components: [inviterSelectRow()], embeds: [] });
+          return interaction.update({ content: `✅ LINKO matched your invite to **${recorded.inviterUser.username}**. ${recorded.eligible ? 'Referral attribution is recorded.' : 'They are not verified yet, so their referral reward stays pending. This does not block you.'}\n\n**Step 2 of 2 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+        }
+        return interaction.update({ content: `**Who invited you to ${communityName()}?**\nSelect that member below. They do **not** need to be verified for you to continue; their referral reward will simply remain pending until they become eligible.`, components: [inviterSelectRow()], embeds: [] });
+      }
+      upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: getJoinAttribution(member.id)?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
+      db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
+      scheduleModInboxUpdate(interaction.guild);
+      return interaction.update({ content: `✅ Join source saved as **${joinSourceLabel(source)}**.\n\n**Step 2 of 2 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+    }
+
+    if (interaction.isUserSelectMenu() && interaction.customId === 'linko_onboarding_inviter') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (hasVerifiedRole(member)) return showMemberProfile(interaction, 'update');
+      const inviterUser = interaction.users.first();
+      const recorded = await recordMemberJoinSource(interaction.guild, member, inviterUser);
+      if (!recorded.ok) return interaction.update({ content: `❌ ${recorded.message}\nChoose the correct inviter below.`, components: [inviterSelectRow()], embeds: [] });
+      return interaction.update({ content: `✅ Join source recorded: **Invited by ${recorded.inviterUser.username}**. ${recorded.eligible ? (recorded.detectedMatch ? 'Attribution confirmed.' : 'Referral awaits their confirmation.') : 'They are not verified yet, so their referral reward stays pending. **You can still verify now.**'}\n\n**Step 2 of 2 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+    }
+
+    if (interaction.isStringSelectMenu() && interaction.customId === 'linko_profile_interests_select') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, 'update');
+      const selected = new Set(interaction.values);
+      for (const [key, label] of INTERESTS) {
+        const role = interaction.guild.roles.cache.find((r) => r.name === `${INTEREST_ROLE_PREFIX}${label}`);
+        if (!role) continue;
+        if (selected.has(key)) {
+          if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${communityName()} profile interest`);
+          db.prepare('INSERT OR IGNORE INTO user_interests (user_id, interest, created_at) VALUES (?, ?, ?)').run(member.id, key, now());
+        } else {
+          if (member.roles.cache.has(role.id)) await member.roles.remove(role, `${communityName()} profile interest removed`);
+          db.prepare('DELETE FROM user_interests WHERE user_id=? AND interest=?').run(member.id, key);
+        }
+      }
+      db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
+      db.prepare('UPDATE member_activation SET interests_set=? WHERE user_id=?').run(selected.size > 0 ? 1 : 0, member.id);
+      scheduleHealthUpdate(interaction.guild);
+      return interaction.update({ content: '✅ Interests updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
+    }
+
+    if (interaction.isStringSelectMenu() && interaction.customId === 'linko_profile_languages_select') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, 'update');
+      const selected = new Set(interaction.values);
+      const rows = languageRows().slice(0, 25);
+      for (const row of rows) {
+        const role = interaction.guild.roles.cache.get(row.role_id);
+        if (!role) continue;
+        if (selected.has(row.role_id)) {
+          if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${communityName()} profile language`);
+          db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
+        } else {
+          if (member.roles.cache.has(role.id)) await member.roles.remove(role, `${communityName()} profile language removed`);
+          db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
+        }
+      }
+      db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
+      db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(selected.size > 0 ? 1 : 0, member.id);
+      scheduleHealthUpdate(interaction.guild);
+      return interaction.update({ content: '✅ Languages updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
+    }
+    if (interaction.isModalSubmit() && interaction.customId === 'linko_member_socials_modal') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
+      const xRaw = interaction.fields.getTextInputValue('x').trim();
+      const tgRaw = interaction.fields.getTextInputValue('telegram').trim();
+      const liRaw = interaction.fields.getTextInputValue('linkedin').trim();
+      const xAccount = xRaw ? normalizeXAccount(xRaw) : null;
+      const telegramAccount = tgRaw ? normalizeTelegramAccount(tgRaw) : null;
+      const linkedinAccount = liRaw ? normalizeLinkedInAccount(liRaw) : null;
+      if (xRaw && !xAccount) return interaction.reply({ content: 'Enter a valid X username or x.com profile URL.', ephemeral: true });
+      if (tgRaw && !telegramAccount) return interaction.reply({ content: 'Enter a valid Telegram username or t.me profile URL.', ephemeral: true });
+      if (liRaw && !linkedinAccount) return interaction.reply({ content: 'Enter a valid LinkedIn profile URL.', ephemeral: true });
+      const current = walletProfile(member.id);
+      db.prepare(`INSERT INTO wallet_profiles (user_id, primary_network, updated_at, x_account, telegram_account, linkedin_account) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET updated_at=excluded.updated_at, x_account=excluded.x_account, telegram_account=excluded.telegram_account, linkedin_account=excluded.linkedin_account`)
+        .run(member.id, current?.primary_network ?? null, now(), xAccount, telegramAccount, linkedinAccount);
+      let earned = 0;
+      if (xAccount) earned += await awardFirstSubmissionKxp(interaction.guild, member.id, 'x', 'X account');
+      if (telegramAccount) earned += await awardFirstSubmissionKxp(interaction.guild, member.id, 'telegram', 'Telegram account');
+      const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'wallet-log' && c.isTextBased());
+      if (log) await log.send(`👤 **Member socials updated** — ${member} · X ${xAccount ?? '—'} · Telegram ${telegramAccount ?? '—'} · LinkedIn ${linkedinAccount ? 'saved' : '—'}${earned ? ` · +${earned} ${xpLabel()} first-time reward` : ''}`).catch(() => {});
+      return interaction.reply({ content: `✅ Social profile updated.${earned ? ` First-time submissions earned **+${earned} ${xpLabel()}**.` : ''}`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'linko_member_wallets_modal') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
+      const desired = { evm: interaction.fields.getTextInputValue('evm').trim(), solana: interaction.fields.getTextInputValue('solana').trim() };
+      for (const [network, address] of Object.entries(desired)) {
+        if (address && !walletAddressValid(network, address)) return interaction.reply({ content: `That does not look like a valid **${walletNetworkLabel(network)}** public address.`, ephemeral: true });
+        if (!address) continue;
+        const duplicate = network === 'evm'
+          ? db.prepare('SELECT user_id FROM wallets WHERE network=? AND LOWER(address)=LOWER(?) LIMIT 1').get(network, address)
+          : db.prepare('SELECT user_id FROM wallets WHERE network=? AND address=? LIMIT 1').get(network, address);
+        if (duplicate && duplicate.user_id !== member.id) return interaction.reply({ content: `That ${walletNetworkLabel(network)} address is already submitted by another member. Ask staff if it is a legitimate shared address.`, ephemeral: true });
+      }
+      const lockHours = Math.max(0, getSettingInt('wallet_change_lock_hours'));
+      let earned = 0;
+      const changes = [];
+      for (const [network, address] of Object.entries(desired)) {
+        const old = db.prepare('SELECT * FROM wallets WHERE user_id=? AND network=?').get(member.id, network);
+        if (!address) {
+          if (old) {
+            db.prepare('DELETE FROM wallets WHERE user_id=? AND network=?').run(member.id, network);
+            db.prepare('INSERT INTO wallet_history (user_id,network,old_address,new_address,changed_at,actor_id) VALUES (?,?,?,?,?,?)').run(member.id, network, old.address, null, now(), member.id);
+            changes.push(`${walletNetworkLabel(network)} removed`);
+          }
+          continue;
+        }
+        const changedAt = now();
+        const walletChanged = !old || old.address !== address;
+        const priorHistory = db.prepare('SELECT id FROM wallet_history WHERE user_id=? AND network=? LIMIT 1').get(member.id, network);
+        const eligibleAt = old && !walletChanged ? Number(old.reward_eligible_at) : (old || priorHistory) ? changedAt + lockHours * 60 * 60 * 1000 : changedAt;
+        db.prepare(`INSERT INTO wallets (user_id,network,address,submitted_at,updated_at,reward_eligible_at) VALUES (?,?,?,?,?,?)
+          ON CONFLICT(user_id,network) DO UPDATE SET address=excluded.address, updated_at=excluded.updated_at, reward_eligible_at=excluded.reward_eligible_at`)
+          .run(member.id, network, address, old?.submitted_at ?? changedAt, changedAt, eligibleAt);
+        if (walletChanged) db.prepare('INSERT INTO wallet_history (user_id,network,old_address,new_address,changed_at,actor_id) VALUES (?,?,?,?,?,?)').run(member.id, network, old?.address ?? null, address, changedAt, member.id);
+        earned += await awardFirstSubmissionKxp(interaction.guild, member.id, `wallet_${network}`, `${walletNetworkLabel(network)} wallet`);
+        changes.push(`${walletNetworkLabel(network)} ${old ? (walletChanged ? 'updated' : 'unchanged') : 'added'}`);
+      }
+      const remaining = walletRows(member.id);
+      const currentProfile = walletProfile(member.id);
+      const currentPrimary = currentProfile?.primary_network;
+      const primaryStillExists = remaining.some((r) => r.network === currentPrimary);
+      const primary = primaryStillExists ? currentPrimary : (remaining[0]?.network ?? null);
+      db.prepare(`INSERT INTO wallet_profiles (user_id,primary_network,updated_at) VALUES (?,?,?)
+        ON CONFLICT(user_id) DO UPDATE SET primary_network=excluded.primary_network, updated_at=excluded.updated_at`).run(member.id, primary, now());
+      const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'wallet-log' && c.isTextBased());
+      if (log) await log.send(`🔐 **Wallet profile updated** — ${member} · ${remaining.map((r) => `${walletNetworkLabel(r.network)} ${maskWallet(r.address)}`).join(' · ') || 'no wallets'}${earned ? ` · +${earned} ${xpLabel()} first-time reward` : ''}`).catch(() => {});
+      return interaction.reply({ content: `✅ Wallet profile updated. ${changes.join(' · ') || 'No wallet changes.'}${earned ? ` First-time submissions earned **+${earned} ${xpLabel()}**.` : ''}\nLINKO stores public addresses only and never requests signatures, approvals, seed phrases or private keys.`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+    }
     if (interaction.isModalSubmit() && ['project_profile_modal', 'project_profile_setup_modal'].includes(interaction.customId)) {
       if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
         return interaction.reply({ content: `Only **${coreRoleName()}** or a server Administrator can manage the Project Profile.`, ephemeral: true });
@@ -5231,7 +5578,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.10 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Multi-server storage, KREATOR/campaign leaderboards, referrals, events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.14 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Button-based onboarding, permanent member profiles, referrals, native events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -5242,6 +5589,8 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     logCommandUse(interaction).catch(() => {});
+
+    if (interaction.commandName === 'profile') return showMemberProfile(interaction);
 
     if (interaction.commandName === 'rank' || interaction.commandName === 'points') {
       const user = interaction.options.getUser('member') ?? interaction.user;
@@ -5274,7 +5623,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n`/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
@@ -5309,7 +5658,7 @@ client.on('interactionCreate', async (interaction) => {
         upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: existingAttribution?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
         db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
         scheduleModInboxUpdate(interaction.guild);
-        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can now use the **VERIFY & ENTER ${communityNameUpper().slice(0, 24)}** button.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can verify now.`, components: [verificationButtonRow()], ephemeral: true });
       }
 
       let inviterUser = selectedUser;
@@ -5320,27 +5669,9 @@ client.on('interactionCreate', async (interaction) => {
       if (existingAttribution?.detected_inviter_id && inviterUser.id !== existingAttribution.detected_inviter_id) {
         return interaction.reply({ content: `LINKO detected <@${existingAttribution.detected_inviter_id}> as the invite creator. Staff must resolve that attribution before a different inviter can be selected.`, ephemeral: true });
       }
-      const inviter = await interaction.guild.members.fetch(inviterUser.id).catch(() => null);
-      if (!inviter || (!hasVerifiedRole(inviter) && !hasStaffRole(inviter))) return interaction.reply({ content: `The inviter must currently be a verified ${name} member.`, ephemeral: true });
-      if (inviter.joinedTimestamp && Number(inviter.joinedTimestamp) >= Number(joinedAt)) return interaction.reply({ content: `The selected inviter must have been a ${name} member before you joined.`, ephemeral: true });
-
-      const existingReferral = db.prepare('SELECT * FROM referrals WHERE member_id = ?').get(member.id);
-      if (existingReferral && existingReferral.inviter_id !== inviter.id) return interaction.reply({ content: `LINKO already has a different pending inviter: <@${existingReferral.inviter_id}>. Ask staff to resolve the attribution.`, ephemeral: true });
-      if (!existingReferral) db.prepare('INSERT INTO referrals (member_id, inviter_id, invite_code, joined_at, valid_awarded) VALUES (?, ?, ?, ?, 0)').run(member.id, inviter.id, `self:${member.id}`, joinedAt);
-
-      const detectedMatch = existingAttribution?.detected_inviter_id === inviter.id;
-      upsertJoinAttribution(member.id, {
-        source: 'member', inviterId: inviter.id, detectedInviterId: existingAttribution?.detected_inviter_id ?? null,
-        sourceConfirmed: 1, inviterConfirmed: detectedMatch ? 1 : 0,
-      });
-      db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
-      const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-      if (log) await log.send(`🧭 **Join source selected** — ${member} selected ${inviterUser} as inviter. ${detectedMatch ? 'LINKO invite detection already confirms the inviter.' : 'Awaiting inviter confirmation.'}`).catch(() => {});
-      if (!detectedMatch) {
-        await inviter.send(`🤝 **${name} referral confirmation**\n${member.user.username} says you personally invited them to ${name}. If correct, go to the ${name} server and run **/confirm-invited member:${member.user.username}**. If this is not you, alert a moderator. No referral ${xpLabel()} is awarded until the referral later passes verification + 7 days + activity checks.`).catch(() => {});
-      }
-      scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${name}.${detectedMatch ? ' LINKO already confirmed the invite attribution from Discord invite data.' : ' The referral remains pending until the inviter confirms it.'}`, ephemeral: true });
+      const recorded = await recordMemberJoinSource(interaction.guild, member, inviterUser);
+      if (!recorded.ok) return interaction.reply({ content: recorded.message, ephemeral: true });
+      return interaction.reply({ content: `✅ Join source recorded: **Invited by ${inviterUser.username}**. You can now verify and enter ${name}. ${recorded.eligible ? (recorded.detectedMatch ? 'Referral attribution is already confirmed.' : 'Referral attribution is pending inviter confirmation.') : 'Your inviter is not verified yet, but that does **not** block your verification. Their referral credit remains pending until they become eligible.'}`, components: [verificationButtonRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'confirm-invited') {
@@ -5379,7 +5710,7 @@ client.on('interactionCreate', async (interaction) => {
           return `**${walletNetworkLabel(r.network)}${primary === r.network ? ' · PRIMARY' : ''}**\n\`${r.address}\`\nStatus: Submitted · Reward use: ${eligible}`;
         }).join('\n\n') : 'No wallet addresses submitted yet.';
         const profile = walletProfile(interaction.user.id);
-        const socials = `**X:** ${profile?.x_account ?? 'Not submitted'}\n**Telegram:** ${profile?.telegram_account ?? 'Not submitted'}`;
+        const socials = `**X:** ${profile?.x_account ?? 'Not submitted'}\n**Telegram:** ${profile?.telegram_account ?? 'Not submitted'}\n**LinkedIn:** ${profile?.linkedin_account ?? 'Not submitted'}`;
         return interaction.reply({ content: `**KLINEO WALLET + SOCIAL PROFILE**\n\n${socials}\n\n${lines}\n\nLINKO only stores public profile identifiers and public wallet addresses. It never connects to wallets, requests signatures, approvals, seed phrases, private keys or transactions.`, ephemeral: true });
       }
       const network = interaction.options.getString('network', true);
@@ -5456,7 +5787,12 @@ client.on('interactionCreate', async (interaction) => {
         ['Introduce yourself', !!a.introduced_at], ['First qualified contribution', !!a.first_impact_at],
       ];
       const done = steps.filter((x) => x[1]).length;
-      return interaction.reply({ content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse \`/interest add\`, \`/language list\`, and introduce yourself in #introductions.`, ephemeral: true });
+      return interaction.reply({
+        content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse the buttons below for profile details, then introduce yourself in #introductions and make your first genuine contribution.`,
+        embeds: hasVerifiedRole(member) ? [buildMemberProfileEmbed(interaction.guild, member)] : [],
+        components: hasVerifiedRole(member) ? [profileActionRow()] : [],
+        ephemeral: true,
+      });
     }
 
     if (interaction.commandName === 'interest') {

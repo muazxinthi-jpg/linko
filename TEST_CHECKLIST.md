@@ -1,4 +1,4 @@
-# LINKO v10.13 Test Checklist
+# LINKO v10.14 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,26 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Member onboarding + permanent profile tests
+
+- Fresh unverified member clicks **START ONBOARDING** and sees a join-source dropdown without using slash commands.
+- Organic/X/Telegram/Event/Partner source saves successfully and exposes **VERIFY & ENTER**.
+- Member-invite source with Discord-detected inviter automatically records the detected inviter.
+- Member-invite source without detection opens the native member selector.
+- Select an inviter who is in the server but not verified; confirm the referred member can still verify immediately.
+- Confirm the unverified inviter receives no referral KXP until they become verified/eligible and any required confirmation is complete.
+- Confirm a verified inviter can still confirm a manually declared referral with `/confirm-invited`.
+- Confirm `/join-source` still works as a manual fallback and no longer blocks on an unverified inviter.
+- Verify a member and confirm the success response exposes the private profile dashboard.
+- Confirm **MY LINKO PROFILE** exists in `#bot-commands` after startup/setup and `/profile` opens the same private dashboard.
+- Add/edit/clear X, Telegram and LinkedIn from Socials and confirm profile completion updates.
+- Add/remove interests from the multi-select and confirm Discord interest roles + database rows stay synchronized.
+- Add/remove language communities from the multi-select and confirm roles + database rows stay synchronized.
+- Add/update/remove EVM and Solana public wallet addresses from the profile modal; confirm format, duplicate-address checks, change-lock timing and wallet history remain intact.
+- Confirm first-time X/Telegram/EVM/Solana KXP rewards are awarded only once.
+- Confirm a member who verified a month earlier can open `/profile` and complete missing optional sections without re-verifying.
+- Confirm optional profile incompleteness never removes VERIFIED MEMBER/OBSERVER access.
+- Confirm legacy `/wallet`, `/interest`, `/language` and `/onboarding` commands still work.
 ## Native Discord Scheduled Event tests
 
 - Create a future Voice event with **Everyone in Server** access and confirm it appears in Discord's server-level **Events** panel.
