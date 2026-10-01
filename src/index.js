@@ -306,6 +306,21 @@ const SCHEMA_SQL = `
     PRIMARY KEY (user_id, role_id)
   );
 
+  CREATE TABLE IF NOT EXISTS language_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    language_name TEXT NOT NULL,
+    emoji TEXT,
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    reviewed_at INTEGER,
+    reviewed_by TEXT,
+    role_id TEXT,
+    channel_id TEXT,
+    review_message_id TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS product_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -1933,6 +1948,64 @@ function slugifyChannelName(raw) {
   return String(raw ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'channel';
 }
 function languageRows() { return db.prepare('SELECT * FROM language_roles WHERE archived = 0 ORDER BY name COLLATE NOCASE').all(); }
+function languageRequestReviewButtons(id) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`language_request_approve:${id}`).setLabel('Approve + Create').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`language_request_decline:${id}`).setLabel('Decline').setStyle(ButtonStyle.Danger),
+  );
+}
+function languageRequestEmbed(row) {
+  return new EmbedBuilder().setColor(row.status === 'approved' ? BRAND.emerald : row.status === 'declined' ? BRAND.rose : BRAND.blue)
+    .setTitle(`🌍 Language request #${row.id} · ${row.language_name}`)
+    .addFields(
+      { name: 'Requested by', value: `<@${row.user_id}>`, inline: true },
+      { name: 'Preferred emoji', value: row.emoji || '🌐', inline: true },
+      { name: 'Status', value: `**${String(row.status).toUpperCase()}**`, inline: true },
+      ...(row.note ? [{ name: 'Note', value: row.note.slice(0, 1024) }] : []),
+    )
+    .setFooter({ text: `LINKO language request #${row.id}` })
+    .setTimestamp(new Date(Number(row.reviewed_at || row.created_at)));
+}
+async function createLanguageCommunity(guild, { name, emoji = '🌐', slug = null, actorId = null, actorTag = 'LINKO' }) {
+  const cleanName = String(name ?? '').trim();
+  const cleanEmoji = String(emoji ?? '').trim() || '🌐';
+  if (!cleanName) throw new Error('Language name is required.');
+  const existingRow = db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(cleanName);
+  if (existingRow) {
+    return { role: guild.roles.cache.get(existingRow.role_id) ?? null, channel: existingRow.channel_id ? guild.channels.cache.get(existingRow.channel_id) ?? null : null, row: existingRow, existed: true };
+  }
+  const roleName = `${LANGUAGE_ROLE_PREFIX}${cleanName}`;
+  let role = guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
+  if (!role) role = await guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${actorTag}` });
+  let category = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAMES.languages);
+  if (!category) category = await ensureCategory(guild, CATEGORY_NAMES.languages, [overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const perms = privateFor(guild.roles.everyone, [role, ...staff]);
+  const channelSlug = slugifyChannelName(slug || cleanName);
+  const chName = `${cleanEmoji}・${channelSlug}`;
+  let channel = guild.channels.cache.find((c) => c.parentId === category.id && c.name === chName && c.type === ChannelType.GuildText);
+  if (!channel) channel = await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${cleanName}-speaking ${communityName()} community.`, permissionOverwrites: perms, reason: 'LINKO language manager' });
+  db.prepare(`INSERT INTO language_roles (role_id,name,emoji,channel_id,created_by,created_at,archived) VALUES (?,?,?,?,?,?,0)
+    ON CONFLICT(role_id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, channel_id=excluded.channel_id, archived=0`)
+    .run(role.id, cleanName, cleanEmoji, channel.id, actorId, now());
+  db.prepare(`INSERT INTO managed_channels (channel_id,category_name,access,links_allowed,kxp_enabled,created_by,created_at,archived) VALUES (?,?,?,?,?,?,?,0)
+    ON CONFLICT(channel_id) DO UPDATE SET links_allowed=0, kxp_enabled=0, archived=0`)
+    .run(channel.id, CATEGORY_NAMES.languages, 'language', 0, 0, actorId, now());
+  const row = db.prepare('SELECT * FROM language_roles WHERE role_id=?').get(role.id);
+  const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+  if (log) await log.send(`🌍 ${actorTag} created language community **${cleanName}** → ${channel}. Links blocked by default.`).catch(() => {});
+  return { role, channel, row, existed: false };
+}
+async function showLanguageRequestModal(interaction) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
+  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request a Language');
+  const name = new TextInputBuilder().setCustomId('language').setLabel('Language name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Deutsch, हिन्दी, Español');
+  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇩🇪');
+  const note = new TextInputBuilder().setCustomId('note').setLabel('Why / who would use it? (optional)').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Optional context for moderators');
+  modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(emoji), new ActionRowBuilder().addComponents(note));
+  return interaction.showModal(modal);
+}
 function managedChannelRow(channelId) { return db.prepare('SELECT * FROM managed_channels WHERE channel_id = ? AND archived = 0').get(channelId); }
 function suggestionStatusLabel(status) {
   return ({ submitted: 'Submitted', reviewing: 'Reviewing', planned: 'Planned', building: 'Building', shipped: 'Shipped', declined: 'Declined' })[status] ?? status;
