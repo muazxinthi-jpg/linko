@@ -2405,6 +2405,7 @@ function modInboxCounts() {
     social: moduleEnabled('kreator') ? Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status='pending'").get()?.c ?? 0) : 0,
     founders: moduleEnabled('founder_hub') ? Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0) : 0,
     suggestions: Number(db.prepare("SELECT COUNT(*) AS c FROM product_suggestions WHERE status IN ('submitted','reviewing')").get()?.c ?? 0),
+    languageRequests: Number(db.prepare("SELECT COUNT(*) AS c FROM language_requests WHERE status='pending'").get()?.c ?? 0),
     impact: Number(db.prepare('SELECT COUNT(*) AS c FROM message_candidates WHERE awarded=0 AND revoked=0 AND created_at >= ?').get(cutoff)?.c ?? 0),
     events: Number(db.prepare("SELECT COUNT(*) AS c FROM community_events WHERE status IN ('planned','live')").get()?.c ?? 0),
     unverified: Number(db.prepare('SELECT COUNT(*) AS c FROM users WHERE joined_at >= ? AND verified_at IS NULL').get(cutoff)?.c ?? 0),
@@ -2414,11 +2415,11 @@ function modInboxCounts() {
 }
 function buildModInboxEmbed() {
   const c = modInboxCounts();
-  const total = c.social + c.founders + c.suggestions;
+  const total = c.social + c.founders + c.suggestions + c.languageRequests;
   return new EmbedBuilder().setColor(total ? BRAND.rose : BRAND.emerald).setTitle('📥 LINKO Moderator Inbox')
     .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**` : '**No pending review items.**')
     .addFields(
-      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**`, inline: true },
+      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nLanguage requests: **${c.languageRequests}**`, inline: true },
       { name: 'Operations', value: `Impact candidates evaluating: **${c.impact}**\nUpcoming/live events: **${c.events}**\nNew unverified (7d): **${c.unverified}**\nJoin source missing: **${c.unattributed}**\nAwaiting inviter confirmation: **${c.pendingInviterConfirmations}**`, inline: true },
     ).setFooter({ text: '[KLINEO-MOD-INBOX] · Auto-updated by LINKO' }).setTimestamp();
 }
@@ -5362,6 +5363,7 @@ client.on('interactionCreate', async (interaction) => {
           const updated = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
           const requester = await interaction.guild.members.fetch(request.user_id).catch(() => null);
           if (requester) await requester.send(`🌍 Your ${communityName()} language request **${request.language_name}** was not created at this time. You can request another language later from MY LINKO PROFILE.`).catch(() => {});
+          scheduleModInboxUpdate(interaction.guild);
           return interaction.update({ embeds: [languageRequestEmbed(updated)], components: [] });
         }
         await interaction.deferUpdate();
@@ -5385,6 +5387,7 @@ client.on('interactionCreate', async (interaction) => {
           .run(now(), interaction.user.id, created.role.id, created.channel.id, id);
         const updated = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
         scheduleHealthUpdate(interaction.guild);
+        scheduleModInboxUpdate(interaction.guild);
         return interaction.editReply({ embeds: [languageRequestEmbed(updated)], components: [] });
       }
       if (interaction.customId === 'linko_profile_wallets') return showProfileWalletsModal(interaction);
