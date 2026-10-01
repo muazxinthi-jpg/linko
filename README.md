@@ -1,3 +1,55 @@
+# LINKO v10.16.0
+
+LINKO v10.16 replaces free-form language-community creation with standardized preferred-language selection and demand-based channel creation.
+
+## Preferred language catalog
+
+Members can select multiple predefined languages from MY LINKO PROFILE:
+
+- 🌐 English (Global)
+- 🇮🇳 Hindi
+- 🇵🇰 Urdu
+- 🌍 Arabic
+- 🇩🇪 German
+- 🇫🇷 French
+- 🇪🇸 Spanish
+- 🇵🇹 Portuguese
+- 🇮🇹 Italian
+- 🇵🇱 Polish
+- 🇨🇿 Czech
+- 🇭🇷 Croatian
+- 🇷🇴 Romanian
+- 🇹🇷 Turkish
+- 🇮🇩 Indonesian
+- 🇻🇳 Vietnamese
+- 🇨🇳 Chinese
+- 🇰🇷 Korean
+- 🇯🇵 Japanese
+- 🇧🇩 Bengali
+- 🇮🇳 Tamil
+
+English (Global) always uses the main community and never creates a separate language channel.
+
+## Demand-based communities
+
+- Selecting a language records a standardized preference first; it does not immediately create a channel.
+- If an active language community already exists, LINKO immediately assigns the member to that role/channel.
+- When a non-English language reaches **3 interested members**, staff receives a private **CREATE COMMUNITY / NOT NOW** review.
+- CREATE COMMUNITY creates the standardized language role/channel and automatically enrolls every member who selected it.
+- NOT NOW suppresses another prompt until demand grows by at least 3 more members.
+- Deselecting an active language removes that language role from the member while keeping other preferences intact.
+
+## Other / missing languages
+
+- **REQUEST ANOTHER LANGUAGE** remains available for languages not in the approved catalog.
+- If the typed language already matches the catalog (including common aliases such as Hindhi → Hindi or Deutsch → German), LINKO uses the existing standardized entry instead of creating a duplicate.
+- Duplicate pending requests are merged and supporters are tracked.
+- Staff approval adds the requested language to the approved catalog only. It does **not** create a channel automatically.
+- The newly approved language follows the same 3-member demand threshold before staff is asked to create a dedicated community.
+
+Existing language roles/channels are migrated into the catalog and existing member language memberships are preserved as preferences.
+
+---
 # LINKO v10.15.0
 
 LINKO v10.15 adds member-requested language communities to MY LINKO PROFILE.
