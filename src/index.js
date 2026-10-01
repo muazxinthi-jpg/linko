@@ -321,6 +321,38 @@ const SCHEMA_SQL = `
     review_message_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS language_request_supporters (
+    request_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (request_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS language_catalog_custom (
+    language_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    emoji TEXT NOT NULL DEFAULT '🌐',
+    created_at INTEGER NOT NULL,
+    approved_by TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS language_preferences (
+    user_id TEXT NOT NULL,
+    language_key TEXT NOT NULL,
+    selected_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, language_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS language_demand_reviews (
+    language_key TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    review_message_id TEXT,
+    last_notified_count INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    updated_by TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS product_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -1061,6 +1093,36 @@ const INTERESTS = [
 ];
 const INTEREST_ROLE_PREFIX = 'INTEREST · ';
 const LANGUAGE_ROLE_PREFIX = 'LANG · ';
+
+const LANGUAGE_DEMAND_THRESHOLD = 3;
+const BASE_LANGUAGE_CATALOG = [
+  { key: 'english', name: 'English (Global)', emoji: '🌐', global: true, aliases: ['english', 'global english'] },
+  { key: 'hindi', name: 'Hindi', emoji: '🇮🇳', aliases: ['hindi', 'hindhi', 'hindy'] },
+  { key: 'urdu', name: 'Urdu', emoji: '🇵🇰', aliases: ['urdu'] },
+  { key: 'arabic', name: 'Arabic', emoji: '🌍', aliases: ['arabic'] },
+  { key: 'german', name: 'German', emoji: '🇩🇪', aliases: ['german', 'deutsch', 'germany'] },
+  { key: 'french', name: 'French', emoji: '🇫🇷', aliases: ['french', 'francais', 'français', 'france'] },
+  { key: 'spanish', name: 'Spanish', emoji: '🇪🇸', aliases: ['spanish', 'espanol', 'español'] },
+  { key: 'portuguese', name: 'Portuguese', emoji: '🇵🇹', aliases: ['portuguese', 'portugues', 'português'] },
+  { key: 'italian', name: 'Italian', emoji: '🇮🇹', aliases: ['italian', 'italiano', 'italy'] },
+  { key: 'polish', name: 'Polish', emoji: '🇵🇱', aliases: ['polish', 'polski', 'poland'] },
+  { key: 'czech', name: 'Czech', emoji: '🇨🇿', aliases: ['czech', 'cesky', 'čeština'] },
+  { key: 'croatian', name: 'Croatian', emoji: '🇭🇷', aliases: ['croatian', 'hrvatski', 'croatia'] },
+  { key: 'romanian', name: 'Romanian', emoji: '🇷🇴', aliases: ['romanian', 'romana', 'română', 'romania'] },
+  { key: 'turkish', name: 'Turkish', emoji: '🇹🇷', aliases: ['turkish', 'turkce', 'türkçe'] },
+  { key: 'indonesian', name: 'Indonesian', emoji: '🇮🇩', aliases: ['indonesian', 'bahasa indonesia'] },
+  { key: 'vietnamese', name: 'Vietnamese', emoji: '🇻🇳', aliases: ['vietnamese'] },
+  { key: 'chinese', name: 'Chinese', emoji: '🇨🇳', aliases: ['chinese', 'mandarin', 'simplified chinese'] },
+  { key: 'korean', name: 'Korean', emoji: '🇰🇷', aliases: ['korean'] },
+  { key: 'japanese', name: 'Japanese', emoji: '🇯🇵', aliases: ['japanese'] },
+  { key: 'bengali', name: 'Bengali', emoji: '🇧🇩', aliases: ['bengali', 'bangla'] },
+  { key: 'tamil', name: 'Tamil', emoji: '🇮🇳', aliases: ['tamil'] },
+];
+function normalizeLanguageInput(raw) {
+  return String(raw ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+function baseLanguageByKey(key) { return BASE_LANGUAGE_CATALOG.find((x) => x.key === key) ?? null; }
+
 
 function baseChannelName(name = '') {
   const i = name.indexOf('・');
@@ -1948,32 +2010,152 @@ function slugifyChannelName(raw) {
   return String(raw ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'channel';
 }
 function languageRows() { return db.prepare('SELECT * FROM language_roles WHERE archived = 0 ORDER BY name COLLATE NOCASE').all(); }
+function customLanguageCatalogRows() { return db.prepare("SELECT * FROM language_catalog_custom WHERE active=1 ORDER BY name COLLATE NOCASE").all(); }
+function languageCatalog() {
+  return [...BASE_LANGUAGE_CATALOG, ...customLanguageCatalogRows().map((r) => ({ key: r.language_key, name: r.name, emoji: r.emoji || '🌐', global: false, custom: true, aliases: [r.name] }))];
+}
+function languageCatalogEntry(key) { return languageCatalog().find((x) => x.key === key) ?? null; }
+function languageCatalogFindByInput(raw) {
+  const normalized = normalizeLanguageInput(raw);
+  if (!normalized) return null;
+  for (const entry of languageCatalog()) {
+    const aliases = [entry.name, ...(entry.aliases ?? [])].map(normalizeLanguageInput);
+    if (aliases.includes(normalized)) return entry;
+  }
+  return null;
+}
+function activeLanguageRowForEntry(entry) {
+  if (!entry || entry.global) return null;
+  return db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(entry.name) ?? null;
+}
+function languagePreferenceKeys(userId) { return db.prepare('SELECT language_key FROM language_preferences WHERE user_id=? ORDER BY language_key').all(userId).map((r) => r.language_key); }
+function languageDemandCount(languageKey) { return Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE language_key=?').get(languageKey)?.c ?? 0); }
+function staffLanguageReviewChannel(guild) {
+  return guild.channels.cache.find((c) => baseChannelName(c.name) === 'moderation' && c.isTextBased())
+    ?? guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-commands' && c.isTextBased())
+    ?? guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased())
+    ?? null;
+}
+function ensureCatalogFromExistingLanguageRoles() {
+  for (const row of languageRows()) {
+    let entry = languageCatalogFindByInput(row.name);
+    if (!entry) {
+      let key = `custom-${slugifyChannelName(row.name)}`;
+      let suffix = 2;
+      while (languageCatalogEntry(key)) key = `custom-${slugifyChannelName(row.name)}-${suffix++}`;
+      db.prepare('INSERT OR IGNORE INTO language_catalog_custom (language_key,name,emoji,created_at,approved_by,active) VALUES (?,?,?,?,?,1)')
+        .run(key, row.name, row.emoji || '🌐', now(), row.created_by || null);
+      entry = languageCatalogEntry(key);
+    }
+    if (!entry) continue;
+    const members = db.prepare('SELECT user_id FROM member_languages WHERE role_id=?').all(row.role_id);
+    for (const m of members) db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(m.user_id, entry.key, now());
+  }
+}
 function languageRequestReviewButtons(id) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`language_request_approve:${id}`).setLabel('Approve + Create').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`language_request_approve:${id}`).setLabel('Approve Catalog').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`language_request_decline:${id}`).setLabel('Decline').setStyle(ButtonStyle.Danger),
   );
 }
 function languageRequestEmbed(row) {
   return new EmbedBuilder().setColor(row.status === 'approved' ? BRAND.emerald : row.status === 'declined' ? BRAND.rose : BRAND.blue)
-    .setTitle(`🌍 Language request #${row.id} · ${row.language_name}`)
+    .setTitle(`🌍 Catalog request #${row.id} · ${row.language_name}`)
     .addFields(
       { name: 'Requested by', value: `<@${row.user_id}>`, inline: true },
-      { name: 'Preferred emoji', value: row.emoji || '🌐', inline: true },
+      { name: 'Suggested icon', value: row.emoji || '🌐', inline: true },
       { name: 'Status', value: `**${String(row.status).toUpperCase()}**`, inline: true },
       ...(row.note ? [{ name: 'Note', value: row.note.slice(0, 1024) }] : []),
     )
-    .setFooter({ text: `LINKO language request #${row.id}` })
+    .setFooter({ text: `LINKO language catalog request #${row.id}` })
     .setTimestamp(new Date(Number(row.reviewed_at || row.created_at)));
 }
-async function createLanguageCommunity(guild, { name, emoji = '🌐', slug = null, actorId = null, actorTag = 'LINKO' }) {
-  const cleanName = String(name ?? '').trim();
-  const cleanEmoji = String(emoji ?? '').trim() || '🌐';
-  if (!cleanName) throw new Error('Language name is required.');
-  const existingRow = db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(cleanName);
-  if (existingRow) {
-    return { role: guild.roles.cache.get(existingRow.role_id) ?? null, channel: existingRow.channel_id ? guild.channels.cache.get(existingRow.channel_id) ?? null : null, row: existingRow, existed: true };
+function languageDemandReviewButtons(languageKey) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`language_demand_create:${languageKey}`).setLabel('CREATE COMMUNITY').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`language_demand_notnow:${languageKey}`).setLabel('NOT NOW').setStyle(ButtonStyle.Secondary),
+  );
+}
+function languageDemandEmbed(entry, count, status = 'pending') {
+  return new EmbedBuilder().setColor(status === 'created' ? BRAND.emerald : BRAND.blue)
+    .setTitle(`${entry.emoji} ${entry.name} · Language demand`)
+    .setDescription(`**${count} member${count === 1 ? '' : 's'}** selected this language. LINKO only creates a dedicated language community after staff approval.`)
+    .addFields(
+      { name: 'Threshold', value: `**${LANGUAGE_DEMAND_THRESHOLD} members**`, inline: true },
+      { name: 'Current demand', value: `**${count}**`, inline: true },
+      { name: 'Status', value: `**${String(status).toUpperCase().replace('_',' ')}**`, inline: true },
+    )
+    .setFooter({ text: `Language key: ${entry.key} · English (Global) never creates a separate channel` })
+    .setTimestamp();
+}
+async function ensureLanguageDemandReview(guild, languageKey) {
+  const entry = languageCatalogEntry(languageKey);
+  if (!entry || entry.global || activeLanguageRowForEntry(entry)) return false;
+  const count = languageDemandCount(languageKey);
+  const existing = db.prepare('SELECT * FROM language_demand_reviews WHERE language_key=?').get(languageKey);
+  if (count < LANGUAGE_DEMAND_THRESHOLD) {
+    if (existing?.status === 'pending' && existing.review_message_id) {
+      const reviewChannel = staffLanguageReviewChannel(guild);
+      const msg = reviewChannel ? await reviewChannel.messages.fetch(existing.review_message_id).catch(() => null) : null;
+      if (msg) await msg.edit({ embeds: [languageDemandEmbed(entry, count, 'waiting')], components: [] }).catch(() => {});
+      db.prepare("UPDATE language_demand_reviews SET status='waiting',last_notified_count=?,updated_at=?,updated_by=NULL WHERE language_key=?").run(count, now(), languageKey);
+      scheduleModInboxUpdate(guild);
+    }
+    return false;
   }
+  if (existing?.status === 'created') return false;
+  if (existing?.status === 'not_now' && count < Number(existing.last_notified_count || 0) + LANGUAGE_DEMAND_THRESHOLD) return false;
+  const reviewChannel = staffLanguageReviewChannel(guild);
+  if (!reviewChannel) return false;
+  if (existing?.status === 'pending' && existing.review_message_id) {
+    const msg = await reviewChannel.messages.fetch(existing.review_message_id).catch(() => null);
+    if (msg) {
+      await msg.edit({ embeds: [languageDemandEmbed(entry, count, 'pending')], components: [languageDemandReviewButtons(languageKey)] }).catch(() => {});
+      db.prepare('UPDATE language_demand_reviews SET last_notified_count=?,updated_at=? WHERE language_key=?').run(count, now(), languageKey);
+      return true;
+    }
+  }
+  const msg = await reviewChannel.send({ embeds: [languageDemandEmbed(entry, count, 'pending')], components: [languageDemandReviewButtons(languageKey)] });
+  db.prepare(`INSERT INTO language_demand_reviews (language_key,status,review_message_id,last_notified_count,updated_at,updated_by) VALUES (?,?,?,?,?,NULL)
+    ON CONFLICT(language_key) DO UPDATE SET status='pending',review_message_id=excluded.review_message_id,last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=NULL`)
+    .run(languageKey, 'pending', msg.id, count, now());
+  scheduleModInboxUpdate(guild);
+  return true;
+}
+async function syncPreferredLanguageRole(guild, member, entry, selected) {
+  if (!entry || entry.global) return;
+  const row = activeLanguageRowForEntry(entry);
+  if (!row) return;
+  const role = guild.roles.cache.get(row.role_id);
+  if (!role) return;
+  if (selected) {
+    if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${communityName()} preferred language`).catch(() => {});
+    db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(member.id, role.id, now());
+  } else {
+    if (member.roles.cache.has(role.id)) await member.roles.remove(role, `${communityName()} preferred language removed`).catch(() => {});
+    db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
+  }
+}
+async function enrollPreferredLanguageMembers(guild, entry, role) {
+  const preferred = db.prepare('SELECT user_id FROM language_preferences WHERE language_key=?').all(entry.key);
+  let enrolled = 0;
+  for (const pref of preferred) {
+    const member = await guild.members.fetch(pref.user_id).catch(() => null);
+    if (!member || member.user.bot) continue;
+    if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${entry.name} language community created`).catch(() => {});
+    db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(member.id, role.id, now());
+    enrolled++;
+  }
+  return enrolled;
+}
+async function createLanguageCommunity(guild, { name = null, languageKey = null, emoji = null, slug = null, actorId = null, actorTag = 'LINKO' }) {
+  const entry = languageKey ? languageCatalogEntry(languageKey) : languageCatalogFindByInput(name);
+  if (!entry) throw new Error('That language is not in the approved LINKO language catalog. Add it through the language request flow first.');
+  if (entry.global) throw new Error('English (Global) uses the main community and does not need a separate language channel.');
+  const cleanName = entry.name;
+  const cleanEmoji = entry.emoji || emoji || '🌐';
+  const existingRow = activeLanguageRowForEntry(entry);
+  if (existingRow) return { role: guild.roles.cache.get(existingRow.role_id) ?? null, channel: existingRow.channel_id ? guild.channels.cache.get(existingRow.channel_id) ?? null : null, row: existingRow, existed: true, entry };
   const roleName = `${LANGUAGE_ROLE_PREFIX}${cleanName}`;
   let role = guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
   if (!role) role = await guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${actorTag}` });
@@ -1992,17 +2174,21 @@ async function createLanguageCommunity(guild, { name, emoji = '🌐', slug = nul
     ON CONFLICT(channel_id) DO UPDATE SET links_allowed=0, kxp_enabled=0, archived=0`)
     .run(channel.id, CATEGORY_NAMES.languages, 'language', 0, 0, actorId, now());
   const row = db.prepare('SELECT * FROM language_roles WHERE role_id=?').get(role.id);
+  const enrolled = await enrollPreferredLanguageMembers(guild, entry, role);
+  db.prepare(`INSERT INTO language_demand_reviews (language_key,status,review_message_id,last_notified_count,updated_at,updated_by) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(language_key) DO UPDATE SET status='created',last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+    .run(entry.key, 'created', null, languageDemandCount(entry.key), now(), actorId);
   const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-  if (log) await log.send(`🌍 ${actorTag} created language community **${cleanName}** → ${channel}. Links blocked by default.`).catch(() => {});
-  return { role, channel, row, existed: false };
+  if (log) await log.send(`🌍 ${actorTag} created language community **${cleanName}** → ${channel}. **${enrolled}** preferred-language member(s) enrolled automatically.`).catch(() => {});
+  return { role, channel, row, existed: false, entry, enrolled };
 }
 async function showLanguageRequestModal(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
-  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request a Language');
-  const name = new TextInputBuilder().setCustomId('language').setLabel('Language name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Deutsch, हिन्दी, Español');
-  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇩🇪');
-  const note = new TextInputBuilder().setCustomId('note').setLabel('Why / who would use it? (optional)').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Optional context for moderators');
+  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request another language');
+  const name = new TextInputBuilder().setCustomId('language').setLabel('Language name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Sinhala');
+  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Suggested flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇱🇰');
+  const note = new TextInputBuilder().setCustomId('note').setLabel('Optional context for moderators').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Why should this be added to the catalog?');
   modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(emoji), new ActionRowBuilder().addComponents(note));
   return interaction.showModal(modal);
 }
@@ -2406,6 +2592,7 @@ function modInboxCounts() {
     founders: moduleEnabled('founder_hub') ? Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0) : 0,
     suggestions: Number(db.prepare("SELECT COUNT(*) AS c FROM product_suggestions WHERE status IN ('submitted','reviewing')").get()?.c ?? 0),
     languageRequests: Number(db.prepare("SELECT COUNT(*) AS c FROM language_requests WHERE status='pending'").get()?.c ?? 0),
+    languageDemand: Number(db.prepare("SELECT COUNT(*) AS c FROM language_demand_reviews WHERE status='pending'").get()?.c ?? 0),
     impact: Number(db.prepare('SELECT COUNT(*) AS c FROM message_candidates WHERE awarded=0 AND revoked=0 AND created_at >= ?').get(cutoff)?.c ?? 0),
     events: Number(db.prepare("SELECT COUNT(*) AS c FROM community_events WHERE status IN ('planned','live')").get()?.c ?? 0),
     unverified: Number(db.prepare('SELECT COUNT(*) AS c FROM users WHERE joined_at >= ? AND verified_at IS NULL').get(cutoff)?.c ?? 0),
@@ -2415,11 +2602,11 @@ function modInboxCounts() {
 }
 function buildModInboxEmbed() {
   const c = modInboxCounts();
-  const total = c.social + c.founders + c.suggestions + c.languageRequests;
+  const total = c.social + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
   return new EmbedBuilder().setColor(total ? BRAND.rose : BRAND.emerald).setTitle('📥 LINKO Moderator Inbox')
     .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**` : '**No pending review items.**')
     .addFields(
-      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nLanguage requests: **${c.languageRequests}**`, inline: true },
+      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nLanguage demand reviews: **${c.languageDemand}**`, inline: true },
       { name: 'Operations', value: `Impact candidates evaluating: **${c.impact}**\nUpcoming/live events: **${c.events}**\nNew unverified (7d): **${c.unverified}**\nJoin source missing: **${c.unattributed}**\nAwaiting inviter confirmation: **${c.pendingInviterConfirmations}**`, inline: true },
     ).setFooter({ text: '[KLINEO-MOD-INBOX] · Auto-updated by LINKO' }).setTimestamp();
 }
@@ -3251,7 +3438,7 @@ function memberProfileCompletion(userId) {
   const profile = walletProfile(userId);
   const socialDone = !!(profile?.x_account || profile?.telegram_account || profile?.linkedin_account);
   const interests = db.prepare('SELECT interest FROM user_interests WHERE user_id=? ORDER BY interest').all(userId);
-  const languages = db.prepare('SELECT role_id FROM member_languages WHERE user_id=? ORDER BY role_id').all(userId);
+  const languages = db.prepare('SELECT language_key FROM language_preferences WHERE user_id=? ORDER BY language_key').all(userId);
   const wallets = walletRows(userId);
   return { profile, socialDone, interests, languages, wallets, completed: [socialDone, interests.length > 0, languages.length > 0, wallets.length > 0].filter(Boolean).length, total: 4 };
 }
@@ -3262,7 +3449,7 @@ function buildMemberProfileEmbed(guild, member) {
   const xp = getXp(userId);
   const rank = rankForXp(xp);
   const interestLabels = data.interests.map((r) => interestByKey(r.interest)?.[1] ?? r.interest);
-  const languageLabels = data.languages.map((r) => db.prepare('SELECT name,emoji FROM language_roles WHERE role_id=?').get(r.role_id)).filter(Boolean).map((r) => `${r.emoji || '🌐'} ${r.name}`);
+  const languageLabels = data.languages.map((r) => languageCatalogEntry(r.language_key)).filter(Boolean).map((r) => `${r.emoji || '🌐'} ${r.name}`);
   const walletLabels = data.wallets.map((r) => `${walletNetworkLabel(r.network)} · ${maskWallet(r.address)}`);
   let referral = 'Not applicable';
   if (attribution?.source === 'member' && attribution.inviter_id) {
@@ -3394,27 +3581,69 @@ async function showProfileInterestsSelect(interaction) {
 async function showProfileLanguagesSelect(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
-  const rows = languageRows().slice(0, 25);
-  const requestRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('linko_language_request').setLabel('REQUEST A LANGUAGE').setStyle(ButtonStyle.Primary),
-  );
-  if (!rows.length) {
-    const pending = db.prepare("SELECT * FROM language_requests WHERE user_id=? AND status='pending' ORDER BY id DESC LIMIT 1").get(member.id);
-    const pendingText = pending ? `\n\nYour request **#${pending.id} ${pending.language_name}** is currently pending staff review.` : '';
-    return interaction.reply({
-      content: `**No language communities are configured yet.**\nRequest the language you would like to use and LINKO will send it to moderators for approval.${pendingText}`,
-      components: [requestRow],
-      ephemeral: true,
-    });
+  ensureCatalogFromExistingLanguageRoles();
+  const selected = new Set(languagePreferenceKeys(member.id));
+  const baseMenu = new StringSelectMenuBuilder()
+    .setCustomId('linko_profile_languages_base')
+    .setPlaceholder('Choose preferred languages')
+    .setMinValues(0)
+    .setMaxValues(BASE_LANGUAGE_CATALOG.length);
+  baseMenu.addOptions(BASE_LANGUAGE_CATALOG.map((entry) => {
+    const active = activeLanguageRowForEntry(entry);
+    const demand = languageDemandCount(entry.key);
+    const description = entry.global ? 'Main global community' : active ? 'Language community active' : `${demand}/${LANGUAGE_DEMAND_THRESHOLD} interested before staff review`;
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(`${entry.emoji} ${entry.name}`.slice(0, 100))
+      .setValue(entry.key)
+      .setDescription(description.slice(0, 100))
+      .setDefault(selected.has(entry.key));
+  }));
+  const components = [new ActionRowBuilder().addComponents(baseMenu)];
+  const custom = customLanguageCatalogRows().slice(0, 25);
+  if (custom.length) {
+    const customMenu = new StringSelectMenuBuilder()
+      .setCustomId('linko_profile_languages_custom')
+      .setPlaceholder('More approved languages')
+      .setMinValues(0)
+      .setMaxValues(custom.length);
+    customMenu.addOptions(custom.map((row) => {
+      const entry = languageCatalogEntry(row.language_key);
+      const active = activeLanguageRowForEntry(entry);
+      const demand = languageDemandCount(row.language_key);
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(`${row.emoji || '🌐'} ${row.name}`.slice(0, 100))
+        .setValue(row.language_key)
+        .setDescription((active ? 'Language community active' : `${demand}/${LANGUAGE_DEMAND_THRESHOLD} interested before staff review`).slice(0, 100))
+        .setDefault(selected.has(row.language_key));
+    }));
+    components.push(new ActionRowBuilder().addComponents(customMenu));
   }
-  const selected = new Set(db.prepare('SELECT role_id FROM member_languages WHERE user_id=?').all(member.id).map((r) => r.role_id));
-  const menu = new StringSelectMenuBuilder().setCustomId('linko_profile_languages_select').setPlaceholder('Choose language communities').setMinValues(0).setMaxValues(rows.length);
-  menu.addOptions(rows.map((row) => new StringSelectMenuOptionBuilder().setLabel(`${row.emoji || '🌐'} ${row.name}`.slice(0, 100)).setValue(row.role_id).setDefault(selected.has(row.role_id))));
+  components.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('linko_language_request').setLabel('REQUEST ANOTHER LANGUAGE').setStyle(ButtonStyle.Secondary),
+  ));
   return interaction.reply({
-    content: '**Your language communities**\nSelect any that apply. If your language is missing, request it below.',
-    components: [new ActionRowBuilder().addComponents(menu), requestRow],
+    content: `**Preferred languages**\nChoose as many as you use. **🌐 English (Global)** stays in the main community and never creates a separate channel. Other languages are demand-tracked first; at **${LANGUAGE_DEMAND_THRESHOLD} members**, staff can activate a dedicated language community.`,
+    components,
     ephemeral: true,
   });
+}
+async function updateLanguagePreferencesForScope(guild, member, scopeEntries, selectedKeys) {
+  const selected = new Set(selectedKeys);
+  for (const entry of scopeEntries) {
+    if (selected.has(entry.key)) {
+      db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, entry.key, now());
+      await syncPreferredLanguageRole(guild, member, entry, true);
+    } else {
+      db.prepare('DELETE FROM language_preferences WHERE user_id=? AND language_key=?').run(member.id, entry.key);
+      await syncPreferredLanguageRole(guild, member, entry, false);
+    }
+    await ensureLanguageDemandReview(guild, entry.key);
+  }
+  db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
+  const total = Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE user_id=?').get(member.id)?.c ?? 0);
+  db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(total > 0 ? 1 : 0, member.id);
+  scheduleHealthUpdate(guild);
+  return total;
 }
 async function awardFirstSubmissionKxp(guild, userId, item, label, actorId = null) {
   const exists = db.prepare('SELECT 1 FROM profile_submission_rewards WHERE user_id = ? AND item = ?').get(userId, item);
@@ -5112,10 +5341,12 @@ client.once('clientReady', async () => {
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
+        ensureCatalogFromExistingLanguageRoles();
+        for (const entry of languageCatalog()) await ensureLanguageDemandReview(fullGuild, entry.key).catch((error) => logLinkoError(`language-demand:${entry.key}`, error));
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.15 language request features.');
+        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.16 predefined language demand features.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5357,38 +5588,69 @@ client.on('interactionCreate', async (interaction) => {
         const [action, rawId] = interaction.customId.split(':');
         const id = Number(rawId);
         const request = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-        if (!request || request.status !== 'pending') return interaction.reply({ content: 'This language request has already been reviewed or no longer exists.', ephemeral: true });
+        if (!request || request.status !== 'pending') return interaction.reply({ content: 'This catalog request has already been reviewed or no longer exists.', ephemeral: true });
+        const supporters = db.prepare('SELECT user_id FROM language_request_supporters WHERE request_id=?').all(id);
+        const supporterIds = supporters.length ? supporters.map((r) => r.user_id) : [request.user_id];
         if (action === 'language_request_decline') {
           db.prepare("UPDATE language_requests SET status='declined', reviewed_at=?, reviewed_by=? WHERE id=?").run(now(), interaction.user.id, id);
           const updated = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-          const requester = await interaction.guild.members.fetch(request.user_id).catch(() => null);
-          if (requester) await requester.send(`🌍 Your ${communityName()} language request **${request.language_name}** was not created at this time. You can request another language later from MY LINKO PROFILE.`).catch(() => {});
+          for (const userId of supporterIds) {
+            const member = await interaction.guild.members.fetch(userId).catch(() => null);
+            if (member) await member.send(`🌍 The request to add **${request.language_name}** to the ${communityName()} language catalog was not approved at this time.`).catch(() => {});
+          }
           scheduleModInboxUpdate(interaction.guild);
           return interaction.update({ embeds: [languageRequestEmbed(updated)], components: [] });
         }
         await interaction.deferUpdate();
-        const created = await createLanguageCommunity(interaction.guild, {
-          name: request.language_name,
-          emoji: request.emoji || '🌐',
-          slug: request.language_name,
-          actorId: interaction.user.id,
-          actorTag: interaction.user.tag,
-        });
-        if (!created.role || !created.channel) throw new Error('Language role/channel could not be resolved.');
-        const requester = await interaction.guild.members.fetch(request.user_id).catch(() => null);
-        if (requester) {
-          await requester.roles.add(created.role, `Language request #${id} approved`).catch(() => {});
-          db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(request.user_id, created.role.id, now());
-          db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(request.user_id);
-          db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(request.user_id);
-          await requester.send(`✅ Your ${communityName()} language request **${request.language_name}** was approved. You were added to <#${created.channel.id}>.`).catch(() => {});
+        let entry = languageCatalogFindByInput(request.language_name);
+        if (!entry) {
+          let key = `custom-${slugifyChannelName(request.language_name)}`;
+          let suffix = 2;
+          while (languageCatalogEntry(key)) key = `custom-${slugifyChannelName(request.language_name)}-${suffix++}`;
+          db.prepare('INSERT INTO language_catalog_custom (language_key,name,emoji,created_at,approved_by,active) VALUES (?,?,?,?,?,1)')
+            .run(key, request.language_name.trim(), request.emoji || '🌐', now(), interaction.user.id);
+          entry = languageCatalogEntry(key);
         }
-        db.prepare("UPDATE language_requests SET status='approved', reviewed_at=?, reviewed_by=?, role_id=?, channel_id=? WHERE id=?")
-          .run(now(), interaction.user.id, created.role.id, created.channel.id, id);
+        if (!entry) throw new Error('Approved language could not be added to the catalog.');
+        for (const userId of supporterIds) {
+          db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(userId, entry.key, now());
+          db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(userId);
+          db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(userId);
+          const member = await interaction.guild.members.fetch(userId).catch(() => null);
+          if (member) {
+            await syncPreferredLanguageRole(interaction.guild, member, entry, true);
+            await member.send(`✅ **${entry.emoji} ${entry.name}** was approved for the ${communityName()} language catalog and added to your preferences. A dedicated channel will only be created if demand reaches the community threshold and staff approves it.`).catch(() => {});
+          }
+        }
+        db.prepare("UPDATE language_requests SET status='approved', reviewed_at=?, reviewed_by=? WHERE id=?").run(now(), interaction.user.id, id);
         const updated = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-        scheduleHealthUpdate(interaction.guild);
+        await ensureLanguageDemandReview(interaction.guild, entry.key);
         scheduleModInboxUpdate(interaction.guild);
         return interaction.editReply({ embeds: [languageRequestEmbed(updated)], components: [] });
+      }
+      if (interaction.customId.startsWith('language_demand_create:') || interaction.customId.startsWith('language_demand_notnow:')) {
+        if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+        const [action, languageKey] = interaction.customId.split(':');
+        const entry = languageCatalogEntry(languageKey);
+        if (!entry || entry.global) return interaction.reply({ content: 'That language is not available for a dedicated community.', ephemeral: true });
+        const count = languageDemandCount(languageKey);
+        if (action === 'language_demand_notnow') {
+          db.prepare(`INSERT INTO language_demand_reviews (language_key,status,review_message_id,last_notified_count,updated_at,updated_by) VALUES (?,?,?,?,?,?)
+            ON CONFLICT(language_key) DO UPDATE SET status='not_now',last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+            .run(languageKey, 'not_now', interaction.message.id, count, now(), interaction.user.id);
+          scheduleModInboxUpdate(interaction.guild);
+          return interaction.update({ embeds: [languageDemandEmbed(entry, count, 'not_now')], components: [] });
+        }
+        await interaction.deferUpdate();
+        const created = await createLanguageCommunity(interaction.guild, { languageKey, actorId: interaction.user.id, actorTag: interaction.user.tag });
+        const preferred = db.prepare('SELECT user_id FROM language_preferences WHERE language_key=?').all(languageKey);
+        for (const pref of preferred) {
+          const member = await interaction.guild.members.fetch(pref.user_id).catch(() => null);
+          if (member && created.channel) await member.send(`🌍 **${entry.emoji} ${entry.name}** is now active in ${communityName()} → <#${created.channel.id}>.`).catch(() => {});
+        }
+        scheduleModInboxUpdate(interaction.guild);
+        scheduleHealthUpdate(interaction.guild);
+        return interaction.editReply({ embeds: [languageDemandEmbed(entry, languageDemandCount(languageKey), 'created')], components: [] });
       }
       if (interaction.customId === 'linko_profile_wallets') return showProfileWalletsModal(interaction);
       if (interaction.customId === 'project_profile_details_setup' || interaction.customId === 'project_profile_details_edit') {
@@ -5506,57 +5768,62 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.update({ content: '✅ Interests updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId === 'linko_profile_languages_select') {
+    if (interaction.isStringSelectMenu() && ['linko_profile_languages_base','linko_profile_languages_custom'].includes(interaction.customId)) {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, 'update');
-      const selected = new Set(interaction.values);
-      const rows = languageRows().slice(0, 25);
-      for (const row of rows) {
-        const role = interaction.guild.roles.cache.get(row.role_id);
-        if (!role) continue;
-        if (selected.has(row.role_id)) {
-          if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${communityName()} profile language`);
-          db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
-        } else {
-          if (member.roles.cache.has(role.id)) await member.roles.remove(role, `${communityName()} profile language removed`);
-          db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
-        }
-      }
-      db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
-      db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(selected.size > 0 ? 1 : 0, member.id);
-      scheduleHealthUpdate(interaction.guild);
-      return interaction.update({ content: '✅ Languages updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
+      ensureCatalogFromExistingLanguageRoles();
+      const scopeEntries = interaction.customId === 'linko_profile_languages_base'
+        ? BASE_LANGUAGE_CATALOG
+        : customLanguageCatalogRows().slice(0, 25).map((r) => languageCatalogEntry(r.language_key)).filter(Boolean);
+      await updateLanguagePreferencesForScope(interaction.guild, member, scopeEntries, interaction.values);
+      const selectedLabels = languagePreferenceKeys(member.id).map((key) => languageCatalogEntry(key)).filter(Boolean).map((entry) => `${entry.emoji} ${entry.name}`);
+      return interaction.update({
+        content: `✅ Preferred languages saved.\n${selectedLabels.length ? selectedLabels.join(' · ') : 'No preferred languages selected.'}`,
+        embeds: [buildMemberProfileEmbed(interaction.guild, member)],
+        components: [profileActionRow()],
+      });
     }
     if (interaction.isModalSubmit() && interaction.customId === 'linko_language_request_modal') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
+      ensureCatalogFromExistingLanguageRoles();
       const languageName = interaction.fields.getTextInputValue('language').trim();
       const emoji = interaction.fields.getTextInputValue('emoji').trim() || '🌐';
       const note = interaction.fields.getTextInputValue('note').trim();
       if (!languageName || languageName.length < 2) return interaction.reply({ content: 'Enter a valid language name.', ephemeral: true });
-      const existing = db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(languageName);
-      if (existing) {
-        const role = interaction.guild.roles.cache.get(existing.role_id);
-        if (role && !member.roles.cache.has(role.id)) await member.roles.add(role, 'Joined existing language from request flow');
-        db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(member.id, existing.role_id, now());
+      const existingEntry = languageCatalogFindByInput(languageName);
+      if (existingEntry) {
+        db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, existingEntry.key, now());
+        await syncPreferredLanguageRole(interaction.guild, member, existingEntry, true);
+        await ensureLanguageDemandReview(interaction.guild, existingEntry.key);
         db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
         db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(member.id);
-        return interaction.reply({ content: `✅ **${existing.name}** already exists. I added it to your profile${existing.channel_id ? ` → <#${existing.channel_id}>` : ''}.`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+        const active = activeLanguageRowForEntry(existingEntry);
+        return interaction.reply({
+          content: `ℹ️ **${existingEntry.emoji} ${existingEntry.name}** is already in the approved language catalog. I added it to your preferences.${existingEntry.global ? ' English stays in the main global community.' : active?.channel_id ? ` You now have access to <#${active.channel_id}>.` : ` Current demand: **${languageDemandCount(existingEntry.key)}/${LANGUAGE_DEMAND_THRESHOLD}** before staff review.`}`,
+          embeds: [buildMemberProfileEmbed(interaction.guild, member)],
+          components: [profileActionRow()],
+          ephemeral: true,
+        });
       }
-      const duplicate = db.prepare("SELECT * FROM language_requests WHERE user_id=? AND LOWER(language_name)=LOWER(?) AND status='pending' LIMIT 1").get(member.id, languageName);
-      if (duplicate) return interaction.reply({ content: `You already have pending language request **#${duplicate.id} ${duplicate.language_name}**. Staff will review it.`, ephemeral: true });
+      const normalized = normalizeLanguageInput(languageName);
+      const pendingRows = db.prepare("SELECT * FROM language_requests WHERE status='pending' ORDER BY id DESC").all();
+      const duplicate = pendingRows.find((row) => normalizeLanguageInput(row.language_name) === normalized);
+      if (duplicate) {
+        db.prepare('INSERT OR IGNORE INTO language_request_supporters (request_id,user_id,created_at) VALUES (?,?,?)').run(duplicate.id, member.id, now());
+        return interaction.reply({ content: `ℹ️ **${duplicate.language_name}** is already pending staff review as request **#${duplicate.id}**. I recorded your interest too, so no duplicate request was created.`, ephemeral: true });
+      }
       const result = db.prepare('INSERT INTO language_requests (user_id,language_name,emoji,note,created_at) VALUES (?,?,?,?,?)').run(member.id, languageName, emoji, note || null, now());
       const id = Number(result.lastInsertRowid);
+      db.prepare('INSERT OR IGNORE INTO language_request_supporters (request_id,user_id,created_at) VALUES (?,?,?)').run(id, member.id, now());
       let row = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-      const reviewChannel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'moderation' && c.isTextBased())
-        ?? interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-commands' && c.isTextBased())
-        ?? interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
+      const reviewChannel = staffLanguageReviewChannel(interaction.guild);
       if (!reviewChannel) return interaction.reply({ content: 'Language request saved, but the staff review channel is missing. Please alert a moderator.', ephemeral: true });
       const msg = await reviewChannel.send({ embeds: [languageRequestEmbed(row)], components: [languageRequestReviewButtons(id)] });
       db.prepare('UPDATE language_requests SET review_message_id=? WHERE id=?').run(msg.id, id);
       row = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
       scheduleModInboxUpdate(interaction.guild);
-      return interaction.reply({ content: `✅ Language request **#${id} · ${languageName}** submitted to ${communityName()} staff. If approved, LINKO will create the private language community and add you automatically.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Request **#${id} · ${languageName}** was sent to staff to consider adding it to the official language catalog. It will **not** create a channel automatically.`, ephemeral: true });
     }
     if (interaction.isModalSubmit() && interaction.customId === 'linko_member_socials_modal') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
@@ -5737,7 +6004,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.14 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Button-based onboarding, permanent member profiles, referrals, native events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.16 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Button-based onboarding, standardized preferred languages, demand-based language communities, referrals, native events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -5938,7 +6205,7 @@ client.on('interactionCreate', async (interaction) => {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       const a = activationRow(member.id);
       const interests = db.prepare('SELECT interest FROM user_interests WHERE user_id = ? ORDER BY interest').all(member.id).map((r) => interestByKey(r.interest)?.[1] ?? r.interest);
-      const langs = db.prepare('SELECT lr.name FROM member_languages ml JOIN language_roles lr ON lr.role_id=ml.role_id WHERE ml.user_id=? AND lr.archived=0 ORDER BY lr.name').all(member.id).map((r) => r.name);
+      const langs = languagePreferenceKeys(member.id).map((key) => languageCatalogEntry(key)).filter(Boolean).map((entry) => `${entry.emoji} ${entry.name}`);
       const languageAvailable = languageRows().length > 0;
       const steps = [
         ['Verified', hasVerifiedRole(member)], ['Choose an interest', interests.length > 0],
@@ -5992,14 +6259,18 @@ client.on('interactionCreate', async (interaction) => {
       const role = interaction.options.getRole('role', true);
       const row = db.prepare('SELECT * FROM language_roles WHERE role_id=? AND archived=0').get(role.id);
       if (!row) return interaction.editReply('That is not an active LINKO language role.');
+      ensureCatalogFromExistingLanguageRoles();
+      const entry = languageCatalogFindByInput(row.name);
       if (action === 'add') {
         await member.roles.add(role, `${communityName()} language self-selection`);
         db.prepare('INSERT OR IGNORE INTO member_languages (user_id, role_id, created_at) VALUES (?, ?, ?)').run(member.id, role.id, now());
+        if (entry) db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, entry.key, now());
       } else {
         await member.roles.remove(role, `${communityName()} language removed`);
         db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
+        if (entry) db.prepare('DELETE FROM language_preferences WHERE user_id=? AND language_key=?').run(member.id, entry.key);
       }
-      const count = Number(db.prepare('SELECT COUNT(*) AS c FROM member_languages WHERE user_id=?').get(member.id)?.c ?? 0);
+      const count = Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE user_id=?').get(member.id)?.c ?? 0);
       db.prepare('UPDATE member_activation SET language_set=? WHERE user_id=?').run(count > 0 ? 1 : 0, member.id);
       scheduleHealthUpdate(interaction.guild);
       return interaction.editReply(`${action === 'add' ? '✅ Joined' : 'Left'} **${row.name}**${row.channel_id && action === 'add' ? ` → <#${row.channel_id}>` : ''}.`);
@@ -6251,7 +6522,7 @@ client.on('interactionCreate', async (interaction) => {
         const created = await createLanguageCommunity(interaction.guild, { name, emoji, slug, actorId: interaction.user.id, actorTag: interaction.user.tag });
         return interaction.editReply(created.existed
           ? `ℹ️ ${created.row.emoji || '🌐'} **${created.row.name}** already exists${created.channel ? ` → ${created.channel}` : ''}.`
-          : `✅ Created ${emoji} **${name}** → ${created.channel}. Members can join from MY LINKO PROFILE or /language add.`);
+          : `✅ Created ${created.entry.emoji} **${created.entry.name}** → ${created.channel}. Preferred-language members were enrolled automatically.`);
       }
       await interaction.deferReply({ ephemeral: true });
       const role = interaction.options.getRole('role', true);
