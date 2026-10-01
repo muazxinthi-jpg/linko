@@ -5623,7 +5623,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n`/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', ephemeral: true });
+      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
@@ -5787,7 +5787,12 @@ client.on('interactionCreate', async (interaction) => {
         ['Introduce yourself', !!a.introduced_at], ['First qualified contribution', !!a.first_impact_at],
       ];
       const done = steps.filter((x) => x[1]).length;
-      return interaction.reply({ content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse \`/interest add\`, \`/language list\`, and introduce yourself in #introductions.`, ephemeral: true });
+      return interaction.reply({
+        content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse the buttons below for profile details, then introduce yourself in #introductions and make your first genuine contribution.`,
+        embeds: hasVerifiedRole(member) ? [buildMemberProfileEmbed(interaction.guild, member)] : [],
+        components: hasVerifiedRole(member) ? [profileActionRow()] : [],
+        ephemeral: true,
+      });
     }
 
     if (interaction.commandName === 'interest') {
