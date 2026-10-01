@@ -1,4 +1,4 @@
-# LINKO v10.15 Test Checklist
+# LINKO v10.16 Test Checklist
 
 Use this checklist before merging the multi-server release into production.
 
@@ -20,6 +20,23 @@ Use this checklist before merging the multi-server release into production.
 9. Confirm a leaderboard refresh in one server does not overwrite or cancel the other server's refresh.
 10. Confirm invite tracking is independent per guild.
 
+## Predefined language catalog + demand tests
+
+- Open MY LINKO PROFILE → Languages and confirm the fixed catalog appears with standardized icons and multi-select enabled.
+- Confirm English (Global) can be selected but never creates a dedicated role/channel.
+- Select Hindi as the first member; confirm preference is stored and no channel is created.
+- Select Hindi with second and third verified members; on the third selection confirm staff receives a CREATE COMMUNITY / NOT NOW review.
+- Approve CREATE COMMUNITY for Hindi and confirm LINKO creates `LANG · Hindi`, `🇮🇳・hindi`, and enrolls all Hindi-preferring members automatically.
+- Deselect Hindi after activation and confirm the member loses the Hindi role while other language preferences remain.
+- Select an already-active language and confirm the member is enrolled immediately without a new review.
+- Click NOT NOW at 3 members and confirm LINKO does not reprompt until demand grows by at least 3 additional members.
+- Submit `Hindhi` through REQUEST ANOTHER LANGUAGE and confirm LINKO resolves it to the existing Hindi catalog entry instead of creating a request.
+- Submit `Deutsch` and confirm it resolves to German.
+- Submit a genuinely missing language and confirm staff receives an Approve Catalog / Decline card, not a channel-creation card.
+- Approve a missing language and confirm it appears in the approved custom catalog but no channel is created until the 3-member threshold is reached.
+- Submit the same missing language from another member while pending and confirm no duplicate request is created; supporter interest is recorded.
+- Restart LINKO with existing language roles/member_languages and confirm they migrate into standardized/custom preferences without losing access.
+- Confirm `/language-manager create` refuses arbitrary non-catalog languages and still works for approved catalog languages.
 ## Member language request tests
 
 - With zero configured languages, click Languages from MY LINKO PROFILE and confirm **REQUEST A LANGUAGE** is shown.
