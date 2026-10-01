@@ -1119,7 +1119,7 @@ const BASE_LANGUAGE_CATALOG = [
   { key: 'tamil', name: 'Tamil', emoji: '🇮🇳', aliases: ['tamil'] },
 ];
 function normalizeLanguageInput(raw) {
-  return String(raw ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return String(raw ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 function baseLanguageByKey(key) { return BASE_LANGUAGE_CATALOG.find((x) => x.key === key) ?? null; }
 
