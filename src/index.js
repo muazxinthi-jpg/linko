@@ -2003,32 +2003,143 @@ function slugifyChannelName(raw) {
   return String(raw ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'channel';
 }
 function languageRows() { return db.prepare('SELECT * FROM language_roles WHERE archived = 0 ORDER BY name COLLATE NOCASE').all(); }
+function customLanguageCatalogRows() { return db.prepare("SELECT * FROM language_catalog_custom WHERE active=1 ORDER BY name COLLATE NOCASE").all(); }
+function languageCatalog() {
+  return [...BASE_LANGUAGE_CATALOG, ...customLanguageCatalogRows().map((r) => ({ key: r.language_key, name: r.name, emoji: r.emoji || '🌐', global: false, custom: true, aliases: [r.name] }))];
+}
+function languageCatalogEntry(key) { return languageCatalog().find((x) => x.key === key) ?? null; }
+function languageCatalogFindByInput(raw) {
+  const normalized = normalizeLanguageInput(raw);
+  if (!normalized) return null;
+  for (const entry of languageCatalog()) {
+    const aliases = [entry.name, ...(entry.aliases ?? [])].map(normalizeLanguageInput);
+    if (aliases.includes(normalized)) return entry;
+  }
+  return null;
+}
+function activeLanguageRowForEntry(entry) {
+  if (!entry || entry.global) return null;
+  return db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(entry.name) ?? null;
+}
+function languagePreferenceKeys(userId) { return db.prepare('SELECT language_key FROM language_preferences WHERE user_id=? ORDER BY language_key').all(userId).map((r) => r.language_key); }
+function languageDemandCount(languageKey) { return Number(db.prepare('SELECT COUNT(*) AS c FROM language_preferences WHERE language_key=?').get(languageKey)?.c ?? 0); }
+function staffLanguageReviewChannel(guild) {
+  return guild.channels.cache.find((c) => baseChannelName(c.name) === 'moderation' && c.isTextBased())
+    ?? guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-commands' && c.isTextBased())
+    ?? guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased())
+    ?? null;
+}
+function ensureCatalogFromExistingLanguageRoles() {
+  for (const row of languageRows()) {
+    let entry = languageCatalogFindByInput(row.name);
+    if (!entry) {
+      let key = `custom-${slugifyChannelName(row.name)}`;
+      let suffix = 2;
+      while (languageCatalogEntry(key)) key = `custom-${slugifyChannelName(row.name)}-${suffix++}`;
+      db.prepare('INSERT OR IGNORE INTO language_catalog_custom (language_key,name,emoji,created_at,approved_by,active) VALUES (?,?,?,?,?,1)')
+        .run(key, row.name, row.emoji || '🌐', now(), row.created_by || null);
+      entry = languageCatalogEntry(key);
+    }
+    if (!entry) continue;
+    const members = db.prepare('SELECT user_id FROM member_languages WHERE role_id=?').all(row.role_id);
+    for (const m of members) db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(m.user_id, entry.key, now());
+  }
+}
 function languageRequestReviewButtons(id) {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`language_request_approve:${id}`).setLabel('Approve + Create').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`language_request_approve:${id}`).setLabel('Approve Catalog').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`language_request_decline:${id}`).setLabel('Decline').setStyle(ButtonStyle.Danger),
   );
 }
 function languageRequestEmbed(row) {
   return new EmbedBuilder().setColor(row.status === 'approved' ? BRAND.emerald : row.status === 'declined' ? BRAND.rose : BRAND.blue)
-    .setTitle(`🌍 Language request #${row.id} · ${row.language_name}`)
+    .setTitle(`🌍 Catalog request #${row.id} · ${row.language_name}`)
     .addFields(
       { name: 'Requested by', value: `<@${row.user_id}>`, inline: true },
-      { name: 'Preferred emoji', value: row.emoji || '🌐', inline: true },
+      { name: 'Suggested icon', value: row.emoji || '🌐', inline: true },
       { name: 'Status', value: `**${String(row.status).toUpperCase()}**`, inline: true },
       ...(row.note ? [{ name: 'Note', value: row.note.slice(0, 1024) }] : []),
     )
-    .setFooter({ text: `LINKO language request #${row.id}` })
+    .setFooter({ text: `LINKO language catalog request #${row.id}` })
     .setTimestamp(new Date(Number(row.reviewed_at || row.created_at)));
 }
-async function createLanguageCommunity(guild, { name, emoji = '🌐', slug = null, actorId = null, actorTag = 'LINKO' }) {
-  const cleanName = String(name ?? '').trim();
-  const cleanEmoji = String(emoji ?? '').trim() || '🌐';
-  if (!cleanName) throw new Error('Language name is required.');
-  const existingRow = db.prepare('SELECT * FROM language_roles WHERE LOWER(name)=LOWER(?) AND archived=0 LIMIT 1').get(cleanName);
-  if (existingRow) {
-    return { role: guild.roles.cache.get(existingRow.role_id) ?? null, channel: existingRow.channel_id ? guild.channels.cache.get(existingRow.channel_id) ?? null : null, row: existingRow, existed: true };
+function languageDemandReviewButtons(languageKey) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`language_demand_create:${languageKey}`).setLabel('CREATE COMMUNITY').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`language_demand_notnow:${languageKey}`).setLabel('NOT NOW').setStyle(ButtonStyle.Secondary),
+  );
+}
+function languageDemandEmbed(entry, count, status = 'pending') {
+  return new EmbedBuilder().setColor(status === 'created' ? BRAND.emerald : BRAND.blue)
+    .setTitle(`${entry.emoji} ${entry.name} · Language demand`)
+    .setDescription(`**${count} member${count === 1 ? '' : 's'}** selected this language. LINKO only creates a dedicated language community after staff approval.`)
+    .addFields(
+      { name: 'Threshold', value: `**${LANGUAGE_DEMAND_THRESHOLD} members**`, inline: true },
+      { name: 'Current demand', value: `**${count}**`, inline: true },
+      { name: 'Status', value: `**${String(status).toUpperCase().replace('_',' ')}**`, inline: true },
+    )
+    .setFooter({ text: `Language key: ${entry.key} · English (Global) never creates a separate channel` })
+    .setTimestamp();
+}
+async function ensureLanguageDemandReview(guild, languageKey) {
+  const entry = languageCatalogEntry(languageKey);
+  if (!entry || entry.global || activeLanguageRowForEntry(entry)) return false;
+  const count = languageDemandCount(languageKey);
+  if (count < LANGUAGE_DEMAND_THRESHOLD) return false;
+  const existing = db.prepare('SELECT * FROM language_demand_reviews WHERE language_key=?').get(languageKey);
+  if (existing?.status === 'created') return false;
+  if (existing?.status === 'not_now' && count < Number(existing.last_notified_count || 0) + LANGUAGE_DEMAND_THRESHOLD) return false;
+  const reviewChannel = staffLanguageReviewChannel(guild);
+  if (!reviewChannel) return false;
+  if (existing?.status === 'pending' && existing.review_message_id) {
+    const msg = await reviewChannel.messages.fetch(existing.review_message_id).catch(() => null);
+    if (msg) {
+      await msg.edit({ embeds: [languageDemandEmbed(entry, count, 'pending')], components: [languageDemandReviewButtons(languageKey)] }).catch(() => {});
+      db.prepare('UPDATE language_demand_reviews SET last_notified_count=?,updated_at=? WHERE language_key=?').run(count, now(), languageKey);
+      return true;
+    }
   }
+  const msg = await reviewChannel.send({ embeds: [languageDemandEmbed(entry, count, 'pending')], components: [languageDemandReviewButtons(languageKey)] });
+  db.prepare(`INSERT INTO language_demand_reviews (language_key,status,review_message_id,last_notified_count,updated_at,updated_by) VALUES (?,?,?,?,?,NULL)
+    ON CONFLICT(language_key) DO UPDATE SET status='pending',review_message_id=excluded.review_message_id,last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=NULL`)
+    .run(languageKey, 'pending', msg.id, count, now());
+  scheduleModInboxUpdate(guild);
+  return true;
+}
+async function syncPreferredLanguageRole(guild, member, entry, selected) {
+  if (!entry || entry.global) return;
+  const row = activeLanguageRowForEntry(entry);
+  if (!row) return;
+  const role = guild.roles.cache.get(row.role_id);
+  if (!role) return;
+  if (selected) {
+    if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${communityName()} preferred language`).catch(() => {});
+    db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(member.id, role.id, now());
+  } else {
+    if (member.roles.cache.has(role.id)) await member.roles.remove(role, `${communityName()} preferred language removed`).catch(() => {});
+    db.prepare('DELETE FROM member_languages WHERE user_id=? AND role_id=?').run(member.id, role.id);
+  }
+}
+async function enrollPreferredLanguageMembers(guild, entry, role) {
+  const preferred = db.prepare('SELECT user_id FROM language_preferences WHERE language_key=?').all(entry.key);
+  let enrolled = 0;
+  for (const pref of preferred) {
+    const member = await guild.members.fetch(pref.user_id).catch(() => null);
+    if (!member || member.user.bot) continue;
+    if (!member.roles.cache.has(role.id)) await member.roles.add(role, `${entry.name} language community created`).catch(() => {});
+    db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(member.id, role.id, now());
+    enrolled++;
+  }
+  return enrolled;
+}
+async function createLanguageCommunity(guild, { name = null, languageKey = null, emoji = null, slug = null, actorId = null, actorTag = 'LINKO' }) {
+  const entry = languageKey ? languageCatalogEntry(languageKey) : languageCatalogFindByInput(name);
+  if (!entry) throw new Error('That language is not in the approved LINKO language catalog. Add it through the language request flow first.');
+  if (entry.global) throw new Error('English (Global) uses the main community and does not need a separate language channel.');
+  const cleanName = entry.name;
+  const cleanEmoji = entry.emoji || emoji || '🌐';
+  const existingRow = activeLanguageRowForEntry(entry);
+  if (existingRow) return { role: guild.roles.cache.get(existingRow.role_id) ?? null, channel: existingRow.channel_id ? guild.channels.cache.get(existingRow.channel_id) ?? null : null, row: existingRow, existed: true, entry };
   const roleName = `${LANGUAGE_ROLE_PREFIX}${cleanName}`;
   let role = guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
   if (!role) role = await guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${actorTag}` });
@@ -2047,17 +2158,21 @@ async function createLanguageCommunity(guild, { name, emoji = '🌐', slug = nul
     ON CONFLICT(channel_id) DO UPDATE SET links_allowed=0, kxp_enabled=0, archived=0`)
     .run(channel.id, CATEGORY_NAMES.languages, 'language', 0, 0, actorId, now());
   const row = db.prepare('SELECT * FROM language_roles WHERE role_id=?').get(role.id);
+  const enrolled = await enrollPreferredLanguageMembers(guild, entry, role);
+  db.prepare(`INSERT INTO language_demand_reviews (language_key,status,review_message_id,last_notified_count,updated_at,updated_by) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(language_key) DO UPDATE SET status='created',last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+    .run(entry.key, 'created', null, languageDemandCount(entry.key), now(), actorId);
   const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-  if (log) await log.send(`🌍 ${actorTag} created language community **${cleanName}** → ${channel}. Links blocked by default.`).catch(() => {});
-  return { role, channel, row, existed: false };
+  if (log) await log.send(`🌍 ${actorTag} created language community **${cleanName}** → ${channel}. **${enrolled}** preferred-language member(s) enrolled automatically.`).catch(() => {});
+  return { role, channel, row, existed: false, entry, enrolled };
 }
 async function showLanguageRequestModal(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
-  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request a Language');
-  const name = new TextInputBuilder().setCustomId('language').setLabel('Language name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Deutsch, हिन्दी, Español');
-  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇩🇪');
-  const note = new TextInputBuilder().setCustomId('note').setLabel('Why / who would use it? (optional)').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Optional context for moderators');
+  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request another language');
+  const name = new TextInputBuilder().setCustomId('language').setLabel('Language name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Sinhala');
+  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Suggested flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇱🇰');
+  const note = new TextInputBuilder().setCustomId('note').setLabel('Optional context for moderators').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Why should this be added to the catalog?');
   modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(emoji), new ActionRowBuilder().addComponents(note));
   return interaction.showModal(modal);
 }
