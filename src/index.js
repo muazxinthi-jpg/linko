@@ -5576,38 +5576,67 @@ client.on('interactionCreate', async (interaction) => {
         const [action, rawId] = interaction.customId.split(':');
         const id = Number(rawId);
         const request = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-        if (!request || request.status !== 'pending') return interaction.reply({ content: 'This language request has already been reviewed or no longer exists.', ephemeral: true });
+        if (!request || request.status !== 'pending') return interaction.reply({ content: 'This catalog request has already been reviewed or no longer exists.', ephemeral: true });
+        const supporters = db.prepare('SELECT user_id FROM language_request_supporters WHERE request_id=?').all(id);
+        const supporterIds = supporters.length ? supporters.map((r) => r.user_id) : [request.user_id];
         if (action === 'language_request_decline') {
           db.prepare("UPDATE language_requests SET status='declined', reviewed_at=?, reviewed_by=? WHERE id=?").run(now(), interaction.user.id, id);
           const updated = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-          const requester = await interaction.guild.members.fetch(request.user_id).catch(() => null);
-          if (requester) await requester.send(`🌍 Your ${communityName()} language request **${request.language_name}** was not created at this time. You can request another language later from MY LINKO PROFILE.`).catch(() => {});
+          for (const userId of supporterIds) {
+            const member = await interaction.guild.members.fetch(userId).catch(() => null);
+            if (member) await member.send(`🌍 The request to add **${request.language_name}** to the ${communityName()} language catalog was not approved at this time.`).catch(() => {});
+          }
           scheduleModInboxUpdate(interaction.guild);
           return interaction.update({ embeds: [languageRequestEmbed(updated)], components: [] });
         }
         await interaction.deferUpdate();
-        const created = await createLanguageCommunity(interaction.guild, {
-          name: request.language_name,
-          emoji: request.emoji || '🌐',
-          slug: request.language_name,
-          actorId: interaction.user.id,
-          actorTag: interaction.user.tag,
-        });
-        if (!created.role || !created.channel) throw new Error('Language role/channel could not be resolved.');
-        const requester = await interaction.guild.members.fetch(request.user_id).catch(() => null);
-        if (requester) {
-          await requester.roles.add(created.role, `Language request #${id} approved`).catch(() => {});
-          db.prepare('INSERT OR IGNORE INTO member_languages (user_id,role_id,created_at) VALUES (?,?,?)').run(request.user_id, created.role.id, now());
-          db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(request.user_id);
-          db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(request.user_id);
-          await requester.send(`✅ Your ${communityName()} language request **${request.language_name}** was approved. You were added to <#${created.channel.id}>.`).catch(() => {});
+        let entry = languageCatalogFindByInput(request.language_name);
+        if (!entry) {
+          let key = `custom-${slugifyChannelName(request.language_name)}`;
+          let suffix = 2;
+          while (languageCatalogEntry(key)) key = `custom-${slugifyChannelName(request.language_name)}-${suffix++}`;
+          db.prepare('INSERT INTO language_catalog_custom (language_key,name,emoji,created_at,approved_by,active) VALUES (?,?,?,?,?,1)')
+            .run(key, request.language_name.trim(), request.emoji || '🌐', now(), interaction.user.id);
+          entry = languageCatalogEntry(key);
         }
-        db.prepare("UPDATE language_requests SET status='approved', reviewed_at=?, reviewed_by=?, role_id=?, channel_id=? WHERE id=?")
-          .run(now(), interaction.user.id, created.role.id, created.channel.id, id);
+        if (!entry) throw new Error('Approved language could not be added to the catalog.');
+        for (const userId of supporterIds) {
+          db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(userId, entry.key, now());
+          const member = await interaction.guild.members.fetch(userId).catch(() => null);
+          if (member) {
+            await syncPreferredLanguageRole(interaction.guild, member, entry, true);
+            await member.send(`✅ **${entry.emoji} ${entry.name}** was approved for the ${communityName()} language catalog and added to your preferences. A dedicated channel will only be created if demand reaches the community threshold and staff approves it.`).catch(() => {});
+          }
+        }
+        db.prepare("UPDATE language_requests SET status='approved', reviewed_at=?, reviewed_by=? WHERE id=?").run(now(), interaction.user.id, id);
         const updated = db.prepare('SELECT * FROM language_requests WHERE id=?').get(id);
-        scheduleHealthUpdate(interaction.guild);
+        await ensureLanguageDemandReview(interaction.guild, entry.key);
         scheduleModInboxUpdate(interaction.guild);
         return interaction.editReply({ embeds: [languageRequestEmbed(updated)], components: [] });
+      }
+      if (interaction.customId.startsWith('language_demand_create:') || interaction.customId.startsWith('language_demand_notnow:')) {
+        if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+        const [action, languageKey] = interaction.customId.split(':');
+        const entry = languageCatalogEntry(languageKey);
+        if (!entry || entry.global) return interaction.reply({ content: 'That language is not available for a dedicated community.', ephemeral: true });
+        const count = languageDemandCount(languageKey);
+        if (action === 'language_demand_notnow') {
+          db.prepare(`INSERT INTO language_demand_reviews (language_key,status,review_message_id,last_notified_count,updated_at,updated_by) VALUES (?,?,?,?,?,?)
+            ON CONFLICT(language_key) DO UPDATE SET status='not_now',last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+            .run(languageKey, 'not_now', interaction.message.id, count, now(), interaction.user.id);
+          scheduleModInboxUpdate(interaction.guild);
+          return interaction.update({ embeds: [languageDemandEmbed(entry, count, 'not_now')], components: [] });
+        }
+        await interaction.deferUpdate();
+        const created = await createLanguageCommunity(interaction.guild, { languageKey, actorId: interaction.user.id, actorTag: interaction.user.tag });
+        const preferred = db.prepare('SELECT user_id FROM language_preferences WHERE language_key=?').all(languageKey);
+        for (const pref of preferred) {
+          const member = await interaction.guild.members.fetch(pref.user_id).catch(() => null);
+          if (member && created.channel) await member.send(`🌍 **${entry.emoji} ${entry.name}** is now active in ${communityName()} → <#${created.channel.id}>.`).catch(() => {});
+        }
+        scheduleModInboxUpdate(interaction.guild);
+        scheduleHealthUpdate(interaction.guild);
+        return interaction.editReply({ embeds: [languageDemandEmbed(entry, languageDemandCount(languageKey), 'created')], components: [] });
       }
       if (interaction.customId === 'linko_profile_wallets') return showProfileWalletsModal(interaction);
       if (interaction.customId === 'project_profile_details_setup' || interaction.customId === 'project_profile_details_edit') {
