@@ -5993,7 +5993,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await buildKlineO(interaction.guild);
         setSetupPhase('idle');
-        return interaction.editReply(`✅ LINKO v10.14 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Button-based onboarding, permanent member profiles, referrals, native events, moderation, and managed channels are active.`);
+        return interaction.editReply(`✅ LINKO v10.16 synced for **${interaction.guild.name}**. XP label: **${xpLabel()}**. Button-based onboarding, standardized preferred languages, demand-based language communities, referrals, native events, moderation, and managed channels are active.`);
       } catch (error) {
         const phase = getSetupPhase();
         logLinkoError(`${interaction.commandName} failed during ${phase}`, error);
@@ -6511,7 +6511,7 @@ client.on('interactionCreate', async (interaction) => {
         const created = await createLanguageCommunity(interaction.guild, { name, emoji, slug, actorId: interaction.user.id, actorTag: interaction.user.tag });
         return interaction.editReply(created.existed
           ? `ℹ️ ${created.row.emoji || '🌐'} **${created.row.name}** already exists${created.channel ? ` → ${created.channel}` : ''}.`
-          : `✅ Created ${emoji} **${name}** → ${created.channel}. Members can join from MY LINKO PROFILE or /language add.`);
+          : `✅ Created ${created.entry.emoji} **${created.entry.name}** → ${created.channel}. Preferred-language members were enrolled automatically.`);
       }
       await interaction.deferReply({ ephemeral: true });
       const role = interaction.options.getRole('role', true);
