@@ -4265,33 +4265,126 @@ async function addXp(guild, userId, amount, reason, actorId = null) {
   scheduleHealthUpdate(guild);
   return next;
 }
-async function ensurePublicLobby(guild) {
-  const everyone = guild.roles.everyone;
-  let channel = guild.channels.cache.find((c) => c.type === ChannelType.GuildText && !c.parentId && c.name === 'general');
-  if (!channel) {
-    channel = await guild.channels.create({
-      name: 'general',
-      type: ChannelType.GuildText,
-      topic: `Public ${communityName()} lobby before verification. Use START HERE to unlock the full community.`,
-      rateLimitPerUser: 5,
-      reason: 'LINKO public no-role lobby',
-    });
+async function channelHistorySample(channel, limit = 100) {
+  if (!channel?.isTextBased?.()) return { total: 0, human: 0 };
+  const messages = await channel.messages.fetch({ limit }).catch(() => null);
+  if (!messages) return { total: 0, human: 0 };
+  return {
+    total: messages.size,
+    human: messages.filter((m) => !m.author?.bot).size,
+  };
+}
+
+async function archiveDuplicateChannel(guild, channel, staffCategory, label) {
+  const sample = await channelHistorySample(channel);
+  if (sample.total === 0) {
+    await channel.delete(`LINKO v10.19.1 remove empty duplicate ${label}`).catch((error) => logLinkoError(`dedupe:delete:${channel.id}`, error));
+    return 'deleted-empty';
   }
+  if (!staffCategory) {
+    await channel.edit({ name: `archive-${baseChannelName(channel.name)}-${channel.id.slice(-4)}`, reason: 'LINKO v10.19.1 preserve duplicate channel history' }).catch((error) => logLinkoError(`dedupe:rename:${channel.id}`, error));
+    return 'renamed-archive';
+  }
+  const everyone = guild.roles.everyone;
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
   await channel.edit({
-    parent: null,
-    topic: `Public ${communityName()} lobby before verification. Use START HERE to unlock the full community.`,
-    rateLimitPerUser: 5,
-    reason: 'LINKO public lobby sync',
-  }).catch(() => {});
-  await channel.permissionOverwrites.edit(everyone, {
-    ViewChannel: true,
-    SendMessages: true,
-    ReadMessageHistory: true,
-    CreatePublicThreads: false,
-    CreatePrivateThreads: false,
-    SendMessagesInThreads: false,
-  }, { reason: 'LINKO public no-role lobby' }).catch(() => {});
-  return channel;
+    name: `archive-${baseChannelName(channel.name)}-${channel.id.slice(-4)}`,
+    parent: staffCategory.id,
+    reason: 'LINKO v10.19.1 preserve duplicate channel history',
+  }).catch((error) => logLinkoError(`dedupe:archive:${channel.id}`, error));
+  const overwrites = [
+    overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+    ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages])),
+  ];
+  await channel.permissionOverwrites.set(overwrites, 'LINKO v10.19.1 history archive').catch((error) => logLinkoError(`dedupe:archive-perms:${channel.id}`, error));
+  return 'archived-history';
+}
+
+async function chooseHistoryPreservingChannel(channels) {
+  const scored = [];
+  for (const channel of channels) {
+    const sample = await channelHistorySample(channel);
+    scored.push({ channel, ...sample });
+  }
+  scored.sort((a, b) =>
+    b.human - a.human ||
+    b.total - a.total ||
+    a.channel.createdTimestamp - b.channel.createdTimestamp
+  );
+  return scored[0]?.channel ?? channels[0] ?? null;
+}
+
+async function syncCanonicalGeneralAndAuditDuplicates(guild) {
+  if (getSetting('v10_19_1_channel_dedup_synced') === '1') return;
+  await guild.channels.fetch();
+
+  const communityCategory = guild.channels.cache.find((x) =>
+    x.type === ChannelType.GuildCategory && x.name === categoryName('community')
+  );
+  const staffCategory = guild.channels.cache.find((x) =>
+    x.type === ChannelType.GuildCategory && x.name === CATEGORY_NAMES.staff
+  );
+  const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+
+  if (communityCategory && verified) {
+    const generalCandidates = guild.channels.cache.filter((x) =>
+      x.type === ChannelType.GuildText &&
+      (x.name === 'general' || x.name === CHANNEL_NAMES.general || baseChannelName(x.name) === 'general')
+    );
+    if (generalCandidates.size) {
+      const keep = await chooseHistoryPreservingChannel([...generalCandidates.values()]);
+      const verifiedBase = [
+        overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+        overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]),
+        ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+      ];
+      await keep.edit({
+        name: CHANNEL_NAMES.general,
+        parent: communityCategory.id,
+        topic: `General ${communityName()} discussion. Public links are blocked.`,
+        rateLimitPerUser: 2,
+        reason: 'LINKO v10.19.1 preserve canonical general channel history',
+      }).catch((error) => logLinkoError(`dedupe:general-keep:${keep.id}`, error));
+      await keep.permissionOverwrites.set(verifiedBase, 'LINKO v10.19.1 canonical general permissions').catch((error) => logLinkoError(`dedupe:general-perms:${keep.id}`, error));
+
+      for (const duplicate of generalCandidates.values()) {
+        if (duplicate.id === keep.id) continue;
+        await archiveDuplicateChannel(guild, duplicate, staffCategory, 'general');
+      }
+    }
+  }
+
+  // Audit known LINKO legacy aliases for duplicate visible channels. We never delete
+  // a duplicate with message history; it is moved to STAFF as an archive instead.
+  const canonicalGroups = new Map();
+  for (const [legacyName, canonicalName] of LEGACY_CHANNEL_NAMES) {
+    const canonicalBase = baseChannelName(canonicalName);
+    if (!canonicalGroups.has(canonicalBase)) canonicalGroups.set(canonicalBase, new Set());
+    canonicalGroups.get(canonicalBase).add(legacyName);
+    canonicalGroups.get(canonicalBase).add(canonicalName);
+  }
+
+  for (const [canonicalBase, aliases] of canonicalGroups) {
+    if (canonicalBase === 'general') continue;
+    const candidates = guild.channels.cache.filter((x) =>
+      x.type === ChannelType.GuildText &&
+      (aliases.has(x.name) || baseChannelName(x.name) === canonicalBase)
+    );
+    if (candidates.size <= 1) continue;
+
+    // Prefer the channel already using the canonical current name. If none exists,
+    // preserve the channel with the strongest sampled human history.
+    const canonicalName = [...aliases].find((name) => baseChannelName(name) === canonicalBase && name.includes('・'));
+    const exact = canonicalName ? [...candidates.values()].find((x) => x.name === canonicalName) : null;
+    const keep = exact ?? await chooseHistoryPreservingChannel([...candidates.values()]);
+    for (const duplicate of candidates.values()) {
+      if (duplicate.id === keep.id) continue;
+      await archiveDuplicateChannel(guild, duplicate, staffCategory, canonicalBase);
+    }
+  }
+
+  setSetting('v10_19_1_channel_dedup_synced', 1);
 }
 
 function verifiedBoostCount(userId) {
@@ -4427,7 +4520,6 @@ async function buildKlineO(guild) {
 
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
-  channels.publicLobby = await ensurePublicLobby(guild);
   channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: `${communityName()} welcome and onboarding. Start here.` }, startReadOnly);
   channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${communityName()} community and security rules.` }, startReadOnly);
   channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `${communityName()} verification and access.` }, startReadOnly);
@@ -5706,7 +5798,6 @@ client.once('clientReady', async () => {
         }
         await reconcileVoiceSessions(fullGuild);
         await cacheInvites(fullGuild);
-        await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
         await syncAnnouncementChannelPermissions(fullGuild).catch((error) => logLinkoError('announcement-permissions', error));
         await syncEventsChannelVisibility(fullGuild).catch((error) => logLinkoError('events-channel-visibility', error));
         await backfillNativeScheduledEvents(fullGuild).catch((error) => logLinkoError('native-events-backfill', error));
@@ -5719,9 +5810,10 @@ client.once('clientReady', async () => {
         for (const entry of languageCatalog()) await ensureLanguageDemandReview(fullGuild, entry.key).catch((error) => logLinkoError(`community-demand:${entry.key}`, error));
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         await syncV1019DiscordStructure(fullGuild).catch((error) => logLinkoError('v10.19-structure-sync', error));
+        await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.19 active: KREATOR HUB consolidated, Community leaderboard synced in KXP, Referral leaderboard retained.');
+        console.log('LINKO v10.19.1 active: history-safe channel dedupe, one canonical General, KREATOR HUB consolidated, Community + Referral leaderboards retained.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
