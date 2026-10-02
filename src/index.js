@@ -282,6 +282,27 @@ const SCHEMA_SQL = `
     first_impact_at INTEGER
   );
 
+  CREATE TABLE IF NOT EXISTS member_participation (
+    user_id TEXT PRIMARY KEY,
+    lane TEXT NOT NULL DEFAULT 'community',
+    selected_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS kreator_profiles (
+    user_id TEXT PRIMARY KEY,
+    primary_url TEXT NOT NULL,
+    primary_followers INTEGER NOT NULL DEFAULT 0,
+    secondary_url TEXT,
+    secondary_followers INTEGER NOT NULL DEFAULT 0,
+    category TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    submitted_at INTEGER NOT NULL,
+    reviewed_by TEXT,
+    reviewed_at INTEGER,
+    review_message_id TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS user_interests (
     user_id TEXT NOT NULL,
     interest TEXT NOT NULL,
@@ -548,6 +569,7 @@ const DEFAULT_SETTINGS = {
   impact_min_alpha_chars: '18',
   voice_interval_minutes: '15',
   kxp_leaderboard_visibility: 'public',
+  community_leaderboard_visibility: 'public',
   referral_leaderboard_visibility: 'public',
   creator_leaderboard_visibility: 'public',
   campaign_leaderboard_visibility: 'public',
@@ -1071,7 +1093,7 @@ const CHANNEL_NAMES = {
   welcome: '👋・welcome', rules: '📜・rules', verify: '✅・verify', links: '🔗・official-links', announcements: '📢・announcements',
   general: '💬・general', marketChat: '📊・market-chat', tradeSetups: '🎯・trade-setups', aiAgentLab: '🤖・ai-agent-lab',
   productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
-  howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
+  howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', communityLeaderboard: '👥・community-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
   analystChat: '🧠・analyst-chat', tradeAnalysis: '📉・trade-analysis', marketThesis: '🌐・market-thesis', aiStrategies: '🤖・ai-strategies',
   sharePost: '📣・share-your-post', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
   creatorLounge: '🎨・creator-lounge', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
@@ -1150,7 +1172,7 @@ const LEGACY_CHANNEL_NAMES = new Map([
   ['welcome', CHANNEL_NAMES.welcome], ['rules', CHANNEL_NAMES.rules], ['verify', CHANNEL_NAMES.verify], ['official-links', CHANNEL_NAMES.links], ['announcements', CHANNEL_NAMES.announcements],
   ['general', CHANNEL_NAMES.general], ['market-chat', CHANNEL_NAMES.marketChat], ['trade-setups', CHANNEL_NAMES.tradeSetups], ['ai-agent-lab', CHANNEL_NAMES.aiAgentLab],
   ['product-updates', CHANNEL_NAMES.productUpdates], ['product-feedback', CHANNEL_NAMES.productFeedback], ['bug-reports', CHANNEL_NAMES.bugReports], ['help', CHANNEL_NAMES.help], ['introductions', CHANNEL_NAMES.introductions], ['wins-and-learnings', CHANNEL_NAMES.wins],
-  ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
+  ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['community-leaderboard', CHANNEL_NAMES.communityLeaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
   ['analyst-chat', CHANNEL_NAMES.analystChat], ['trade-analysis', CHANNEL_NAMES.tradeAnalysis], ['market-thesis', CHANNEL_NAMES.marketThesis], ['ai-strategies', CHANNEL_NAMES.aiStrategies],
   ['share-your-post', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
   ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
@@ -1180,8 +1202,8 @@ const commands = [
     .addUserOption((o) => o.setName('member').setDescription('Optional member to view.')),
   new SlashCommandBuilder().setName('leaderboard').setDescription('Show a community leaderboard.')
     .addStringOption((o) => o.setName('type').setDescription('Leaderboard type').addChoices(
-      { name: 'XP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
-      { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaign', value: 'campaign' },
+      { name: 'Overall KXP', value: 'kxp' }, { name: 'Community', value: 'community' }, { name: 'Referrals', value: 'referrals' },
+      { name: 'KREATOR', value: 'creators' }, { name: 'Creator Campaign', value: 'campaign' },
     ))
     .addIntegerOption((o) => o.setName('campaign').setDescription('Campaign ID when viewing a campaign leaderboard').setMinValue(1)),
   new SlashCommandBuilder().setName('invite').setDescription('Create your tracked community invite link.'),
@@ -1229,9 +1251,11 @@ const commands = [
         { name: 'EVM', value: 'evm' }, { name: 'Solana', value: 'solana' },
       ))),
 
+  new SlashCommandBuilder().setName('kreator-profile').setDescription('Submit or view your required KREATOR profile for approval.'),
+
   new SlashCommandBuilder()
     .setName('submit-post')
-    .setDescription('Submit a social post for XP review.')
+    .setDescription('KREATOR: submit a social post for KXP review.')
     .addStringOption((o) => o.setName('platform').setDescription('Platform').setRequired(true).addChoices(
       { name: 'X', value: 'x' }, { name: 'LinkedIn', value: 'linkedin' }, { name: 'YouTube', value: 'youtube' },
       { name: 'TikTok', value: 'tiktok' }, { name: 'Instagram', value: 'instagram' },
@@ -1446,8 +1470,8 @@ const commands = [
   new SlashCommandBuilder()
     .setName('leaderboard-settings')
     .setDescription('Staff: view or change leaderboard visibility.')    .addStringOption((o) => o.setName('board').setDescription('Leaderboard').addChoices(
-      { name: 'XP Points', value: 'kxp' }, { name: 'Referrals', value: 'referrals' },
-      { name: 'Kreators', value: 'creators' }, { name: 'Creator Campaigns', value: 'campaign' },
+      { name: 'Overall KXP', value: 'kxp' }, { name: 'Community', value: 'community' }, { name: 'Referrals', value: 'referrals' },
+      { name: 'KREATOR', value: 'creators' }, { name: 'Creator Campaigns', value: 'campaign' },
     ))
     .addStringOption((o) => o.setName('visibility').setDescription('Visibility').addChoices(
       { name: 'Public to verified members', value: 'public' }, { name: 'Private to staff', value: 'private' },
@@ -1637,7 +1661,7 @@ const commands = [
       .addStringOption((o) => o.setName('type').setDescription('Channel type').setRequired(true).addChoices({ name: 'Text', value: 'text' }, { name: 'Voice', value: 'voice' }))
       .addStringOption((o) => o.setName('access').setDescription('Who can see/use them').setRequired(true).addChoices(
         { name: 'Verified Members', value: 'verified' }, { name: 'ANALYST+', value: 'analyst' }, { name: 'STRATEGIST+', value: 'strategist' },
-        { name: 'Verified Founders', value: 'founders' }, { name: 'Studio Clients', value: 'studio' }, { name: 'Kreators', value: 'creators' }, { name: 'Staff Only', value: 'staff' },
+        { name: 'Verified Founders', value: 'founders' }, { name: 'Studio Clients', value: 'studio' }, { name: 'KREATOR', value: 'creators' }, { name: 'Staff Only', value: 'staff' },
       ))
       .addStringOption((o) => o.setName('emoji').setDescription('Optional emoji prefix').setMaxLength(12))
       .addStringOption((o) => o.setName('topic').setDescription('Optional topic for text channels').setMaxLength(300))
@@ -1741,6 +1765,37 @@ function hasStaffRole(member) {
 }
 function hasVerifiedRole(member) { return member?.roles?.cache?.some((r) => r.name === 'VERIFIED MEMBER'); }
 function hasKreatorRole(member) { return member?.roles?.cache?.some((r) => r.name === 'KREATOR' || r.name === 'CREATOR'); }
+function participationRow(userId) { return db.prepare('SELECT * FROM member_participation WHERE user_id=?').get(userId) ?? null; }
+function participationLane(memberOrUserId) {
+  const userId = typeof memberOrUserId === 'string' ? memberOrUserId : memberOrUserId?.id;
+  if (!userId) return null;
+  if (typeof memberOrUserId !== 'string' && hasKreatorRole(memberOrUserId)) return 'kreator';
+  return participationRow(userId)?.lane ?? null;
+}
+function setParticipationLane(userId, lane) {
+  const t = now();
+  db.prepare(`INSERT INTO member_participation (user_id,lane,selected_at,updated_at) VALUES (?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET lane=excluded.lane,updated_at=excluded.updated_at`).run(userId, lane, t, t);
+}
+function kreatorProfile(userId) { return db.prepare('SELECT * FROM kreator_profiles WHERE user_id=?').get(userId) ?? null; }
+function kreatorProfileApproved(userId) { return kreatorProfile(userId)?.status === 'approved'; }
+function isCommunityLeaderboardEligible(member) {
+  if (!member || member.user.bot || !hasVerifiedRole(member) || hasKreatorRole(member)) return false;
+  const lane = participationLane(member);
+  return !lane || lane === 'community';
+}
+function creatorProfilePlatform(url) {
+  try {
+    const u = new URL(url);
+    const h = u.hostname.toLowerCase().replace(/^www\./, '');
+    const defs = [
+      ['X', ['x.com','twitter.com']], ['YouTube', ['youtube.com','youtu.be']], ['TikTok', ['tiktok.com']],
+      ['Instagram', ['instagram.com']], ['LinkedIn', ['linkedin.com']], ['Telegram', ['t.me','telegram.me']],
+    ];
+    return defs.find(([, hosts]) => hosts.some((d) => h === d || h.endsWith(`.${d}`)))?.[0] ?? null;
+  } catch { return null; }
+}
+function creatorProfileUrlValid(url) { return !!creatorProfilePlatform(url); }
 function rankForXp(xp) { return [...RANKS].reverse().find((r) => xp >= r.threshold) ?? RANKS[0]; }
 function nextRankForXp(xp) { return RANKS.find((r) => r.threshold > xp) ?? null; }
 function ensureUserRow(userId, joinedAt = null, seenAt = null) {
@@ -2621,6 +2676,7 @@ function modInboxCounts() {
   const cutoff = now() - 7 * 86400000;
   return {
     social: moduleEnabled('kreator') ? Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status='pending'").get()?.c ?? 0) : 0,
+    kreatorProfiles: moduleEnabled('kreator') ? Number(db.prepare("SELECT COUNT(*) AS c FROM kreator_profiles WHERE status='pending'").get()?.c ?? 0) : 0,
     founders: moduleEnabled('founder_hub') ? Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0) : 0,
     suggestions: Number(db.prepare("SELECT COUNT(*) AS c FROM product_suggestions WHERE status IN ('submitted','reviewing')").get()?.c ?? 0),
     languageRequests: Number(db.prepare("SELECT COUNT(*) AS c FROM language_requests WHERE status='pending'").get()?.c ?? 0),
@@ -2634,11 +2690,11 @@ function modInboxCounts() {
 }
 function buildModInboxEmbed() {
   const c = modInboxCounts();
-  const total = c.social + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
+  const total = c.social + c.kreatorProfiles + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
   return new EmbedBuilder().setColor(total ? BRAND.rose : BRAND.emerald).setTitle('📥 LINKO Moderator Inbox')
     .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**` : '**No pending review items.**')
     .addFields(
-      { name: 'Reviews', value: `Social posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nLanguage demand reviews: **${c.languageDemand}**`, inline: true },
+      { name: 'Reviews', value: `KREATOR profiles: **${c.kreatorProfiles}**\nKREATOR posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nCommunity demand reviews: **${c.languageDemand}**`, inline: true },
       { name: 'Operations', value: `Impact candidates evaluating: **${c.impact}**\nUpcoming/live events: **${c.events}**\nNew unverified (7d): **${c.unverified}**\nJoin source missing: **${c.unattributed}**\nAwaiting inviter confirmation: **${c.pendingInviterConfirmations}**`, inline: true },
     ).setFooter({ text: '[KLINEO-MOD-INBOX] · Auto-updated by LINKO' }).setTimestamp();
 }
@@ -2924,7 +2980,7 @@ function buildWelcomeEmbed(channels) {
 function buildVerifyEmbed() {
   const name = communityName();
   const e = new EmbedBuilder().setColor(BRAND.lime).setTitle(`Join ${name}`)
-    .setDescription(`Click **START ONBOARDING**. LINKO will ask how you joined, handle referral attribution, then let you verify and enter the community as **OBSERVER**. No slash commands are required.\n\nAfter verification, your optional socials, interests, languages and payout wallets can be added or updated anytime from **MY LINKO PROFILE**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
+    .setDescription(`Click **START ONBOARDING**. LINKO will ask how you joined, then ask you to choose **Community Member** or **KREATOR** before verification. KREATORS submit primary/secondary socials and follower counts for staff approval. No slash commands are required.\n\nAfter verification, your optional socials, interests, languages and payout wallets can be added or updated anytime from **MY LINKO PROFILE**.\n\nBy verifying, you confirm that you have read the rules and understand that ${name} staff will never ask for your seed phrase, private key, or funds via unsolicited DM.`)
     .setFooter({ text: '[KLINEO-VERIFY]' });
   return withImageOrPlaceholder(e, 'verify', 'Verification');
 }
@@ -2932,7 +2988,7 @@ function buildSocialEmbed() {
   const label = xpLabel();
   const name = communityName();
   const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Social & KREATORs`)
-    .setDescription(`**Share ${name}. Earn ${label} for genuine contributions.**\n\nUse \`/submit-post\` for a ${name} post. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day.\n\nApproved **KREATOR** posts can earn **+${getSettingInt('creator_reaction_kxp')} ${label} per ${getSettingInt('creator_reaction_threshold')} unique verified Discord reactions**, capped at ${getSettingInt('creator_reaction_cap')} reaction milestones per post. Campaign-tagged KREATOR posts also count toward the campaign leaderboard.\n\nCreator ${label} is not a separate currency: it also increases the member's overall ${label} and normal rank progression.`)
+    .setDescription(`**KREATOR content is tracked separately from Community Member competition.**\n\nApproved KREATORS must submit every trackable/rewarded post through \`/submit-post\`. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day. KREATOR reaction milestones and campaign posts add to the same lifetime ${label}.\n\nKREATORS appear on the **KREATOR Leaderboard** and **Overall Leaderboard**, never on the **Community Leaderboard**.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -3082,18 +3138,27 @@ function referralLeaderboardRows(guild, limit = 50) {
   }).slice(0, limit);
 }
 
+function communityLeaderboardRows(guild, limit = 50) {
+  const rows = db.prepare(`
+    SELECT u.user_id, u.xp,
+      (SELECT COUNT(*) FROM referrals r WHERE r.inviter_id = u.user_id AND r.valid_awarded = 1) AS valid_referrals,
+      COALESCE((SELECT MAX(created_at) FROM xp_log x WHERE x.user_id = u.user_id), 0) AS last_xp_at
+    FROM users u
+    WHERE u.xp > 0
+    ORDER BY u.xp DESC, valid_referrals DESC, last_xp_at ASC, u.user_id ASC
+  `).all();
+  return rows.filter((r) => isCommunityLeaderboardEligible(guild.members.cache.get(r.user_id))).slice(0, limit);
+}
+
 function creatorLeaderboardRows(guild, limit = 50) {
   const rows = db.prepare(`
-    SELECT s.user_id,
-           SUM(COALESCE(s.xp_awarded, 0) + COALESCE(s.reaction_xp_awarded, 0)) AS creator_kxp,
-           SUM(CASE WHEN s.status = 'approved' THEN 1 ELSE 0 END) AS approved_posts,
-           SUM(COALESCE(s.reaction_xp_awarded, 0)) AS reaction_kxp,
-           COUNT(DISTINCT s.campaign_id) AS campaigns
-    FROM social_submissions s
-    WHERE s.status = 'approved' AND COALESCE(s.creator_eligible, 0) = 1
-    GROUP BY s.user_id
-    HAVING creator_kxp > 0
-    ORDER BY creator_kxp DESC, approved_posts DESC, reaction_kxp DESC, s.user_id ASC
+    SELECT u.user_id, u.xp,
+      (SELECT COUNT(*) FROM social_submissions s WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1) AS approved_posts,
+      COALESCE((SELECT SUM(COALESCE(s.xp_awarded,0)+COALESCE(s.reaction_xp_awarded,0)) FROM social_submissions s WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1),0) AS creator_post_kxp,
+      COALESCE((SELECT MAX(created_at) FROM xp_log x WHERE x.user_id=u.user_id),0) AS last_xp_at
+    FROM users u
+    WHERE u.xp > 0
+    ORDER BY u.xp DESC, approved_posts DESC, creator_post_kxp DESC, last_xp_at ASC, u.user_id ASC
   `).all();
   return rows.filter((r) => {
     const member = guild.members.cache.get(r.user_id);
@@ -3133,6 +3198,24 @@ function creatorReactionCount(submissionId) {
   return Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM creator_post_reactions WHERE submission_id = ?').get(submissionId)?.c ?? 0);
 }
 
+function buildCommunityLeaderboardEmbeds(guild, limit = 50) {
+  const label = xpLabel();
+  const rows = communityLeaderboardRows(guild, limit);
+  const chunks = leaderboardChunks(rows, 25);
+  return chunks.map((chunk, chunkIndex) => {
+    const offset = chunkIndex * 25;
+    const lines = chunk.length ? chunk.map((r, i) => {
+      const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.xp).toLocaleString()} ${label}** · ${rankForXp(Number(r.xp)).name}`;
+    }).join('\n') : 'No Community Member activity yet.';
+    return new EmbedBuilder().setColor(BRAND.cyan)
+      .setTitle(chunkIndex === 0 ? `👥 ${guild.name} Community Leaderboard · Top 50` : `👥 ${guild.name} Community Leaderboard · 26–50`)
+      .setDescription(lines)
+      .setFooter({ text: `[KLINEO-COMMUNITY-LEADERBOARD] · Community Members only · KREATORS excluded · Auto-updated by LINKO` })
+      .setTimestamp();
+  });
+}
+
 function buildCreatorLeaderboardEmbeds(guild, limit = 50) {
   const label = xpLabel();
   const rows = creatorLeaderboardRows(guild, limit);
@@ -3141,13 +3224,13 @@ function buildCreatorLeaderboardEmbeds(guild, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.creator_kxp).toLocaleString()} Creator ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction ${label}`;
-    }).join('\n') : 'No KREATOR activity yet.';
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.xp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved posts`;
+    }).join('\n') : 'No approved KREATOR activity yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
-      .setTitle(chunkIndex === 0 ? `🏅 ${guild.name} KREATOR Leaderboard · Top 50` : `🏅 ${guild.name} KREATOR Leaderboard · 26–50`)
+      .setTitle(chunkIndex === 0 ? `🎨 ${guild.name} KREATOR Leaderboard · Top 50` : `🎨 ${guild.name} KREATOR Leaderboard · 26–50`)
       .setDescription(lines)
-      .setFooter({ text: `[KLINEO-KREATOR-LEADERBOARD] · Creator ${label} is included in total ${label} · Auto-updated by LINKO` })
+      .setFooter({ text: `[KLINEO-KREATOR-LEADERBOARD] · Approved KREATORS only · Ranked by total ${label} · Auto-updated by LINKO` })
       .setTimestamp();
   });
 }
@@ -3193,9 +3276,9 @@ function buildLeaderboardEmbeds(guild, limit = 50) {
     }).join('\n') : `No ${label} activity yet.`;
     return new EmbedBuilder()
       .setColor(BRAND.lime)
-      .setTitle(chunkIndex === 0 ? `🏆 ${guild.name} ${label} Leaderboard · Top 50` : `🏆 ${guild.name} ${label} Leaderboard · 26–50`)
+      .setTitle(chunkIndex === 0 ? `🏆 ${guild.name} Overall ${label} Leaderboard · Top 50` : `🏆 ${guild.name} Overall ${label} Leaderboard · 26–50`)
       .setDescription(lines)
-      .setFooter({ text: `[KLINEO-KXP-LEADERBOARD] · ${rows.length} ranked shown · Auto-updated by LINKO` })
+      .setFooter({ text: `[KLINEO-KXP-LEADERBOARD] · Everyone · Community + KREATOR · Auto-updated by LINKO` })
       .setTimestamp();
   });
 }
@@ -3219,6 +3302,7 @@ function buildReferralLeaderboardEmbeds(guild, limit = 50) {
 }
 
 function leaderboardChannelBase(type) {
+  if (type === 'community') return 'community-leaderboard';
   if (type === 'referrals') return 'referral-leaderboard';
   if (type === 'creators') return 'kreator-leaderboard';
   if (type === 'campaign') return 'campaign-leaderboard';
@@ -3226,6 +3310,7 @@ function leaderboardChannelBase(type) {
 }
 
 function leaderboardVisibilityKey(type) {
+  if (type === 'community') return 'community_leaderboard_visibility';
   if (type === 'referrals') return 'referral_leaderboard_visibility';
   if (type === 'creators') return 'creator_leaderboard_visibility';
   if (type === 'campaign') return 'campaign_leaderboard_visibility';
@@ -3259,10 +3344,10 @@ async function updateLeaderboardMessage(guild, type = 'kxp') {
   const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === base && c.isTextBased());
   if (!channel) return;
   const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  const marker = type === 'referrals' ? '[KLINEO-REFERRAL-LEADERBOARD]' : type === 'creators' ? '[KLINEO-KREATOR-LEADERBOARD]' : '[KLINEO-KXP-LEADERBOARD]';
+  const marker = type === 'community' ? '[KLINEO-COMMUNITY-LEADERBOARD]' : type === 'referrals' ? '[KLINEO-REFERRAL-LEADERBOARD]' : type === 'creators' ? '[KLINEO-KREATOR-LEADERBOARD]' : '[KLINEO-KXP-LEADERBOARD]';
   const existing = recent?.find((m) => m.author.id === client.user.id && m.embeds.some((e) => e.footer?.text?.includes(marker) || (type === 'kxp' && e.footer?.text?.includes('[KLINEO-LEADERBOARD]'))));
   const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
-  const embeds = type === 'referrals' ? buildReferralLeaderboardEmbeds(guild, limit) : type === 'creators' ? buildCreatorLeaderboardEmbeds(guild, limit) : buildLeaderboardEmbeds(guild, limit);
+  const embeds = type === 'community' ? buildCommunityLeaderboardEmbeds(guild, limit) : type === 'referrals' ? buildReferralLeaderboardEmbeds(guild, limit) : type === 'creators' ? buildCreatorLeaderboardEmbeds(guild, limit) : buildLeaderboardEmbeds(guild, limit);
   const payload = { embeds };
   if (existing) await existing.edit(payload).catch(() => {});
   else await channel.send(payload).catch(() => {});
@@ -3339,6 +3424,7 @@ async function updateCampaignLeaderboardMessages(guild) {
 
 async function updateAllLeaderboards(guild) {
   await updateLeaderboardMessage(guild, 'kxp');
+  await updateLeaderboardMessage(guild, 'community');
   await updateLeaderboardMessage(guild, 'referrals');
   await updateLeaderboardMessage(guild, 'creators');
   await updateCampaignLeaderboardMessages(guild);
@@ -3452,6 +3538,37 @@ function verificationButtonRow() {
     new ButtonBuilder().setCustomId('linko_onboarding_verify').setLabel(`VERIFY & ENTER ${communityNameUpper().slice(0, 24)}`).setStyle(ButtonStyle.Success),
   );
 }
+function participationSelectRow() {
+  const menu = new StringSelectMenuBuilder().setCustomId('linko_onboarding_participation').setPlaceholder('Choose how you participate').setMinValues(1).setMaxValues(1).addOptions(
+    new StringSelectMenuOptionBuilder().setLabel('Community Member').setValue('community').setDescription('Compete on the Community Leaderboard'),
+    new StringSelectMenuOptionBuilder().setLabel('KREATOR').setValue('kreator').setDescription('Creator lane, profile review required'),
+  );
+  return new ActionRowBuilder().addComponents(menu);
+}
+function participationStepPayload(prefix = '') {
+  return {
+    content: `${prefix ? `${prefix}\n\n` : ''}**Step 2 of 3 · Choose your participation lane**\nChoose **Community Member** or **KREATOR**. The lanes are exclusive for leaderboard eligibility. KREATORS do not appear on the Community Leaderboard.`,
+    components: [participationSelectRow()],
+    embeds: [],
+  };
+}
+async function showKreatorProfileModal(interaction) {
+  if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
+  const existing = kreatorProfile(interaction.user.id);
+  const modal = new ModalBuilder().setCustomId('linko_kreator_profile_modal').setTitle('KREATOR Profile');
+  const primary = new TextInputBuilder().setCustomId('primary_url').setLabel('Primary social profile URL').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(220).setPlaceholder('https://x.com/username');
+  const primaryFollowers = new TextInputBuilder().setCustomId('primary_followers').setLabel('Primary followers / subscribers').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(12).setPlaceholder('12500');
+  const secondary = new TextInputBuilder().setCustomId('secondary_url').setLabel('Secondary social URL (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(220).setPlaceholder('https://youtube.com/@username');
+  const secondaryFollowers = new TextInputBuilder().setCustomId('secondary_followers').setLabel('Secondary followers (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('3500');
+  const category = new TextInputBuilder().setCustomId('category').setLabel('Creator niche / category').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80).setPlaceholder('Trading, AI, Crypto, Gaming, Education...');
+  if (existing?.primary_url) primary.setValue(existing.primary_url);
+  if (existing?.primary_followers != null) primaryFollowers.setValue(String(existing.primary_followers));
+  if (existing?.secondary_url) secondary.setValue(existing.secondary_url);
+  if (existing?.secondary_followers) secondaryFollowers.setValue(String(existing.secondary_followers));
+  if (existing?.category) category.setValue(existing.category);
+  modal.addComponents(...[primary, primaryFollowers, secondary, secondaryFollowers, category].map((x) => new ActionRowBuilder().addComponents(x)));
+  return interaction.showModal(modal);
+}
 function profileActionRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('linko_profile_socials').setLabel('Socials').setStyle(ButtonStyle.Primary),
@@ -3495,6 +3612,7 @@ function buildMemberProfileEmbed(guild, member) {
     .addFields(
       { name: 'Membership', value: `${hasVerifiedRole(member) ? '✅ Verified' : '⬜ Not verified'} · **${rank.name}** · **${xp} ${xpLabel()}**`, inline: false },
       { name: 'Join source', value: attribution?.source ? `**${joinSourceLabel(attribution.source)}**` : 'Not selected', inline: true },
+      { name: 'Participation', value: hasKreatorRole(member) ? '**KREATOR · Approved**' : participationLane(member) === 'kreator_pending' ? '**KREATOR · Pending review**' : '**Community Member**', inline: true },
       { name: 'Referral', value: referral, inline: true },
       { name: 'Socials', value: data.socialDone ? [data.profile?.x_account && `X ${data.profile.x_account}`, data.profile?.telegram_account && `TG ${data.profile.telegram_account}`, data.profile?.linkedin_account && `LinkedIn saved`].filter(Boolean).join('\n') : '⬜ Not added', inline: true },
       { name: 'Interests', value: interestLabels.length ? interestLabels.join(', ') : '⬜ Not selected', inline: true },
@@ -3556,7 +3674,13 @@ async function showOnboardingEntry(interaction, mode = 'reply') {
   if (hasVerifiedRole(member)) return showMemberProfile(interaction, mode === 'update' ? 'update' : 'reply');
   const attribution = getJoinAttribution(member.id);
   if (attribution?.source && Number(attribution.source_confirmed)) {
-    const content = `✅ Join source saved as **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` with <@${attribution.inviter_id}>` : ''}. You can verify now. Referral eligibility never blocks your own verification.`;
+    const lane = participationLane(member);
+    if (!lane) {
+      const payload = participationStepPayload(`✅ Join source saved as **${joinSourceLabel(attribution.source)}**${attribution.inviter_id ? ` with <@${attribution.inviter_id}>` : ''}.`);
+      if (mode === 'update' && interaction.isMessageComponent()) return interaction.update(payload);
+      return interaction.reply({ ...payload, ephemeral: true });
+    }
+    const content = `✅ Join source saved as **${joinSourceLabel(attribution.source)}**. Participation: **${lane.startsWith('kreator') ? 'KREATOR' : 'Community Member'}**.\n\n**Step 3 of 3 · Verify & enter ${communityName()}**`;
     if (mode === 'update' && interaction.isMessageComponent()) return interaction.update({ content, embeds: [], components: [verificationButtonRow()] });
     return interaction.reply({ content, components: [verificationButtonRow()], ephemeral: true });
   }
@@ -3568,7 +3692,7 @@ async function showOnboardingEntry(interaction, mode = 'reply') {
     new StringSelectMenuOptionBuilder().setLabel('Event / AMA').setValue('event'),
     new StringSelectMenuOptionBuilder().setLabel('Partner / creator').setValue('partner'),
   );
-  const payload = { content: `**Step 1 of 2 · How did you join ${communityName()}?**\nChoose one option below. This is used for community analytics and accurate referral attribution.`, components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true };
+  const payload = { content: `**Step 1 of 3 · How did you join ${communityName()}?**\nChoose one option below. This is used for community analytics and accurate referral attribution.`, components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true };
   if (mode === 'update' && interaction.isMessageComponent()) return interaction.update({ content: payload.content, components: payload.components, embeds: [] });
   return interaction.reply(payload);
 }
@@ -4187,9 +4311,11 @@ async function buildKlineO(guild) {
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
   channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('how'), topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Open MY LINKO PROFILE here, or use member commands such as /profile /rank /points /leaderboard /invite /wallet /submit-post.' }, verifiedBase);
-  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('leaderboard'), topic: `${communityName()} Top 50 ${xpLabel()} leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
+  channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('leaderboard'), topic: `${communityName()} Overall Top 50 by total ${xpLabel()}, including Community Members and KREATORS.` }, staffPrivate);
+  channels.communityLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.communityLeaderboard, topic: `${communityName()} Community Member leaderboard. KREATORS are excluded from this competitive lane.` }, staffPrivate);
   channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `${communityName()} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
   await setLeaderboardChannelVisibility(guild, 'kxp', getSetting('kxp_leaderboard_visibility'));
+  await setLeaderboardChannelVisibility(guild, 'community', getSetting('community_leaderboard_visibility'));
   await setLeaderboardChannelVisibility(guild, 'referrals', getSetting('referral_leaderboard_visibility'));
   channels.rankUps = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.rankUps, topic: `${communityName()} community rank progression.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
   channels.referrals = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referrals, topic: `Use /invite and /invites. Valid referrals earn ${xpLabel()}.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
@@ -4207,8 +4333,8 @@ async function buildKlineO(guild) {
   }
 
   if (moduleEnabled('kreator')) {
-    channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: `Approved ${communityName()} community posts appear here. Submit via /submit-post.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-    channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: `Optional ${communityName()} content missions and community briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: `Approved KREATOR posts appear here. KREATORS submit every trackable/rewarded post via /submit-post.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: `KREATOR content missions and campaign briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
     channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Creator ${xpLabel()} also counts toward the overall ${xpLabel()} leaderboard.` }, staffPrivate);
     channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `Public KREATOR campaign leaderboards. Campaign ${xpLabel()} also counts toward KREATOR + overall ${xpLabel()}.` }, staffPrivate);
     await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
@@ -5132,6 +5258,8 @@ async function verifyMember(interaction) {
   if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
     return interaction.reply({ content: `Before you can enter ${name}, click **START ONBOARDING** in #verify and select how you joined. You can also use /join-source as a manual fallback.`, ephemeral: true });
   }
+  const lane = participationLane(member);
+  if (!lane) return interaction.reply({ content: 'Before verification, choose **Community Member** or **KREATOR** in START ONBOARDING.', components: [participationSelectRow()], ephemeral: true });
   const ageHours = (now() - interaction.user.createdTimestamp) / 3600000;
   if (ageHours < MIN_ACCOUNT_AGE_HOURS) return interaction.reply({ content: `This Discord account is too new to verify yet. Please try again after it is ${MIN_ACCOUNT_AGE_HOURS} hours old.`, ephemeral: true });
   const verifiedRole = interaction.guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
@@ -5145,7 +5273,7 @@ async function verifyMember(interaction) {
   db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
   scheduleHealthUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
   return interaction.reply({
-    content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Join source: **${joinSourceLabel(attribution.source)}**.${attribution.source === 'member' ? ' Referral qualification is handled separately and never affects your community access.' : ''}\n\nYour socials, interests, languages and payout wallets are optional. Add them now or come back months later using **MY LINKO PROFILE** in #bot-commands or /profile.`,
+    content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Participation: **${lane.startsWith('kreator') ? 'KREATOR' : 'Community Member'}**. Join source: **${joinSourceLabel(attribution.source)}**.${lane === 'kreator_pending' ? ' Your KREATOR profile is pending staff approval; you are already excluded from the Community Leaderboard.' : ''}\n\nYour socials, interests, communities and payout wallets can be updated anytime using **MY LINKO PROFILE** in #bot-commands or /profile.`,
     embeds: [buildMemberProfileEmbed(interaction.guild, member)],
     components: [profileActionRow()],
     ephemeral: true,
@@ -5222,16 +5350,70 @@ async function publishFounderProfile(guild, app) {
   return channel.send({ embeds: [embed] });
 }
 
+function kreatorProfileReviewButtons(userId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`kreator_profile_approve:${userId}`).setLabel('Approve KREATOR').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`kreator_profile_decline:${userId}`).setLabel('Decline').setStyle(ButtonStyle.Danger),
+  );
+}
+function kreatorProfileEmbed(userId, row) {
+  return new EmbedBuilder().setColor(0xA855F7).setTitle('🎨 KREATOR Profile Review')
+    .setDescription(`<@${userId}>`)
+    .addFields(
+      { name: 'Primary', value: `${creatorProfilePlatform(row.primary_url) || 'Social'} · ${row.primary_url}\n**${Number(row.primary_followers).toLocaleString()}** followers/subscribers` },
+      { name: 'Secondary', value: row.secondary_url ? `${creatorProfilePlatform(row.secondary_url) || 'Social'} · ${row.secondary_url}\n**${Number(row.secondary_followers).toLocaleString()}** followers/subscribers` : 'Not provided' },
+      { name: 'Category', value: row.category || 'Not provided', inline: true },
+      { name: 'Status', value: String(row.status).toUpperCase(), inline: true },
+      { name: 'Leaderboard lane', value: 'KREATOR · excluded from Community Leaderboard', inline: false },
+    ).setFooter({ text: '[LINKO-KREATOR-PROFILE]' }).setTimestamp(new Date(row.submitted_at));
+}
+async function saveKreatorProfileFromModal(interaction) {
+  const primaryUrl = interaction.fields.getTextInputValue('primary_url').trim();
+  const primaryFollowersRaw = interaction.fields.getTextInputValue('primary_followers').replace(/[,\s]/g, '');
+  const secondaryUrl = interaction.fields.getTextInputValue('secondary_url').trim();
+  const secondaryFollowersRaw = interaction.fields.getTextInputValue('secondary_followers').replace(/[,\s]/g, '');
+  const category = interaction.fields.getTextInputValue('category').trim();
+  const primaryFollowers = Number(primaryFollowersRaw);
+  const secondaryFollowers = secondaryFollowersRaw ? Number(secondaryFollowersRaw) : 0;
+  if (!creatorProfileUrlValid(primaryUrl)) return interaction.reply({ content: 'Primary social must be a valid X, YouTube, TikTok, Instagram, LinkedIn, or Telegram profile URL.', ephemeral: true });
+  if (!Number.isSafeInteger(primaryFollowers) || primaryFollowers < 0) return interaction.reply({ content: 'Primary follower/subscriber count must be a whole number, for example **12500**.', ephemeral: true });
+  if (secondaryUrl && !creatorProfileUrlValid(secondaryUrl)) return interaction.reply({ content: 'Secondary social must be a valid supported profile URL.', ephemeral: true });
+  if (secondaryUrl && (!Number.isSafeInteger(secondaryFollowers) || secondaryFollowers < 0)) return interaction.reply({ content: 'Secondary follower/subscriber count must be a whole number.', ephemeral: true });
+
+  const existing = kreatorProfile(interaction.user.id);
+  const keepApproved = existing?.status === 'approved' && hasKreatorRole(await interaction.guild.members.fetch(interaction.user.id));
+  const status = keepApproved ? 'approved' : 'pending';
+  db.prepare(`INSERT INTO kreator_profiles (user_id,primary_url,primary_followers,secondary_url,secondary_followers,category,status,submitted_at,reviewed_by,reviewed_at,review_message_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET primary_url=excluded.primary_url,primary_followers=excluded.primary_followers,secondary_url=excluded.secondary_url,secondary_followers=excluded.secondary_followers,category=excluded.category,status=excluded.status,submitted_at=excluded.submitted_at,reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at,review_message_id=excluded.review_message_id`)
+    .run(interaction.user.id, primaryUrl, primaryFollowers, secondaryUrl || null, secondaryFollowers, category || null, status, now(), keepApproved ? existing.reviewed_by : null, keepApproved ? existing.reviewed_at : null, null);
+  setParticipationLane(interaction.user.id, keepApproved ? 'kreator' : 'kreator_pending');
+  const row = kreatorProfile(interaction.user.id);
+  if (!keepApproved) {
+    const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'mod-inbox' && ch.isTextBased())
+      || interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'social-submissions' && ch.isTextBased());
+    if (!review) return interaction.reply({ content: 'KREATOR profile saved, but the moderator review channel is missing. Please alert staff.', ephemeral: true });
+    const msg = await review.send({ embeds: [kreatorProfileEmbed(interaction.user.id, row)], components: [kreatorProfileReviewButtons(interaction.user.id)] });
+    db.prepare('UPDATE kreator_profiles SET review_message_id=? WHERE user_id=?').run(msg.id, interaction.user.id);
+    scheduleModInboxUpdate(interaction.guild);
+  }
+  if (hasVerifiedRole(await interaction.guild.members.fetch(interaction.user.id))) {
+    return interaction.reply({ content: keepApproved ? '✅ Your approved KREATOR profile was updated.' : '✅ KREATOR profile submitted for staff review. You are excluded from the Community Leaderboard while the review is pending.', embeds: [kreatorProfileEmbed(interaction.user.id, kreatorProfile(interaction.user.id))], ephemeral: true });
+  }
+  return interaction.reply({ content: '✅ KREATOR profile submitted for staff review. You are now in the KREATOR lane and excluded from the Community Leaderboard.\n\n**Step 3 of 3 · Verify & enter the server**', components: [verificationButtonRow()], ephemeral: true });
+}
+
 async function handleSocialSubmission(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first in #verify.', ephemeral: true });
+  if (!hasKreatorRole(member)) return interaction.reply({ content: 'Only approved **KREATORS** can submit social posts for KXP. Community Members compete through community contribution instead.', ephemeral: true });
+  if (!kreatorProfileApproved(member.id)) return interaction.reply({ content: 'Your KREATOR profile must be approved before post submissions. Run **/kreator-profile** to submit your primary/secondary socials and follower counts.', ephemeral: true });
   const platform = interaction.options.getString('platform', true);
   const url = interaction.options.getString('url', true).trim();
   const campaignId = interaction.options.getInteger('campaign');
   if (!platformUrlValid(platform, url)) return interaction.reply({ content: 'That URL does not match the selected platform or is not a valid HTTPS post URL.', ephemeral: true });
   let campaign = null;
   if (campaignId) {
-    if (!hasKreatorRole(member)) return interaction.reply({ content: 'Only members with the **KREATOR** role can submit posts to a creator campaign.', ephemeral: true });
     campaign = creatorCampaignById(campaignId);
     if (!campaign || campaign.status !== 'active') return interaction.reply({ content: `Creator campaign #${campaignId} is not active or does not exist.`, ephemeral: true });
   }
@@ -5243,7 +5425,7 @@ async function handleSocialSubmission(interaction) {
     const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${communityName()} social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
       { name: 'Platform', value: platform.toUpperCase(), inline: true },
       { name: 'Status', value: 'Pending', inline: true },
-      { name: 'KREATOR', value: hasKreatorRole(member) ? 'Yes' : 'No', inline: true },
+      { name: 'KREATOR', value: 'Yes · approved', inline: true },
       ...(campaign ? [{ name: 'Campaign', value: `#${campaign.id} · ${campaign.name}`, inline: false }] : []),
     ).setTimestamp();
     const configuredAward = getSettingInt('kxp_social_post');
@@ -5362,7 +5544,11 @@ client.once('clientReady', async () => {
         seedKlineOProjectProfile(fullGuild);
         await fullGuild.commands.set(commands);
         await fullGuild.members.fetch({ withPresences: true }).catch(() => fullGuild.members.fetch());
-        for (const m of fullGuild.members.cache.values()) if (!m.user.bot) ensureUserRow(m.id, m.joinedTimestamp ?? null);
+        for (const m of fullGuild.members.cache.values()) {
+          if (m.user.bot) continue;
+          ensureUserRow(m.id, m.joinedTimestamp ?? null);
+          if (hasKreatorRole(m)) setParticipationLane(m.id, 'kreator');
+        }
         await reconcileVoiceSessions(fullGuild);
         await cacheInvites(fullGuild);
         await ensurePublicLobby(fullGuild).catch((error) => logLinkoError('public-lobby', error));
@@ -5379,7 +5565,7 @@ client.once('clientReady', async () => {
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.17 Communities active: country / region / language choices with demand-based spaces.');
+        console.log('LINKO v10.18 active: exclusive Community/KREATOR lanes, three core leaderboards, required KREATOR profiles and KREATOR-only post submissions.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5616,6 +5802,32 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.customId === 'linko_profile_interests') return showProfileInterestsSelect(interaction);
       if (interaction.customId === 'linko_profile_languages') return showProfileLanguagesSelect(interaction);
       if (interaction.customId === 'linko_language_request') return showLanguageRequestModal(interaction);
+      if (interaction.customId.startsWith('kreator_profile_approve:') || interaction.customId.startsWith('kreator_profile_decline:')) {
+        if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+        const [action, userId] = interaction.customId.split(':');
+        const profile = kreatorProfile(userId);
+        if (!profile || profile.status !== 'pending') return interaction.reply({ content: 'This KREATOR profile has already been reviewed or no longer exists.', ephemeral: true });
+        const member = await interaction.guild.members.fetch(userId).catch(() => null);
+        if (!member) return interaction.reply({ content: 'That member is no longer in this server.', ephemeral: true });
+        if (action === 'kreator_profile_decline') {
+          db.prepare("UPDATE kreator_profiles SET status='declined',reviewed_by=?,reviewed_at=? WHERE user_id=?").run(interaction.user.id, now(), userId);
+          setParticipationLane(userId, 'community');
+          const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
+          if (kreatorRole && member.roles.cache.has(kreatorRole.id)) await member.roles.remove(kreatorRole, 'KREATOR profile declined').catch(() => {});
+          await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane.`).catch(() => {});
+          scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
+          return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
+        }
+        const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
+        if (!kreatorRole) return interaction.reply({ content: 'KREATOR role is missing. Run /setup-linko first.', ephemeral: true });
+        await member.roles.add(kreatorRole, `KREATOR profile approved by ${interaction.user.tag}`);
+        db.prepare("UPDATE kreator_profiles SET status='approved',reviewed_by=?,reviewed_at=? WHERE user_id=?").run(interaction.user.id, now(), userId);
+        setParticipationLane(userId, 'kreator');
+        await maybeAwardReferralRoleBonus(interaction.guild, userId, 'KREATOR');
+        await member.send(`✅ Your ${communityName()} KREATOR profile was approved. You are now eligible for the KREATOR Leaderboard and creator post submissions. You will not appear on the Community Leaderboard.`).catch(() => {});
+        scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
+        return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
+      }
       if (interaction.customId.startsWith('language_request_approve:') || interaction.customId.startsWith('language_request_decline:')) {
         if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
         const [action, rawId] = interaction.customId.split(':');
@@ -5761,14 +5973,14 @@ client.on('interactionCreate', async (interaction) => {
           const inviterUser = await client.users.fetch(existing.detected_inviter_id).catch(() => null);
           const recorded = await recordMemberJoinSource(interaction.guild, member, inviterUser);
           if (!recorded.ok) return interaction.update({ content: recorded.message, components: [inviterSelectRow()], embeds: [] });
-          return interaction.update({ content: `✅ LINKO matched your invite to **${recorded.inviterUser.username}**. ${recorded.eligible ? 'Referral attribution is recorded.' : 'They are not verified yet, so their referral reward stays pending. This does not block you.'}\n\n**Step 2 of 2 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+          return interaction.update(participationStepPayload(`✅ LINKO matched your invite to **${recorded.inviterUser.username}**. ${recorded.eligible ? 'Referral attribution is recorded.' : 'Their referral reward remains pending.'}`));
         }
         return interaction.update({ content: `**Who invited you to ${communityName()}?**\nSelect that member below. They do **not** need to be verified for you to continue; their referral reward will simply remain pending until they become eligible.`, components: [inviterSelectRow()], embeds: [] });
       }
       upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: getJoinAttribution(member.id)?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
       db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
       scheduleModInboxUpdate(interaction.guild);
-      return interaction.update({ content: `✅ Join source saved as **${joinSourceLabel(source)}**.\n\n**Step 2 of 2 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+      return interaction.update(participationStepPayload(`✅ Join source saved as **${joinSourceLabel(source)}**.`));
     }
 
     if (interaction.isUserSelectMenu() && interaction.customId === 'linko_onboarding_inviter') {
@@ -5777,7 +5989,19 @@ client.on('interactionCreate', async (interaction) => {
       const inviterUser = interaction.users.first();
       const recorded = await recordMemberJoinSource(interaction.guild, member, inviterUser);
       if (!recorded.ok) return interaction.update({ content: `❌ ${recorded.message}\nChoose the correct inviter below.`, components: [inviterSelectRow()], embeds: [] });
-      return interaction.update({ content: `✅ Join source recorded: **Invited by ${recorded.inviterUser.username}**. ${recorded.eligible ? (recorded.detectedMatch ? 'Attribution confirmed.' : 'Referral awaits their confirmation.') : 'They are not verified yet, so their referral reward stays pending. **You can still verify now.**'}\n\n**Step 2 of 2 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+      return interaction.update(participationStepPayload(`✅ Join source recorded: **Invited by ${recorded.inviterUser.username}**. ${recorded.eligible ? (recorded.detectedMatch ? 'Attribution confirmed.' : 'Referral awaits their confirmation.') : 'Their referral reward stays pending.'}`));
+    }
+
+    if (interaction.isStringSelectMenu() && interaction.customId === 'linko_onboarding_participation') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (hasVerifiedRole(member)) return showMemberProfile(interaction, 'update');
+      const lane = interaction.values[0];
+      if (lane === 'community') {
+        setParticipationLane(member.id, 'community');
+        return interaction.update({ content: `✅ Participation saved as **Community Member**.\n\n**Step 3 of 3 · Verify & enter ${communityName()}**`, components: [verificationButtonRow()], embeds: [] });
+      }
+      if (!moduleEnabled('kreator')) return interaction.update({ content: 'The KREATOR module is disabled in this server. Choose Community Member to continue.', components: [participationSelectRow()], embeds: [] });
+      return showKreatorProfileModal(interaction);
     }
 
     if (interaction.isStringSelectMenu() && interaction.customId === 'linko_profile_interests_select') {
@@ -5816,6 +6040,10 @@ client.on('interactionCreate', async (interaction) => {
         components: [profileActionRow()],
       });
     }
+    if (interaction.isModalSubmit() && interaction.customId === 'linko_kreator_profile_modal') {
+      return saveKreatorProfileFromModal(interaction);
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === 'linko_language_request_modal') {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
@@ -6063,6 +6291,7 @@ client.on('interactionCreate', async (interaction) => {
       const type = interaction.options.getString('type') ?? 'kxp';
       if (!canViewLeaderboard(interaction.member, type)) return interaction.reply({ content: `This leaderboard is currently private to ${communityName()} staff.`, ephemeral: true });
       const limit = Math.max(1, Math.min(50, getSettingInt('leaderboard_limit') || 50));
+      if (type === 'community') return interaction.reply({ embeds: buildCommunityLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
       if (type === 'referrals') return interaction.reply({ embeds: buildReferralLeaderboardEmbeds(interaction.guild, limit), ephemeral: !leaderboardIsPublic(type) });
       if (type === 'creators') {
         if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
@@ -6082,7 +6311,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/submit-post` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
+      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/kreator-profile` · `/submit-post` (KREATOR only) · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
@@ -6117,7 +6346,7 @@ client.on('interactionCreate', async (interaction) => {
         upsertJoinAttribution(member.id, { source, inviterId: null, detectedInviterId: existingAttribution?.detected_inviter_id ?? null, sourceConfirmed: 1, inviterConfirmed: 1 });
         db.prepare('UPDATE unattributed_joins SET resolved = 1, resolved_by = ?, resolved_at = ? WHERE user_id = ?').run(member.id, now(), member.id);
         scheduleModInboxUpdate(interaction.guild);
-        return interaction.reply({ content: `✅ Join source saved as **${joinSourceLabel(source)}**. You can verify now.`, components: [verificationButtonRow()], ephemeral: true });
+        return interaction.reply({ ...participationStepPayload(`✅ Join source saved as **${joinSourceLabel(source)}**.`), ephemeral: true });
       }
 
       let inviterUser = selectedUser;
@@ -6231,6 +6460,13 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
+    if (interaction.commandName === 'kreator-profile') {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify first, or choose KREATOR during START ONBOARDING.', ephemeral: true });
+      const profile = kreatorProfile(member.id);
+      if (profile?.status === 'pending') return interaction.reply({ content: 'Your KREATOR profile is already pending staff review.', embeds: [kreatorProfileEmbed(member.id, profile)], ephemeral: true });
+      return showKreatorProfileModal(interaction);
+    }
     if (interaction.commandName === 'submit-post') return handleSocialSubmission(interaction);
     if (interaction.commandName === 'apply-founder') return createFounderApplicationModal(interaction);
 
@@ -6240,14 +6476,15 @@ client.on('interactionCreate', async (interaction) => {
       const interests = db.prepare('SELECT interest FROM user_interests WHERE user_id = ? ORDER BY interest').all(member.id).map((r) => interestByKey(r.interest)?.[1] ?? r.interest);
       const langs = languagePreferenceKeys(member.id).map((key) => languageCatalogEntry(key)).filter(Boolean).map((entry) => `${entry.emoji} ${entry.name}`);
       const languageAvailable = languageRows().length > 0;
+      const lane = participationLane(member) || (hasKreatorRole(member) ? 'kreator' : 'community');
       const steps = [
-        ['Verified', hasVerifiedRole(member)], ['Choose an interest', interests.length > 0],
+        ['Verified', hasVerifiedRole(member)], ['Participation lane', !!lane], ['Choose an interest', interests.length > 0],
         ...(languageAvailable ? [['Choose a language', langs.length > 0]] : []),
         ['Introduce yourself', !!a.introduced_at], ['First qualified contribution', !!a.first_impact_at],
       ];
       const done = steps.filter((x) => x[1]).length;
       return interaction.reply({
-        content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nLanguages: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse the buttons below for profile details, then introduce yourself in #introductions and make your first genuine contribution.`,
+        content: `**${communityName()} Activation · ${done}/${steps.length}**\n${steps.map(([n,v]) => `${v ? '✅' : '⬜'} ${n}`).join('\n')}\n\nParticipation: **${hasKreatorRole(member) ? 'KREATOR' : lane === 'kreator_pending' ? 'KREATOR · pending' : 'Community Member'}**\nInterests: ${interests.length ? interests.join(', ') : 'None yet'}\nCommunities: ${langs.length ? langs.join(', ') : 'None yet'}\n\nUse the buttons below for profile details, then introduce yourself and make your first genuine contribution.`,
         embeds: hasVerifiedRole(member) ? [buildMemberProfileEmbed(interaction.guild, member)] : [],
         components: hasVerifiedRole(member) ? [profileActionRow()] : [],
         ephemeral: true,
@@ -7214,12 +7451,14 @@ Speaker bonus: **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once/even
       const user = interaction.options.getUser('member', true);
       const roleName = interaction.options.getString('role', true);
       if (roleName === 'KREATOR' && !moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
+      if (roleName === 'KREATOR' && !kreatorProfileApproved(user.id)) return interaction.reply({ content: `Cannot grant **KREATOR** yet. ${user} must submit **/kreator-profile** with primary/secondary socials and follower counts, then staff must approve it.`, ephemeral: true });
       if (roleName === 'VERIFIED FOUNDER' && !moduleEnabled('founder_hub')) return interaction.reply({ content: 'The Founder Hub module is disabled in this server.', ephemeral: true });
       if (roleName === 'STUDIO CLIENT' && !moduleEnabled('liquidity_studio')) return interaction.reply({ content: 'The Liquidity Studio module is disabled in this server.', ephemeral: true });
       const role = interaction.guild.roles.cache.find((r) => r.name === roleName);
       if (!role) return interaction.reply({ content: `Role ${roleName} is missing. Run /setup-linko.`, ephemeral: true });
       const member = await interaction.guild.members.fetch(user.id);
       await member.roles.add(role, `Granted by ${interaction.user.tag}`);
+      if (roleName === 'KREATOR') setParticipationLane(member.id, 'kreator');
       await maybeAwardReferralRoleBonus(interaction.guild, member.id, roleName);
       return interaction.reply({ content: `Granted **${roleName}** to ${user}.`, ephemeral: true });
     }
