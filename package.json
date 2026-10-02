@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.19.0",
+  "version": "10.19.1",
   "private": true,
-  "description": "LINKO v10.19.0 — consolidated KREATOR HUB, synced Community leaderboard, retained Referral leaderboard, exclusive Community/KREATOR lanes",
+  "description": "LINKO v10.19.1 — history-safe channel deduplication, one canonical General, consolidated KREATOR HUB, Community and Referral leaderboards",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
