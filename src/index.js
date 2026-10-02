@@ -1063,7 +1063,7 @@ const CATEGORY_NAMES = {
   studio: '💧・LIQUIDITY STUDIO',
   high: '◆・HIGHER LEVELS',
   voice: '🎙️・VOICE',
-  languages: '🌍・LANGUAGES',
+  languages: '🌍・COMMUNITIES',
   staff: '🛡️・STAFF',
 };
 
@@ -1092,32 +1092,38 @@ const INTERESTS = [
   ['creators', 'CREATORS', BRAND.limeSoft],
 ];
 const INTEREST_ROLE_PREFIX = 'INTEREST · ';
-const LANGUAGE_ROLE_PREFIX = 'LANG · ';
+const LANGUAGE_ROLE_PREFIX = 'COMM · ';
 
 const LANGUAGE_DEMAND_THRESHOLD = 3;
+// Compatibility note: the existing language_* SQLite tables remain in place so v10.16
+// preferences survive this migration. Entries now represent Community choices and may
+// be a country, region, or language-led community.
 const BASE_LANGUAGE_CATALOG = [
-  { key: 'english', name: 'English (Global)', emoji: '🌐', global: true, aliases: ['english', 'global english'] },
-  { key: 'hindi', name: 'Hindi', emoji: '🇮🇳', aliases: ['hindi', 'hindhi', 'hindy'] },
-  { key: 'urdu', name: 'Urdu', emoji: '🇵🇰', aliases: ['urdu'] },
-  { key: 'arabic', name: 'Arabic', emoji: '🌍', aliases: ['arabic'] },
-  { key: 'german', name: 'German', emoji: '🇩🇪', aliases: ['german', 'deutsch', 'germany'] },
-  { key: 'french', name: 'French', emoji: '🇫🇷', aliases: ['french', 'francais', 'français', 'france'] },
-  { key: 'spanish', name: 'Spanish', emoji: '🇪🇸', aliases: ['spanish', 'espanol', 'español'] },
-  { key: 'portuguese', name: 'Portuguese', emoji: '🇵🇹', aliases: ['portuguese', 'portugues', 'português'] },
-  { key: 'italian', name: 'Italian', emoji: '🇮🇹', aliases: ['italian', 'italiano', 'italy'] },
-  { key: 'polish', name: 'Polish', emoji: '🇵🇱', aliases: ['polish', 'polski', 'poland'] },
-  { key: 'czech', name: 'Czech', emoji: '🇨🇿', aliases: ['czech', 'cesky', 'čeština'] },
-  { key: 'croatian', name: 'Croatian', emoji: '🇭🇷', aliases: ['croatian', 'hrvatski', 'croatia'] },
-  { key: 'romanian', name: 'Romanian', emoji: '🇷🇴', aliases: ['romanian', 'romana', 'română', 'romania'] },
-  { key: 'turkish', name: 'Turkish', emoji: '🇹🇷', aliases: ['turkish', 'turkce', 'türkçe'] },
-  { key: 'indonesian', name: 'Indonesian', emoji: '🇮🇩', aliases: ['indonesian', 'bahasa indonesia'] },
-  { key: 'vietnamese', name: 'Vietnamese', emoji: '🇻🇳', aliases: ['vietnamese'] },
-  { key: 'chinese', name: 'Chinese', emoji: '🇨🇳', aliases: ['chinese', 'mandarin', 'simplified chinese'] },
-  { key: 'korean', name: 'Korean', emoji: '🇰🇷', aliases: ['korean'] },
-  { key: 'japanese', name: 'Japanese', emoji: '🇯🇵', aliases: ['japanese'] },
-  { key: 'bengali', name: 'Bengali', emoji: '🇧🇩', aliases: ['bengali', 'bangla'] },
-  { key: 'tamil', name: 'Tamil', emoji: '🇮🇳', aliases: ['tamil'] },
+  { key: 'english', name: 'Global', emoji: '🌐', global: true, aliases: ['english', 'global english', 'global'] },
+  { key: 'hindi', name: 'India / Hindi', emoji: '🇮🇳', aliases: ['india', 'hindi', 'hindhi', 'hindy', 'india hindi'] },
+  { key: 'urdu', name: 'Pakistan / Urdu', emoji: '🇵🇰', aliases: ['pakistan', 'urdu', 'pakistan urdu'] },
+  { key: 'arabic', name: 'Arabic / GCC', emoji: '🌍', aliases: ['arabic', 'gcc', 'arabic gcc'] },
+  { key: 'german', name: 'Germany / German', emoji: '🇩🇪', aliases: ['german', 'deutsch', 'germany', 'germany german'] },
+  { key: 'nigeria', name: 'Nigeria', emoji: '🇳🇬', aliases: ['nigeria', 'nigerian', 'ng'] },
+  { key: 'french', name: 'France / French', emoji: '🇫🇷', aliases: ['french', 'francais', 'français', 'france', 'france french'] },
+  { key: 'spanish', name: 'Spanish', emoji: '🇪🇸', aliases: ['spanish', 'espanol', 'español', 'spain'] },
+  { key: 'portuguese', name: 'Portugal / Portuguese', emoji: '🇵🇹', aliases: ['portuguese', 'portugues', 'português', 'portugal'] },
+  { key: 'italian', name: 'Italy / Italian', emoji: '🇮🇹', aliases: ['italian', 'italiano', 'italy'] },
+  { key: 'polish', name: 'Poland / Polish', emoji: '🇵🇱', aliases: ['polish', 'polski', 'poland'] },
+  { key: 'czech', name: 'Czechia / Czech', emoji: '🇨🇿', aliases: ['czech', 'cesky', 'čeština', 'czechia'] },
+  { key: 'croatian', name: 'Balkans', emoji: '🌍', aliases: ['croatian', 'hrvatski', 'croatia', 'balkan', 'balkans'] },
+  { key: 'romanian', name: 'Romania / Romanian', emoji: '🇷🇴', aliases: ['romanian', 'romana', 'română', 'romania'] },
+  { key: 'turkish', name: 'Türkiye / Turkish', emoji: '🇹🇷', aliases: ['turkish', 'turkce', 'türkçe', 'turkey', 'türkiye'] },
+  { key: 'indonesian', name: 'Indonesia', emoji: '🇮🇩', aliases: ['indonesian', 'bahasa indonesia', 'indonesia'] },
+  { key: 'vietnamese', name: 'Vietnam', emoji: '🇻🇳', aliases: ['vietnamese', 'vietnam'] },
+  { key: 'chinese', name: 'China / Chinese', emoji: '🇨🇳', aliases: ['chinese', 'mandarin', 'simplified chinese', 'china'] },
+  { key: 'korean', name: 'Korea / Korean', emoji: '🇰🇷', aliases: ['korean', 'korea'] },
+  { key: 'japanese', name: 'Japan / Japanese', emoji: '🇯🇵', aliases: ['japanese', 'japan'] },
+  // Kept hidden only for backwards compatibility with existing v10.16 selections.
+  { key: 'bengali', name: 'Bangladesh / Bengali', emoji: '🇧🇩', aliases: ['bengali', 'bangla', 'bangladesh'], hidden: true },
+  { key: 'tamil', name: 'India / Tamil', emoji: '🇮🇳', aliases: ['tamil'], hidden: true },
 ];
+const VISIBLE_COMMUNITY_CATALOG = BASE_LANGUAGE_CATALOG.filter((entry) => !entry.hidden);
 function normalizeLanguageInput(raw) {
   return String(raw ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
@@ -1517,9 +1523,9 @@ const commands = [
     .setName('language')
     .setDescription('Manage your community language channels.')
     .addSubcommand((sc) => sc.setName('add').setDescription('Join a language community.')
-      .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
+      .addRoleOption((o) => o.setName('role').setDescription('A COMM · role created by LINKO').setRequired(true)))
     .addSubcommand((sc) => sc.setName('remove').setDescription('Leave a language community.')
-      .addRoleOption((o) => o.setName('role').setDescription('A LANG · role created by LINKO').setRequired(true)))
+      .addRoleOption((o) => o.setName('role').setDescription('A COMM · role created by LINKO').setRequired(true)))
     .addSubcommand((sc) => sc.setName('list').setDescription('List available community languages.')),
 
   new SlashCommandBuilder()
@@ -1600,14 +1606,14 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('language-manager')
-    .setDescription('Staff: create or manage community language communities.')
-    .addSubcommand((sc) => sc.setName('create').setDescription('Create a language role + private language channel.')
+    .setDescription('Staff: create or manage demand-approved communities.')
+    .addSubcommand((sc) => sc.setName('create').setDescription('Create a community role + private community channel.')
       .addStringOption((o) => o.setName('name').setDescription('Language name, e.g. Deutsch').setRequired(true).setMaxLength(30))
       .addStringOption((o) => o.setName('emoji').setDescription('Flag/emoji, e.g. 🇩🇪').setRequired(true).setMaxLength(12))
       .addStringOption((o) => o.setName('slug').setDescription('Channel slug, e.g. deutsch').setRequired(true).setMaxLength(30)))
-    .addSubcommand((sc) => sc.setName('list').setDescription('List configured language communities.'))
-    .addSubcommand((sc) => sc.setName('archive').setDescription('Archive a language community.')
-      .addRoleOption((o) => o.setName('role').setDescription('LANG · role').setRequired(true))),
+    .addSubcommand((sc) => sc.setName('list').setDescription('List configured communities.'))
+    .addSubcommand((sc) => sc.setName('archive').setDescription('Archive a community.')
+      .addRoleOption((o) => o.setName('role').setDescription('COMM · role').setRequired(true))),
 
   new SlashCommandBuilder()
     .setName('channel-manager')
@@ -2150,15 +2156,15 @@ async function enrollPreferredLanguageMembers(guild, entry, role) {
 }
 async function createLanguageCommunity(guild, { name = null, languageKey = null, emoji = null, slug = null, actorId = null, actorTag = 'LINKO' }) {
   const entry = languageKey ? languageCatalogEntry(languageKey) : languageCatalogFindByInput(name);
-  if (!entry) throw new Error('That language is not in the approved LINKO language catalog. Add it through the language request flow first.');
-  if (entry.global) throw new Error('English (Global) uses the main community and does not need a separate language channel.');
+  if (!entry) throw new Error('That community is not in the approved LINKO community catalog. Add it through the community request flow first.');
+  if (entry.global) throw new Error('Global uses the main community and does not need a separate channel.');
   const cleanName = entry.name;
   const cleanEmoji = entry.emoji || emoji || '🌐';
   const existingRow = activeLanguageRowForEntry(entry);
   if (existingRow) return { role: guild.roles.cache.get(existingRow.role_id) ?? null, channel: existingRow.channel_id ? guild.channels.cache.get(existingRow.channel_id) ?? null : null, row: existingRow, existed: true, entry };
   const roleName = `${LANGUAGE_ROLE_PREFIX}${cleanName}`;
   let role = guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
-  if (!role) role = await guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Language community created by ${actorTag}` });
+  if (!role) role = await guild.roles.create({ name: roleName, color: BRAND.blue, hoist: false, reason: `Community space created by ${actorTag}` });
   let category = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAMES.languages);
   if (!category) category = await ensureCategory(guild, CATEGORY_NAMES.languages, [overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
   const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
@@ -2166,7 +2172,7 @@ async function createLanguageCommunity(guild, { name = null, languageKey = null,
   const channelSlug = slugifyChannelName(slug || cleanName);
   const chName = `${cleanEmoji}・${channelSlug}`;
   let channel = guild.channels.cache.find((c) => c.parentId === category.id && c.name === chName && c.type === ChannelType.GuildText);
-  if (!channel) channel = await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${cleanName}-speaking ${communityName()} community.`, permissionOverwrites: perms, reason: 'LINKO language manager' });
+  if (!channel) channel = await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${cleanName} · ${communityName()} community space.`, permissionOverwrites: perms, reason: 'LINKO community demand manager' });
   db.prepare(`INSERT INTO language_roles (role_id,name,emoji,channel_id,created_by,created_at,archived) VALUES (?,?,?,?,?,?,0)
     ON CONFLICT(role_id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, channel_id=excluded.channel_id, archived=0`)
     .run(role.id, cleanName, cleanEmoji, channel.id, actorId, now());
@@ -2179,16 +2185,42 @@ async function createLanguageCommunity(guild, { name = null, languageKey = null,
     ON CONFLICT(language_key) DO UPDATE SET status='created',last_notified_count=excluded.last_notified_count,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
     .run(entry.key, 'created', null, languageDemandCount(entry.key), now(), actorId);
   const log = guild.channels.cache.find((c) => baseChannelName(c.name) === 'bot-log' && c.isTextBased());
-  if (log) await log.send(`🌍 ${actorTag} created language community **${cleanName}** → ${channel}. **${enrolled}** preferred-language member(s) enrolled automatically.`).catch(() => {});
+  if (log) await log.send(`🌍 ${actorTag} created community **${cleanName}** → ${channel}. **${enrolled}** interested member(s) enrolled automatically.`).catch(() => {});
   return { role, channel, row, existed: false, entry, enrolled };
 }
+async function migrateLegacyLanguageSpacesToCommunityDemand(guild) {
+  if (getSetting('community_demand_v10_17_migrated') === '1') return;
+  const legacyAccess = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildText && baseChannelName(ch.name) === 'language-access');
+  if (legacyAccess) await legacyAccess.delete('LINKO v10.17: profile-based community selection').catch((error) => logLinkoError('community-migration:language-access', error));
+
+  const rows = languageRows();
+  for (const row of rows) {
+    const channel = row.channel_id ? guild.channels.cache.get(row.channel_id) : null;
+    if (channel) await channel.delete('LINKO v10.17: rebuild community spaces from demand').catch((error) => logLinkoError(`community-migration:channel:${row.channel_id}`, error));
+    const role = guild.roles.cache.get(row.role_id);
+    if (role) await role.delete('LINKO v10.17: rebuild community roles from demand').catch((error) => logLinkoError(`community-migration:role:${row.role_id}`, error));
+    db.prepare('UPDATE language_roles SET archived=1 WHERE role_id=?').run(row.role_id);
+    if (row.channel_id) db.prepare('UPDATE managed_channels SET archived=1 WHERE channel_id=?').run(row.channel_id);
+  }
+  db.prepare('DELETE FROM member_languages').run();
+  db.prepare('DELETE FROM language_demand_reviews').run();
+
+  const legacyCategory = guild.channels.cache.find((ch) =>
+    ch.type === ChannelType.GuildCategory && ['🌍・LANGUAGES', '🌍・COMMUNITIES'].includes(ch.name)
+  );
+  if (legacyCategory && guild.channels.cache.filter((ch) => ch.parentId === legacyCategory.id).size === 0) {
+    await legacyCategory.delete('LINKO v10.17: create Communities category only after approved demand').catch((error) => logLinkoError('community-migration:category', error));
+  }
+  setSetting('community_demand_v10_17_migrated', 1);
+}
+
 async function showLanguageRequestModal(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first.', ephemeral: true });
-  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request another language');
-  const name = new TextInputBuilder().setCustomId('language').setLabel('Language name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Sinhala');
-  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Suggested flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇱🇰');
-  const note = new TextInputBuilder().setCustomId('note').setLabel('Optional context for moderators').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Why should this be added to the catalog?');
+  const modal = new ModalBuilder().setCustomId('linko_language_request_modal').setTitle('Request another community');
+  const name = new TextInputBuilder().setCustomId('language').setLabel('Country / region / language').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30).setPlaceholder('e.g. Nigeria, Brazil, Sinhala');
+  const emoji = new TextInputBuilder().setCustomId('emoji').setLabel('Suggested flag / emoji (optional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(12).setPlaceholder('e.g. 🇳🇬');
+  const note = new TextInputBuilder().setCustomId('note').setLabel('Optional context for moderators').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(300).setPlaceholder('Why should this community be added?');
   modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(emoji), new ActionRowBuilder().addComponents(note));
   return interaction.showModal(modal);
 }
@@ -3424,7 +3456,7 @@ function profileActionRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('linko_profile_socials').setLabel('Socials').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('linko_profile_interests').setLabel('Interests').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('linko_profile_languages').setLabel('Languages').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('linko_profile_languages').setLabel('Communities').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('linko_profile_wallets').setLabel('Wallets').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('linko_profile_refresh').setLabel('Refresh').setStyle(ButtonStyle.Secondary),
   );
@@ -3466,10 +3498,10 @@ function buildMemberProfileEmbed(guild, member) {
       { name: 'Referral', value: referral, inline: true },
       { name: 'Socials', value: data.socialDone ? [data.profile?.x_account && `X ${data.profile.x_account}`, data.profile?.telegram_account && `TG ${data.profile.telegram_account}`, data.profile?.linkedin_account && `LinkedIn saved`].filter(Boolean).join('\n') : '⬜ Not added', inline: true },
       { name: 'Interests', value: interestLabels.length ? interestLabels.join(', ') : '⬜ Not selected', inline: true },
-      { name: 'Languages', value: languageLabels.length ? languageLabels.join(', ') : '⬜ Not selected', inline: true },
+      { name: 'Communities', value: languageLabels.length ? languageLabels.join(', ') : '⬜ Not selected', inline: true },
       { name: 'Wallets', value: walletLabels.length ? walletLabels.join('\n') : '⬜ Not submitted', inline: true },
     )
-    .setFooter({ text: 'Socials, interests, languages and wallets are optional and can be updated anytime.' });
+    .setFooter({ text: 'Socials, interests, communities and wallets are optional and can be updated anytime.' });
 }
 async function showMemberProfile(interaction, mode = 'reply') {
   const member = await interaction.guild.members.fetch(interaction.user.id);
@@ -3587,8 +3619,8 @@ async function showProfileLanguagesSelect(interaction) {
     .setCustomId('linko_profile_languages_base')
     .setPlaceholder('Choose preferred languages')
     .setMinValues(0)
-    .setMaxValues(BASE_LANGUAGE_CATALOG.length);
-  baseMenu.addOptions(BASE_LANGUAGE_CATALOG.map((entry) => {
+    .setMaxValues(VISIBLE_COMMUNITY_CATALOG.length);
+  baseMenu.addOptions(VISIBLE_COMMUNITY_CATALOG.map((entry) => {
     const active = activeLanguageRowForEntry(entry);
     const demand = languageDemandCount(entry.key);
     const description = entry.global ? 'Main global community' : active ? 'Language community active' : `${demand}/${LANGUAGE_DEMAND_THRESHOLD} interested before staff review`;
@@ -3603,7 +3635,7 @@ async function showProfileLanguagesSelect(interaction) {
   if (custom.length) {
     const customMenu = new StringSelectMenuBuilder()
       .setCustomId('linko_profile_languages_custom')
-      .setPlaceholder('More approved languages')
+      .setPlaceholder('More approved communities')
       .setMinValues(0)
       .setMaxValues(custom.length);
     customMenu.addOptions(custom.map((row) => {
@@ -3619,10 +3651,10 @@ async function showProfileLanguagesSelect(interaction) {
     components.push(new ActionRowBuilder().addComponents(customMenu));
   }
   components.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('linko_language_request').setLabel('REQUEST ANOTHER LANGUAGE').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('linko_language_request').setLabel('REQUEST ANOTHER COMMUNITY').setStyle(ButtonStyle.Secondary),
   ));
   return interaction.reply({
-    content: `**Preferred languages**\nChoose as many as you use. **🌐 English (Global)** stays in the main community and never creates a separate channel. Other languages are demand-tracked first; at **${LANGUAGE_DEMAND_THRESHOLD} members**, staff can activate a dedicated language community.`,
+    content: `**Communities**\nSelect the country, region, or language-led communities you want to join. Choose multiple if relevant. **🌐 Global** stays in the main community and never creates a separate channel. Other communities are demand-tracked first; at **${LANGUAGE_DEMAND_THRESHOLD} members**, staff can activate a dedicated community space.`,
     components,
     ephemeral: true,
   });
@@ -4119,7 +4151,7 @@ async function buildKlineO(guild) {
   if (moduleEnabled('liquidity_studio')) categories.studio = await ensureCategory(guild, CATEGORY_NAMES.studio, studioPrivate);
   categories.high = await ensureCategory(guild, CATEGORY_NAMES.high, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel])]);
   categories.voice = await ensureCategory(guild, CATEGORY_NAMES.voice, verifiedBase);
-  categories.languages = await ensureCategory(guild, CATEGORY_NAMES.languages, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+  // Community-specific categories are created only when demand is approved.
   categories.staff = await ensureCategory(guild, CATEGORY_NAMES.staff, staffPrivate);
   await categories.stats.setPosition(0).catch(() => {});
   await categories.start.setPosition(1).catch(() => {});
@@ -4217,9 +4249,9 @@ async function buildKlineO(guild) {
     if (name === '💤 AFK') await guild.setAFKChannel(c, 'LINKO setup').catch(() => {});
   }
 
-  setSetupPhase('07/11 · Create Languages access');
-  channels.languageAccess = await ensureTextChannel(guild, categories.languages, { name: CHANNEL_NAMES.languageAccess, topic: `Choose ${communityName()} language communities with /language list and /language add.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  await seedMessage(channels.languageAccess, '[KLINEO-LANGUAGES]', { content: `**${communityName()} Language Communities**\n\nUse \`/language list\` to see available language rooms, then \`/language add role:@LANG...\` to join one. Staff can create new language communities with \`/language-manager create\`.\n\n[KLINEO-LANGUAGES]` });
+  setSetupPhase('07/11 · Community demand system');
+  // No permanent access channel is created. Members select Communities from MY LINKO PROFILE.
+  // The Communities category itself is created lazily only after staff approves demand.
 
   setSetupPhase('08/11 · Create staff operations channels');
   const staffChannels = [
@@ -5341,12 +5373,13 @@ client.once('clientReady', async () => {
         await syncAllRankRoles(fullGuild).catch((error) => logLinkoError('rank-resync', error));
         await awardDailyBoosterXp(fullGuild).catch((error) => logLinkoError('booster-kxp', error));
         await updatePublicKxpDocs(fullGuild).catch((error) => logLinkoError('kxp-docs', error));
+        await migrateLegacyLanguageSpacesToCommunityDemand(fullGuild);
         ensureCatalogFromExistingLanguageRoles();
-        for (const entry of languageCatalog()) await ensureLanguageDemandReview(fullGuild, entry.key).catch((error) => logLinkoError(`language-demand:${entry.key}`, error));
+        for (const entry of languageCatalog()) await ensureLanguageDemandReview(fullGuild, entry.key).catch((error) => logLinkoError(`community-demand:${entry.key}`, error));
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('Run /setup-linko confirm:true (or /setup-klineo) to sync LINKO v10.16 predefined language demand features.');
+        console.log('LINKO v10.17 Communities active: country / region / language choices with demand-based spaces.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5773,12 +5806,12 @@ client.on('interactionCreate', async (interaction) => {
       if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, 'update');
       ensureCatalogFromExistingLanguageRoles();
       const scopeEntries = interaction.customId === 'linko_profile_languages_base'
-        ? BASE_LANGUAGE_CATALOG
+        ? VISIBLE_COMMUNITY_CATALOG
         : customLanguageCatalogRows().slice(0, 25).map((r) => languageCatalogEntry(r.language_key)).filter(Boolean);
       await updateLanguagePreferencesForScope(interaction.guild, member, scopeEntries, interaction.values);
       const selectedLabels = languagePreferenceKeys(member.id).map((key) => languageCatalogEntry(key)).filter(Boolean).map((entry) => `${entry.emoji} ${entry.name}`);
       return interaction.update({
-        content: `✅ Preferred languages saved.\n${selectedLabels.length ? selectedLabels.join(' · ') : 'No preferred languages selected.'}`,
+        content: `✅ Communities saved.\n${selectedLabels.length ? selectedLabels.join(' · ') : 'No communities selected.'}`,
         embeds: [buildMemberProfileEmbed(interaction.guild, member)],
         components: [profileActionRow()],
       });
@@ -5790,7 +5823,7 @@ client.on('interactionCreate', async (interaction) => {
       const languageName = interaction.fields.getTextInputValue('language').trim();
       const emoji = interaction.fields.getTextInputValue('emoji').trim() || '🌐';
       const note = interaction.fields.getTextInputValue('note').trim();
-      if (!languageName || languageName.length < 2) return interaction.reply({ content: 'Enter a valid language name.', ephemeral: true });
+      if (!languageName || languageName.length < 2) return interaction.reply({ content: 'Enter a valid country, region, or language.', ephemeral: true });
       const existingEntry = languageCatalogFindByInput(languageName);
       if (existingEntry) {
         db.prepare('INSERT OR IGNORE INTO language_preferences (user_id,language_key,selected_at) VALUES (?,?,?)').run(member.id, existingEntry.key, now());
@@ -5800,7 +5833,7 @@ client.on('interactionCreate', async (interaction) => {
         db.prepare('UPDATE member_activation SET language_set=1 WHERE user_id=?').run(member.id);
         const active = activeLanguageRowForEntry(existingEntry);
         return interaction.reply({
-          content: `ℹ️ **${existingEntry.emoji} ${existingEntry.name}** is already in the approved language catalog. I added it to your preferences.${existingEntry.global ? ' English stays in the main global community.' : active?.channel_id ? ` You now have access to <#${active.channel_id}>.` : ` Current demand: **${languageDemandCount(existingEntry.key)}/${LANGUAGE_DEMAND_THRESHOLD}** before staff review.`}`,
+          content: `ℹ️ **${existingEntry.emoji} ${existingEntry.name}** is already in the approved community catalog. I added it to your communities.${existingEntry.global ? ' Global stays in the main community.' : active?.channel_id ? ` You now have access to <#${active.channel_id}>.` : ` Current demand: **${languageDemandCount(existingEntry.key)}/${LANGUAGE_DEMAND_THRESHOLD}** before staff review.`}`,
           embeds: [buildMemberProfileEmbed(interaction.guild, member)],
           components: [profileActionRow()],
           ephemeral: true,
