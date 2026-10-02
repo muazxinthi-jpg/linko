@@ -3580,6 +3580,35 @@ function profileActionRow() {
     new ButtonBuilder().setCustomId('linko_profile_refresh').setLabel('Refresh').setStyle(ButtonStyle.Secondary),
   );
 }
+function profileKreatorActionRow(member) {
+  if (!moduleEnabled('kreator')) return null;
+  const profile = kreatorProfile(member.id);
+  const lane = participationLane(member);
+  let label = 'Apply as KREATOR';
+  let style = ButtonStyle.Success;
+  if (profile?.status === 'pending' || lane === 'kreator_pending') {
+    label = 'KREATOR Application Pending';
+    style = ButtonStyle.Secondary;
+  } else if (profile?.status === 'approved' || hasKreatorRole(member)) {
+    label = 'KREATOR Profile';
+    style = ButtonStyle.Secondary;
+  } else if (profile?.status === 'declined') {
+    label = 'Re-apply as KREATOR';
+  }
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('linko_profile_kreator_apply')
+      .setLabel(label)
+      .setStyle(style)
+      .setDisabled(profile?.status === 'pending' || lane === 'kreator_pending'),
+  );
+}
+function profileActionRows(member) {
+  const rows = [profileActionRow()];
+  const kreatorRow = profileKreatorActionRow(member);
+  if (kreatorRow) rows.push(kreatorRow);
+  return rows;
+}
 function profileLauncherRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('linko_profile_open').setLabel('MY LINKO PROFILE').setStyle(ButtonStyle.Primary),
@@ -3610,7 +3639,7 @@ function buildMemberProfileEmbed(guild, member) {
   }
   const pct = Math.round((data.completed / data.total) * 100);
   return new EmbedBuilder().setColor(BRAND.cyan).setTitle(`👤 ${communityName()} · My LINKO Profile`)
-    .setDescription(`Your optional member profile never expires. Come back anytime to add or update details. **${data.completed}/${data.total} optional sections complete (${pct}%)**.`)
+    .setDescription(`Your optional member profile never expires. Come back anytime to add or update details. **${data.completed}/${data.total} optional sections complete (${pct}%)**. Community Members can apply to become a KREATOR anytime from this profile.`)
     .addFields(
       { name: 'Membership', value: `${hasVerifiedRole(member) ? '✅ Verified' : '⬜ Not verified'} · **${rank.name}** · **${xp} ${xpLabel()}**`, inline: false },
       { name: 'Join source', value: attribution?.source ? `**${joinSourceLabel(attribution.source)}**` : 'Not selected', inline: true },
@@ -3621,12 +3650,12 @@ function buildMemberProfileEmbed(guild, member) {
       { name: 'Communities', value: languageLabels.length ? languageLabels.join(', ') : '⬜ Not selected', inline: true },
       { name: 'Wallets', value: walletLabels.length ? walletLabels.join('\n') : '⬜ Not submitted', inline: true },
     )
-    .setFooter({ text: 'Socials, interests, communities and wallets are optional and can be updated anytime.' });
+    .setFooter({ text: 'Socials, interests, communities and wallets are optional. Community Members can apply to become a KREATOR anytime.' });
 }
 async function showMemberProfile(interaction, mode = 'reply') {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction, mode);
-  const payload = { embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true };
+  const payload = { embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: profileActionRows(member), ephemeral: true };
   if (mode === 'update' && interaction.isMessageComponent()) return interaction.update({ embeds: payload.embeds, components: payload.components, content: null });
   if (interaction.deferred || interaction.replied) return interaction.editReply({ embeds: payload.embeds, components: payload.components, content: null });
   return interaction.reply(payload);
@@ -5268,7 +5297,7 @@ async function sendWelcomeDm(member) {
 async function verifyMember(interaction) {
   const name = communityName();
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  if (hasVerifiedRole(member)) return interaction.reply({ embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+  if (hasVerifiedRole(member)) return interaction.reply({ embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: profileActionRows(member), ephemeral: true });
   const attribution = getJoinAttribution(member.id);
   if (!attribution || !Number(attribution.source_confirmed) || !attribution.source) {
     return interaction.reply({ content: `Before you can enter ${name}, click **START ONBOARDING** in #verify and select how you joined. You can also use /join-source as a manual fallback.`, ephemeral: true });
@@ -5297,7 +5326,7 @@ async function verifyMember(interaction) {
   return interaction.reply({
     content: `✅ Verified. Welcome to ${name}. You now have **OBSERVER** access. Participation: **${lane.startsWith('kreator') ? 'KREATOR' : 'Community Member'}**. Join source: **${joinSourceLabel(attribution.source)}**.${lane === 'kreator_pending' ? ' Your KREATOR profile is pending staff approval; you are already excluded from the Community Leaderboard.' : ''}\n\nYour socials, interests, communities and payout wallets can be updated anytime using **MY LINKO PROFILE** in #bot-commands or /profile.`,
     embeds: [buildMemberProfileEmbed(interaction.guild, member)],
-    components: [profileActionRow()],
+    components: profileActionRows(member),
     ephemeral: true,
   });
 }
@@ -5420,7 +5449,7 @@ async function saveKreatorProfileFromModal(interaction) {
     scheduleModInboxUpdate(interaction.guild);
   }
   if (hasVerifiedRole(await interaction.guild.members.fetch(interaction.user.id))) {
-    return interaction.reply({ content: keepApproved ? '✅ Your approved KREATOR profile was updated.' : '✅ KREATOR profile submitted for staff review. You are excluded from the Community Leaderboard while the review is pending.', embeds: [kreatorProfileEmbed(interaction.user.id, kreatorProfile(interaction.user.id))], ephemeral: true });
+    return interaction.reply({ content: keepApproved ? '✅ Your approved KREATOR profile was updated.' : '✅ KREATOR application submitted for staff review. While it is pending, your participation lane is KREATOR pending and you are excluded from the Community Leaderboard.', embeds: [kreatorProfileEmbed(interaction.user.id, kreatorProfile(interaction.user.id))], components: profileActionRows(await interaction.guild.members.fetch(interaction.user.id)), ephemeral: true });
   }
   return interaction.reply({ content: '✅ KREATOR profile submitted for staff review. You are now in the KREATOR lane and excluded from the Community Leaderboard.\n\n**Step 3 of 3 · Verify & enter the server**', components: [verificationButtonRow()], ephemeral: true });
 }
@@ -5591,7 +5620,7 @@ client.once('clientReady', async () => {
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.18 active: exclusive Community/KREATOR lanes, three core leaderboards, required KREATOR profiles and KREATOR-only post submissions.');
+        console.log('LINKO v10.18.1 active: Community Members can apply for KREATOR anytime from MY LINKO PROFILE; exclusive leaderboard lanes remain enforced.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -5824,6 +5853,15 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.customId === 'linko_onboarding_verify') return verifyMember(interaction);
       if (interaction.customId === 'linko_profile_open') return showMemberProfile(interaction);
       if (interaction.customId === 'linko_profile_refresh') return showMemberProfile(interaction, 'update');
+      if (interaction.customId === 'linko_profile_kreator_apply') {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (!hasVerifiedRole(member)) return showOnboardingEntry(interaction);
+        const profile = kreatorProfile(member.id);
+        if (profile?.status === 'pending' || participationLane(member) === 'kreator_pending') {
+          return interaction.reply({ content: 'Your KREATOR application is already pending staff review.', ephemeral: true });
+        }
+        return showKreatorProfileModal(interaction);
+      }
       if (interaction.customId === 'linko_profile_socials') return showProfileSocialsModal(interaction);
       if (interaction.customId === 'linko_profile_interests') return showProfileInterestsSelect(interaction);
       if (interaction.customId === 'linko_profile_languages') return showProfileLanguagesSelect(interaction);
@@ -6052,7 +6090,7 @@ client.on('interactionCreate', async (interaction) => {
       db.prepare('INSERT OR IGNORE INTO member_activation (user_id) VALUES (?)').run(member.id);
       db.prepare('UPDATE member_activation SET interests_set=? WHERE user_id=?').run(selected.size > 0 ? 1 : 0, member.id);
       scheduleHealthUpdate(interaction.guild);
-      return interaction.update({ content: '✅ Interests updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()] });
+      return interaction.update({ content: '✅ Interests updated.', embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: profileActionRows(member) });
     }
 
     if (interaction.isStringSelectMenu() && ['linko_profile_languages_base','linko_profile_languages_custom'].includes(interaction.customId)) {
@@ -6067,7 +6105,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.update({
         content: `✅ Communities saved.\n${selectedLabels.length ? selectedLabels.join(' · ') : 'No communities selected.'}`,
         embeds: [buildMemberProfileEmbed(interaction.guild, member)],
-        components: [profileActionRow()],
+        components: profileActionRows(member),
       });
     }
     if (interaction.isModalSubmit() && interaction.customId === 'linko_kreator_profile_modal') {
@@ -6093,7 +6131,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({
           content: `ℹ️ **${existingEntry.emoji} ${existingEntry.name}** is already in the approved community catalog. I added it to your communities.${existingEntry.global ? ' Global stays in the main community.' : active?.channel_id ? ` You now have access to <#${active.channel_id}>.` : ` Current demand: **${languageDemandCount(existingEntry.key)}/${LANGUAGE_DEMAND_THRESHOLD}** before staff review.`}`,
           embeds: [buildMemberProfileEmbed(interaction.guild, member)],
-          components: [profileActionRow()],
+          components: profileActionRows(member),
           ephemeral: true,
         });
       }
@@ -6137,7 +6175,7 @@ client.on('interactionCreate', async (interaction) => {
       if (telegramAccount) earned += await awardFirstSubmissionKxp(interaction.guild, member.id, 'telegram', 'Telegram account');
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'wallet-log' && c.isTextBased());
       if (log) await log.send(`👤 **Member socials updated** — ${member} · X ${xAccount ?? '—'} · Telegram ${telegramAccount ?? '—'} · LinkedIn ${linkedinAccount ? 'saved' : '—'}${earned ? ` · +${earned} ${xpLabel()} first-time reward` : ''}`).catch(() => {});
-      return interaction.reply({ content: `✅ Social profile updated.${earned ? ` First-time submissions earned **+${earned} ${xpLabel()}**.` : ''}`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+      return interaction.reply({ content: `✅ Social profile updated.${earned ? ` First-time submissions earned **+${earned} ${xpLabel()}**.` : ''}`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: profileActionRows(member), ephemeral: true });
     }
 
     if (interaction.isModalSubmit() && interaction.customId === 'linko_member_wallets_modal') {
@@ -6185,7 +6223,7 @@ client.on('interactionCreate', async (interaction) => {
         ON CONFLICT(user_id) DO UPDATE SET primary_network=excluded.primary_network, updated_at=excluded.updated_at`).run(member.id, primary, now());
       const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'wallet-log' && c.isTextBased());
       if (log) await log.send(`🔐 **Wallet profile updated** — ${member} · ${remaining.map((r) => `${walletNetworkLabel(r.network)} ${maskWallet(r.address)}`).join(' · ') || 'no wallets'}${earned ? ` · +${earned} ${xpLabel()} first-time reward` : ''}`).catch(() => {});
-      return interaction.reply({ content: `✅ Wallet profile updated. ${changes.join(' · ') || 'No wallet changes.'}${earned ? ` First-time submissions earned **+${earned} ${xpLabel()}**.` : ''}\nLINKO stores public addresses only and never requests signatures, approvals, seed phrases or private keys.`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: [profileActionRow()], ephemeral: true });
+      return interaction.reply({ content: `✅ Wallet profile updated. ${changes.join(' · ') || 'No wallet changes.'}${earned ? ` First-time submissions earned **+${earned} ${xpLabel()}**.` : ''}\nLINKO stores public addresses only and never requests signatures, approvals, seed phrases or private keys.`, embeds: [buildMemberProfileEmbed(interaction.guild, member)], components: profileActionRows(member), ephemeral: true });
     }
     if (interaction.isModalSubmit() && ['project_profile_modal', 'project_profile_setup_modal'].includes(interaction.customId)) {
       if (!hasCoreRole(interaction.member) && !isAdmin(interaction)) {
