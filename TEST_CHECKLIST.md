@@ -195,3 +195,27 @@ Before continuing to the server-profile tests:
 38. Confirm startup logs register commands for every allowlisted guild and print each guild's XP label.
 39. Confirm only one production LINKO instance is connected to Discord with the production token.
 40. Run `/setup-linko confirm:true` in KlineO once after deployment, then verify `/points`, all leaderboards, referrals, creator campaign flow and managed channels.
+
+
+## v10.18 exclusive leaderboard lanes and KREATOR onboarding
+
+41. Start onboarding as a new member and confirm the flow is **Join source → Participation lane → Verify**.
+42. Select **Community Member**, verify, earn KXP, and confirm the member appears on **Overall** and **Community**, never **KREATOR**.
+43. Select **KREATOR** and confirm LINKO requires a primary social URL + follower/subscriber count, with optional secondary social + follower count and creator category.
+44. Confirm a pending KREATOR profile immediately excludes the user from the Community leaderboard, even before staff approval.
+45. Approve a KREATOR profile before the user verifies. Confirm no KREATOR role/channel access is granted until verification; after verification the approved KREATOR role activates automatically.
+46. Approve a verified KREATOR profile and confirm the KREATOR role is granted, the user is excluded from Community, and appears on KREATOR after earning KXP.
+47. Decline a KREATOR profile and confirm the user returns to the Community lane and does not retain KREATOR role access.
+48. Confirm existing/legacy KREATOR-role members are excluded from Community but cannot submit new creator posts until they complete and receive approval for /kreator-profile.
+49. Confirm /grant-klineo-role cannot bypass the required approved KREATOR profile.
+50. Confirm /submit-post rejects Community Members and accepts only verified, approved KREATORS.
+51. Confirm all approved KREATOR post KXP still contributes to total KXP and therefore Overall, while KREATOR is ranked by total KXP among approved KREATORS only.
+52. Confirm the three main boards are distinct: **Overall = everyone**, **Community = Community Members only**, **KREATOR = approved KREATORS only**.
+53. Confirm a KREATOR can never occupy a Community leaderboard position, regardless of community messages, referrals, events, voice activity, or total KXP.
+54. Confirm Community Member KXP is never excluded from Overall.
+55. Confirm /leaderboard and /leaderboard-settings expose Overall, Community, KREATOR, Referrals, and Campaign choices correctly.
+56. Confirm the persistent `👥・community-leaderboard` is created under the XP category and respects its independent visibility setting.
+57. Confirm /refresh-leaderboard refreshes Overall, Community, Referrals, KREATOR, and Campaign boards.
+58. Confirm /export-leaderboard exports Overall, Community, KREATOR, Referrals, and Full Community without mixing lane membership.
+59. Confirm Moderator Inbox counts pending KREATOR profiles separately from pending KREATOR posts.
+60. Restart the bot and confirm KREATOR roles reconcile to the KREATOR participation lane without changing stored KXP, referrals, wallets, Communities, campaigns, or event history.

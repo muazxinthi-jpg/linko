@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.17.0",
+  "version": "10.18.0",
   "private": true,
-  "description": "LINKO v10.17.0 — profile-based Communities, country/region/language demand, lazy community spaces, button onboarding, permanent profiles, native events, and multi-server community operations",
+  "description": "LINKO v10.18.0 — exclusive Community/KREATOR lanes, three core leaderboards, required KREATOR profiles, creator-only post submissions, Communities, native events, and multi-server operations",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
