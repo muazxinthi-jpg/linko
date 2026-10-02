@@ -4360,23 +4360,24 @@ async function syncCanonicalGeneralAndAuditDuplicates(guild) {
   const canonicalGroups = new Map();
   for (const [legacyName, canonicalName] of LEGACY_CHANNEL_NAMES) {
     const canonicalBase = baseChannelName(canonicalName);
-    if (!canonicalGroups.has(canonicalBase)) canonicalGroups.set(canonicalBase, new Set());
-    canonicalGroups.get(canonicalBase).add(legacyName);
-    canonicalGroups.get(canonicalBase).add(canonicalName);
+    if (!canonicalGroups.has(canonicalBase)) canonicalGroups.set(canonicalBase, { canonicalName, aliases: new Set() });
+    const group = canonicalGroups.get(canonicalBase);
+    group.canonicalName = canonicalName;
+    group.aliases.add(legacyName);
+    group.aliases.add(canonicalName);
   }
 
-  for (const [canonicalBase, aliases] of canonicalGroups) {
+  for (const [canonicalBase, group] of canonicalGroups) {
     if (canonicalBase === 'general') continue;
     const candidates = guild.channels.cache.filter((x) =>
       x.type === ChannelType.GuildText &&
-      (aliases.has(x.name) || baseChannelName(x.name) === canonicalBase)
+      (group.aliases.has(x.name) || baseChannelName(x.name) === canonicalBase)
     );
     if (candidates.size <= 1) continue;
 
-    // Prefer the channel already using the canonical current name. If none exists,
-    // preserve the channel with the strongest sampled human history.
-    const canonicalName = [...aliases].find((name) => baseChannelName(name) === canonicalBase && name.includes('・'));
-    const exact = canonicalName ? [...candidates.values()].find((x) => x.name === canonicalName) : null;
+    // Prefer the exact current canonical channel. If none exists, preserve the
+    // channel with the strongest sampled human history.
+    const exact = [...candidates.values()].find((x) => x.name === group.canonicalName);
     const keep = exact ?? await chooseHistoryPreservingChannel([...candidates.values()]);
     for (const duplicate of candidates.values()) {
       if (duplicate.id === keep.id) continue;
