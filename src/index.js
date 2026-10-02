@@ -908,7 +908,7 @@ function teamRoleName() {
 
 function categoryName(key) {
   if (key === 'community') return `💬・${communityNameUpper()} COMMUNITY`;
-  if (key === 'social') return `📣・${communityNameUpper()} SOCIAL`;
+  if (key === 'social' || key === 'creators') return '🎨・KREATOR HUB';
   if (key === 'kxp') return `⚡・${xpLabel()}`;
   return CATEGORY_NAMES[key];
 }
@@ -1079,8 +1079,8 @@ const CATEGORY_NAMES = {
   community: '💬・KLINEO COMMUNITY',
   kxp: '⚡・KXP',
   signal: '📈・SIGNAL ROOM',
-  social: '📣・KLINEO SOCIAL',
-  creators: '🎨・CREATOR HUB',
+  social: '🎨・KREATOR HUB',
+  creators: '🎨・KREATOR HUB',
   founders: '🏛️・FOUNDERS HUB',
   studio: '💧・LIQUIDITY STUDIO',
   high: '◆・HIGHER LEVELS',
@@ -1095,8 +1095,8 @@ const CHANNEL_NAMES = {
   productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
   howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', communityLeaderboard: '👥・community-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
   analystChat: '🧠・analyst-chat', tradeAnalysis: '📉・trade-analysis', marketThesis: '🌐・market-thesis', aiStrategies: '🤖・ai-strategies',
-  sharePost: '📣・share-your-post', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
-  creatorLounge: '🎨・creator-lounge', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
+  sharePost: '📣・submit-your-post', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
+  creatorLounge: '🎨・kreator-lounge', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
   founderLobby: '🏛️・founder-lobby', founderDirectory: '📇・founder-directory', liquidityStudio: '💧・liquidity-studio', marketStructure: '📐・market-structure', founderResources: '📚・founder-resources', studioRequests: '📩・studio-requests',
   studioAnnouncements: '📢・studio-announcements', clientSupport: '🆘・client-support',
   strategist: '♟️・strategist-room', vanguard: '🛡️・vanguard-lounge', prime: '💎・prime-room',
@@ -1165,6 +1165,8 @@ const LEGACY_ROLE_NAMES = new Map([
 const LEGACY_CATEGORY_NAMES = new Map([
   ['00・START HERE', CATEGORY_NAMES.start], ['01・KLINEO COMMUNITY', CATEGORY_NAMES.community], ['02・KXP', CATEGORY_NAMES.kxp],
   ['03・SIGNAL ROOM', CATEGORY_NAMES.signal], ['04・KLINEO SOCIAL', CATEGORY_NAMES.social], ['05・CREATOR HUB', CATEGORY_NAMES.creators],
+  ['📣・KLINEO SOCIAL', CATEGORY_NAMES.social], ['🎨・CREATOR HUB', CATEGORY_NAMES.creators],
+  ['🎨・KREATOR HUB', CATEGORY_NAMES.creators],
   ['06・FOUNDERS HUB', CATEGORY_NAMES.founders], ['07・LIQUIDITY STUDIO', CATEGORY_NAMES.studio], ['08・HIGHER LEVELS', CATEGORY_NAMES.high],
   ['09・VOICE', CATEGORY_NAMES.voice], ['10・STAFF', CATEGORY_NAMES.staff],
 ]);
@@ -1174,8 +1176,8 @@ const LEGACY_CHANNEL_NAMES = new Map([
   ['product-updates', CHANNEL_NAMES.productUpdates], ['product-feedback', CHANNEL_NAMES.productFeedback], ['bug-reports', CHANNEL_NAMES.bugReports], ['help', CHANNEL_NAMES.help], ['introductions', CHANNEL_NAMES.introductions], ['wins-and-learnings', CHANNEL_NAMES.wins],
   ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['community-leaderboard', CHANNEL_NAMES.communityLeaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
   ['analyst-chat', CHANNEL_NAMES.analystChat], ['trade-analysis', CHANNEL_NAMES.tradeAnalysis], ['market-thesis', CHANNEL_NAMES.marketThesis], ['ai-strategies', CHANNEL_NAMES.aiStrategies],
-  ['share-your-post', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
-  ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
+  ['share-your-post', CHANNEL_NAMES.sharePost], ['submit-your-post', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
+  ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['kreator-lounge', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
   ['founder-lobby', CHANNEL_NAMES.founderLobby], ['founder-directory', CHANNEL_NAMES.founderDirectory], ['liquidity-studio', CHANNEL_NAMES.liquidityStudio], ['market-structure', CHANNEL_NAMES.marketStructure], ['founder-resources', CHANNEL_NAMES.founderResources], ['studio-requests', CHANNEL_NAMES.studioRequests],
   ['studio-announcements', CHANNEL_NAMES.studioAnnouncements], ['client-support', CHANNEL_NAMES.clientSupport],
   ['strategist-room', CHANNEL_NAMES.strategist], ['vanguard-lounge', CHANNEL_NAMES.vanguard], ['prime-room', CHANNEL_NAMES.prime],
@@ -3986,6 +3988,48 @@ async function ensureRole(guild, spec) {
     return role;
   } catch (error) { throw contextualError(`Role ${spec.name}`, error); }
 }
+async function ensureKreatorHubCategory(guild, permissionOverwrites = []) {
+  const targetName = '🎨・KREATOR HUB';
+  const legacyNames = new Set([
+    targetName,
+    '🎨・CREATOR HUB',
+    '📣・KLINEO SOCIAL',
+    `📣・${communityNameUpper()} SOCIAL`,
+    '04・KLINEO SOCIAL',
+    '05・CREATOR HUB',
+  ]);
+  let hub = guild.channels.cache.find((x) => x.type === ChannelType.GuildCategory && x.name === targetName);
+  if (!hub) {
+    hub = guild.channels.cache.find((x) => x.type === ChannelType.GuildCategory && legacyNames.has(x.name));
+    if (hub) await hub.edit({ name: targetName, reason: 'LINKO v10.19 merge creator sections into KREATOR HUB' });
+  }
+  if (!hub) hub = await guild.channels.create({ name: targetName, type: ChannelType.GuildCategory, permissionOverwrites, reason: 'LINKO v10.19 KREATOR HUB' });
+  await hub.permissionOverwrites.set(permissionOverwrites, 'LINKO v10.19 KREATOR HUB sync');
+
+  const legacyCategories = guild.channels.cache.filter((x) =>
+    x.type === ChannelType.GuildCategory && x.id !== hub.id && legacyNames.has(x.name)
+  );
+  const kreatorBases = new Set([
+    'share-your-post','submit-your-post','content-missions','kreator-leaderboard','creator-leaderboard',
+    'campaign-leaderboard','creator-lounge','kreator-lounge','content-and-collabs','creator-opportunities',
+  ]);
+  for (const oldCategory of legacyCategories.values()) {
+    const children = guild.channels.cache.filter((x) => x.parentId === oldCategory.id);
+    for (const child of children.values()) {
+      if (!kreatorBases.has(baseChannelName(child.name))) continue;
+      await child.setParent(hub.id, { lockPermissions: false, reason: 'LINKO v10.19 merge into KREATOR HUB' }).catch((error) => logLinkoError(`kreator-hub:move:${child.id}`, error));
+    }
+    const remaining = guild.channels.cache.filter((x) => x.parentId === oldCategory.id);
+    if (remaining.size === 0) await oldCategory.delete('LINKO v10.19 remove empty legacy creator category').catch((error) => logLinkoError(`kreator-hub:delete:${oldCategory.id}`, error));
+  }
+
+  const oldSubmit = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === hub.id && baseChannelName(x.name) === 'share-your-post');
+  if (oldSubmit) await oldSubmit.edit({ name: CHANNEL_NAMES.sharePost, reason: 'LINKO v10.19 rename creator submission channel' }).catch((error) => logLinkoError('kreator-hub:rename-submit', error));
+  const oldLounge = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === hub.id && baseChannelName(x.name) === 'creator-lounge');
+  if (oldLounge) await oldLounge.edit({ name: CHANNEL_NAMES.creatorLounge, reason: 'LINKO v10.19 rename creator lounge' }).catch((error) => logLinkoError('kreator-hub:rename-lounge', error));
+  return hub;
+}
+
 async function ensureCategory(guild, name, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildCategory && x.name === name);
@@ -4016,6 +4060,61 @@ async function ensureTextChannel(guild, category, spec, permissionOverwrites = [
     return c;
   } catch (error) { throw contextualError(`Text channel ${spec.name}`, error); }
 }
+async function syncV1019DiscordStructure(guild) {
+  if (getSetting('v10_19_structure_synced') === '1') return;
+  const everyone = guild.roles.everyone;
+  const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const kreator = guild.roles.cache.find((r) => r.name === 'KREATOR' || r.name === 'CREATOR');
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  if (!verified) throw new Error('VERIFIED MEMBER role is missing; run /setup-linko confirm:true.');
+
+  const staffPrivate = [
+    overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+    ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+  ];
+  const verifiedReadOnly = [
+    overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+    overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]),
+    ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+  ];
+
+  const kxpCategory = guild.channels.cache.find((x) => x.type === ChannelType.GuildCategory && x.name === categoryName('kxp'));
+  if (!kxpCategory) throw new Error(`${categoryName('kxp')} category is missing; run /setup-linko confirm:true.`);
+  await ensureTextChannel(guild, kxpCategory, {
+    name: CHANNEL_NAMES.communityLeaderboard,
+    topic: `${communityName()} Community Member leaderboard. KREATORS are excluded from this competitive lane.`,
+  }, staffPrivate);
+  await setLeaderboardChannelVisibility(guild, 'community', getSetting('community_leaderboard_visibility'));
+
+  if (moduleEnabled('kreator') && kreator) {
+    const creatorsPrivate = [
+      overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+      overwrite(kreator.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]),
+      ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+    ];
+    const hub = await ensureKreatorHubCategory(guild, creatorsPrivate);
+    await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.sharePost, topic: 'KREATORS submit every trackable/rewarded post with /submit-post. Approved submissions are tracked by LINKO.' }, verifiedReadOnly);
+    await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.contentMissions, topic: 'KREATOR content missions and campaign briefs.' }, verifiedReadOnly);
+    await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Total ${xpLabel()}, including referral ${xpLabel()}, determines position among approved KREATORS.` }, staffPrivate);
+    await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `KREATOR campaign leaderboards. Campaign ${xpLabel()} also counts toward KREATOR + overall ${xpLabel()}.` }, staffPrivate);
+    for (const [name, topic] of [
+      [CHANNEL_NAMES.creatorLounge, 'Private lounge for approved KREATORS.'],
+      [CHANNEL_NAMES.contentCollabs, `${communityName()} KREATOR collaborations.`],
+      [CHANNEL_NAMES.creatorOpportunities, 'Approved KREATOR opportunities and briefs.'],
+    ]) await ensureTextChannel(guild, hub, { name, topic }, creatorsPrivate);
+    await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
+    await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
+  }
+
+  await updateLeaderboardMessage(guild, 'community');
+  if (moduleEnabled('kreator')) {
+    await updateLeaderboardMessage(guild, 'creators');
+    await updateCampaignLeaderboardMessages(guild);
+  }
+  await updateLeaderboardMessage(guild, 'referrals');
+  setSetting('v10_19_structure_synced', 1);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -4300,8 +4399,9 @@ async function buildKlineO(guild) {
   const categories = {};
   if (!moduleEnabled('signal_room')) await hideDisabledCategory(guild, CATEGORY_NAMES.signal, staff);
   if (!moduleEnabled('kreator')) {
-    await hideDisabledCategory(guild, categoryName('social'), staff);
-    await hideDisabledCategory(guild, CATEGORY_NAMES.creators, staff);
+    for (const name of ['🎨・KREATOR HUB','🎨・KREATOR HUB','📣・KREATOR HUB', `📣・${communityNameUpper()} SOCIAL`]) {
+      await hideDisabledCategory(guild, name, staff);
+    }
   }
   if (!moduleEnabled('founder_hub')) await hideDisabledCategory(guild, CATEGORY_NAMES.founders, staff);
   if (!moduleEnabled('liquidity_studio')) await hideDisabledCategory(guild, CATEGORY_NAMES.studio, staff);
@@ -4312,8 +4412,8 @@ async function buildKlineO(guild) {
   categories.kxp = await ensureCategory(guild, categoryName('kxp'), verifiedBase);
   if (moduleEnabled('signal_room')) categories.signal = await ensureCategory(guild, CATEGORY_NAMES.signal, signalPrivate);
   if (moduleEnabled('kreator')) {
-    categories.social = await ensureCategory(guild, categoryName('social'), verifiedBase);
-    categories.creators = await ensureCategory(guild, CATEGORY_NAMES.creators, creatorsPrivate);
+    categories.creators = await ensureKreatorHubCategory(guild, creatorsPrivate);
+    categories.social = categories.creators;
   }
   if (moduleEnabled('founder_hub')) categories.founders = await ensureCategory(guild, CATEGORY_NAMES.founders, foundersPrivate);
   if (moduleEnabled('liquidity_studio')) categories.studio = await ensureCategory(guild, CATEGORY_NAMES.studio, studioPrivate);
@@ -4377,10 +4477,10 @@ async function buildKlineO(guild) {
   }
 
   if (moduleEnabled('kreator')) {
-    channels.sharePost = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.sharePost, topic: `Approved KREATOR posts appear here. KREATORS submit every trackable/rewarded post via /submit-post.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-    channels.contentMissions = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.contentMissions, topic: `KREATOR content missions and campaign briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-    channels.creatorLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Creator ${xpLabel()} also counts toward the overall ${xpLabel()} leaderboard.` }, staffPrivate);
-    channels.campaignLeaderboard = await ensureTextChannel(guild, categories.social, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `Public KREATOR campaign leaderboards. Campaign ${xpLabel()} also counts toward KREATOR + overall ${xpLabel()}.` }, staffPrivate);
+    channels.sharePost = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.sharePost, topic: `KREATORS submit every trackable/rewarded post with /submit-post. Approved submissions are tracked by LINKO.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.contentMissions = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.contentMissions, topic: `KREATOR content missions and campaign briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.creatorLeaderboard = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Creator ${xpLabel()} also counts toward the overall ${xpLabel()} leaderboard.` }, staffPrivate);
+    channels.campaignLeaderboard = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `Public KREATOR campaign leaderboards. Campaign ${xpLabel()} also counts toward KREATOR + overall ${xpLabel()}.` }, staffPrivate);
     await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
     await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
 
@@ -5618,9 +5718,10 @@ client.once('clientReady', async () => {
         ensureCatalogFromExistingLanguageRoles();
         for (const entry of languageCatalog()) await ensureLanguageDemandReview(fullGuild, entry.key).catch((error) => logLinkoError(`community-demand:${entry.key}`, error));
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
+        await syncV1019DiscordStructure(fullGuild).catch((error) => logLinkoError('v10.19-structure-sync', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.18.1 active: Community Members can apply for KREATOR anytime from MY LINKO PROFILE; exclusive leaderboard lanes remain enforced.');
+        console.log('LINKO v10.19 active: KREATOR HUB consolidated, Community leaderboard synced in KXP, Referral leaderboard retained.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
