@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.18.1",
+  "version": "10.19.0",
   "private": true,
-  "description": "LINKO v10.18.1 — Community Members can apply to become KREATORS anytime from MY LINKO PROFILE, with exclusive leaderboard lanes and approved creator profiles",
+  "description": "LINKO v10.19.0 — consolidated KREATOR HUB, synced Community leaderboard, retained Referral leaderboard, exclusive Community/KREATOR lanes",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
