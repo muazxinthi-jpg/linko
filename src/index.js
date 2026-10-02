@@ -1380,12 +1380,14 @@ const commands = [
     ))
     .addIntegerOption((o) => o.setName('value').setDescription('New value').setRequired(true).setMinValue(1).setMaxValue(1440)),
 
-  new SlashCommandBuilder().setName('refresh-leaderboard').setDescription('Staff: refresh both persistent leaderboards now.'),
+  new SlashCommandBuilder().setName('refresh-leaderboard').setDescription('Staff: refresh all persistent leaderboards now.'),
   new SlashCommandBuilder()
     .setName('export-leaderboard')
     .setDescription('Staff: export the complete leaderboard/community ranking as CSV.')
     .addStringOption((o) => o.setName('type').setDescription('CSV export type').setRequired(true).addChoices(
-      { name: 'XP Leaderboard', value: 'kxp' },
+      { name: 'Overall Leaderboard', value: 'kxp' },
+      { name: 'Community Leaderboard', value: 'community' },
+      { name: 'KREATOR Leaderboard', value: 'creators' },
       { name: 'Referral Leaderboard', value: 'referrals' },
       { name: 'Full Community', value: 'full' },
     )),
@@ -3162,7 +3164,7 @@ function creatorLeaderboardRows(guild, limit = 50) {
   `).all();
   return rows.filter((r) => {
     const member = guild.members.cache.get(r.user_id);
-    return !!member && !member.user.bot && hasVerifiedRole(member) && hasKreatorRole(member);
+    return !!member && !member.user.bot && hasVerifiedRole(member) && hasKreatorRole(member) && kreatorProfileApproved(member.id);
   }).slice(0, limit);
 }
 
@@ -3612,7 +3614,7 @@ function buildMemberProfileEmbed(guild, member) {
     .addFields(
       { name: 'Membership', value: `${hasVerifiedRole(member) ? '✅ Verified' : '⬜ Not verified'} · **${rank.name}** · **${xp} ${xpLabel()}**`, inline: false },
       { name: 'Join source', value: attribution?.source ? `**${joinSourceLabel(attribution.source)}**` : 'Not selected', inline: true },
-      { name: 'Participation', value: hasKreatorRole(member) ? '**KREATOR · Approved**' : participationLane(member) === 'kreator_pending' ? '**KREATOR · Pending review**' : '**Community Member**', inline: true },
+      { name: 'Participation', value: hasKreatorRole(member) ? (kreatorProfileApproved(member.id) ? '**KREATOR · Approved**' : '**KREATOR · Profile required**') : participationLane(member) === 'kreator_pending' ? '**KREATOR · Pending review**' : '**Community Member**', inline: true },
       { name: 'Referral', value: referral, inline: true },
       { name: 'Socials', value: data.socialDone ? [data.profile?.x_account && `X ${data.profile.x_account}`, data.profile?.telegram_account && `TG ${data.profile.telegram_account}`, data.profile?.linkedin_account && `LinkedIn saved`].filter(Boolean).join('\n') : '⬜ Not added', inline: true },
       { name: 'Interests', value: interestLabels.length ? interestLabels.join(', ') : '⬜ Not selected', inline: true },
@@ -3893,6 +3895,19 @@ function leaderboardCsv(guild, type) {
         b.total, b.messages, b.voice, b.referrals, b.social, b.bugs, b.profile, b.manual,
         refs.valid, refs.tracked, refs.claimed, refs.manual, approvedSocialCount(row.user_id), validBugCount(row.user_id),
         toIso(member?.joinedTimestamp ?? userRow.joined_at), toIso(userRow.verified_at), toIso(userRow.last_seen_at),
+      ].map(csvEscape).join(','));
+    });
+  } else if (type === 'community' || type === 'creators') {
+    lines.push(['Position','Discord Username','Display Name','Discord User ID','Lane','Rank',`Total ${label}`,'Approved KREATOR Posts','Primary Social','Primary Followers','Secondary Social','Secondary Followers'].map(csvEscape).join(','));
+    const rows = type === 'community' ? communityLeaderboardRows(guild, 100000) : creatorLeaderboardRows(guild, 100000);
+    rows.forEach((row, index) => {
+      const member = guild.members.cache.get(row.user_id);
+      const kp = kreatorProfile(row.user_id);
+      lines.push([
+        index + 1, member?.user?.username ?? '', member?.displayName ?? '', row.user_id,
+        type === 'community' ? 'COMMUNITY' : 'KREATOR', rankForXp(Number(row.xp)).name, Number(row.xp),
+        type === 'creators' ? Number(row.approved_posts ?? 0) : 0,
+        kp?.primary_url ?? '', kp?.primary_followers ?? '', kp?.secondary_url ?? '', kp?.secondary_followers ?? '',
       ].map(csvEscape).join(','));
     });
   } else if (type === 'referrals') {
@@ -5266,6 +5281,13 @@ async function verifyMember(interaction) {
   const l1 = interaction.guild.roles.cache.find((r) => r.name === 'OBSERVER');
   if (!verifiedRole || !l1) return interaction.reply({ content: 'Verification roles are missing. Ask staff to run /setup-linko.', ephemeral: true });
   await member.roles.add([verifiedRole, l1], 'LINKO self-verification');
+  if (lane === 'kreator' && kreatorProfileApproved(member.id)) {
+    const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
+    if (kreatorRole) {
+      await member.roles.add(kreatorRole, 'LINKO approved KREATOR activation');
+      await maybeAwardReferralRoleBonus(interaction.guild, member.id, 'KREATOR');
+    }
+  }
   ensureUserRow(member.id, member.joinedTimestamp ?? now());
   db.prepare('UPDATE users SET verified_at = ? WHERE user_id = ?').run(now(), member.id);
   const log = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'verification-log' && c.isTextBased());
@@ -5820,11 +5842,15 @@ client.on('interactionCreate', async (interaction) => {
         }
         const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
         if (!kreatorRole) return interaction.reply({ content: 'KREATOR role is missing. Run /setup-linko first.', ephemeral: true });
-        await member.roles.add(kreatorRole, `KREATOR profile approved by ${interaction.user.tag}`);
         db.prepare("UPDATE kreator_profiles SET status='approved',reviewed_by=?,reviewed_at=? WHERE user_id=?").run(interaction.user.id, now(), userId);
         setParticipationLane(userId, 'kreator');
-        await maybeAwardReferralRoleBonus(interaction.guild, userId, 'KREATOR');
-        await member.send(`✅ Your ${communityName()} KREATOR profile was approved. You are now eligible for the KREATOR Leaderboard and creator post submissions. You will not appear on the Community Leaderboard.`).catch(() => {});
+        if (hasVerifiedRole(member)) {
+          await member.roles.add(kreatorRole, `KREATOR profile approved by ${interaction.user.tag}`);
+          await maybeAwardReferralRoleBonus(interaction.guild, userId, 'KREATOR');
+        }
+        await member.send(hasVerifiedRole(member)
+          ? `✅ Your ${communityName()} KREATOR profile was approved. You are now eligible for the KREATOR Leaderboard and creator post submissions. You will not appear on the Community Leaderboard.`
+          : `✅ Your ${communityName()} KREATOR profile was approved. Complete verification to activate the KREATOR role and creator access.`).catch(() => {});
         scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
         return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
       }
@@ -7092,7 +7118,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'refresh-leaderboard') {
       if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
       await updateAllLeaderboards(interaction.guild);
-      return interaction.reply({ content: `✅ ${xpLabel()}, referral, KREATOR and campaign leaderboards refreshed.`, ephemeral: true });
+      return interaction.reply({ content: `✅ Overall, Community, referral, KREATOR and campaign leaderboards refreshed.`, ephemeral: true });
     }
 
     if (interaction.commandName === 'export-leaderboard') {
@@ -7101,7 +7127,7 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.guild.members.fetch().catch(() => null);
       const type = interaction.options.getString('type', true);
       const csv = leaderboardCsv(interaction.guild, type);
-      const label = type === 'kxp' ? 'kxp-leaderboard' : type === 'referrals' ? 'referral-leaderboard' : 'full-community';
+      const label = type === 'kxp' ? 'overall-leaderboard' : type === 'community' ? 'community-leaderboard' : type === 'creators' ? 'kreator-leaderboard' : type === 'referrals' ? 'referral-leaderboard' : 'full-community';
       const filename = `klineo-${label}-${dayKey()}.csv`;
 
       // Add a UTF-8 BOM so Excel/Google Sheets open Discord-downloaded CSVs cleanly.
@@ -7291,9 +7317,10 @@ Voice event: ${active ? `**ACTIVE** — ${active.name} in <#${active.channel_id}
       const visibility = interaction.options.getString('visibility');
       if (!board && !visibility) {
         return interaction.reply({ content: `**LEADERBOARD SETTINGS**
-${xpLabel()} Points: **${getSetting('kxp_leaderboard_visibility')}**
+Overall ${xpLabel()}: **${getSetting('kxp_leaderboard_visibility')}**
+Community: **${getSetting('community_leaderboard_visibility')}**
 Referrals: **${getSetting('referral_leaderboard_visibility')}**
-KREATORs: **${getSetting('creator_leaderboard_visibility')}**
+KREATOR: **${getSetting('creator_leaderboard_visibility')}**
 Creator Campaigns: **${getSetting('campaign_leaderboard_visibility')}**
 
 Public = visible to verified members. Private = visible only to staff.`, ephemeral: true });
@@ -7303,7 +7330,7 @@ Public = visible to verified members. Private = visible only to staff.`, ephemer
       await setLeaderboardChannelVisibility(interaction.guild, board, visibility);
       if (board === 'campaign') await updateCampaignLeaderboardMessages(interaction.guild);
       else await updateLeaderboardMessage(interaction.guild, board);
-      const boardLabel = board === 'kxp' ? `${xpLabel()} Points` : board === 'referrals' ? 'Referral' : board === 'creators' ? 'KREATOR' : 'Creator Campaign';
+      const boardLabel = board === 'kxp' ? `Overall ${xpLabel()}` : board === 'community' ? 'Community' : board === 'referrals' ? 'Referral' : board === 'creators' ? 'KREATOR' : 'Creator Campaign';
       return interaction.reply({ content: `✅ ${boardLabel} leaderboard is now **${visibility.toUpperCase()}**.`, ephemeral: true });
     }
 
