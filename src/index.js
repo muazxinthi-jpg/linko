@@ -3192,7 +3192,7 @@ function campaignLeaderboardRows(guild, campaignId, limit = 50) {
   `).all(campaignId);
   return rows.filter((r) => {
     const member = guild.members.cache.get(r.user_id);
-    return !!member && !member.user.bot && hasVerifiedRole(member) && hasKreatorRole(member);
+    return !!member && !member.user.bot && hasVerifiedRole(member) && hasKreatorRole(member) && kreatorProfileApproved(member.id);
   }).slice(0, limit);
 }
 
@@ -5471,14 +5471,18 @@ async function handleSocialReview(interaction, id, approved) {
   if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
   const sub = db.prepare('SELECT * FROM social_submissions WHERE id = ?').get(id);
   if (!sub || sub.status !== 'pending') return interaction.reply({ content: 'This submission has already been reviewed or does not exist.', ephemeral: true });
+  const creator = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
+  const isApprovedKreator = !!creator && hasVerifiedRole(creator) && hasKreatorRole(creator) && kreatorProfileApproved(creator.id);
+  if (xp > 0 && !isApprovedKreator) {
+    return interaction.reply({ content: 'Cannot approve this post. The submitter is no longer an approved KREATOR. Restore an approved KREATOR profile/role first, or reject the submission.', ephemeral: true });
+  }
   if (xp > 0) {
     const daily = getDaily(sub.user_id);
     if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
     await addXp(interaction.guild, sub.user_id, xp, `Approved KlineO social contribution #${id}`, interaction.user.id);
-    const creator = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
-    const isKreator = !!creator && hasKreatorRole(creator);
-    db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ?, creator_eligible = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, isKreator ? 1 : 0, id);
+    db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ?, creator_eligible = 1 WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
+    const isKreator = true;
     const share = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
     if (share) {
       const campaign = sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
