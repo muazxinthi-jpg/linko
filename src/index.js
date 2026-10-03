@@ -1294,16 +1294,6 @@ const commands = [
       .addStringOption((o) => o.setName('source').setDescription('Optional supporting https:// source').setMaxLength(500))),
 
   new SlashCommandBuilder()
-    .setName('submit-post')
-    .setDescription('Legacy shortcut: submit a social post for review.')
-    .addStringOption((o) => o.setName('platform').setDescription('Platform').setRequired(true).addChoices(
-      { name: 'X', value: 'x' }, { name: 'LinkedIn', value: 'linkedin' }, { name: 'YouTube', value: 'youtube' },
-      { name: 'TikTok', value: 'tiktok' }, { name: 'Instagram', value: 'instagram' },
-    ))
-    .addStringOption((o) => o.setName('url').setDescription('Direct URL to your post').setRequired(true))
-    .addIntegerOption((o) => o.setName('campaign').setDescription('KREATOR only: optional active campaign ID').setMinValue(1)),
-
-  new SlashCommandBuilder()
     .setName('creator-campaign')
     .setDescription('Staff: manage community creator campaigns.')
     .addSubcommand((sc) => sc.setName('create').setDescription('Create a creator campaign.')
@@ -3031,7 +3021,7 @@ function buildSocialEmbed() {
   const label = xpLabel();
   const name = communityName();
   const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Published Kontents`)
-    .setDescription(`Approved social posts from **Community Members and KREATORS** are published here. Use **/submit-content social** (or legacy **/submit-post**) to submit a post for review.\n\nEach approved post earns **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day. Approved KREATORS may also receive reaction milestone rewards and attach active KREATOR campaigns. Community Member posts contribute to Community + Overall rankings. KREATOR posts contribute to KREATOR + Overall rankings.`)
+    .setDescription(`Approved social posts from **Community Members and KREATORS** are published here. Use **/submit-content social** to submit a post for review.\n\nEach approved post earns **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day. Approved KREATORS may also receive reaction milestone rewards and attach active KREATOR campaigns. Community Member posts contribute to Community + Overall rankings. KREATOR posts contribute to KREATOR + Overall rankings.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -4296,7 +4286,7 @@ function socialRulesContent() {
   const label = xpLabel();
   return `**Share ${communityName()}. Earn ${label} for genuine contributions.**
 
-Use \`/submit-content social\` (or legacy \`/submit-post\`) and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
+Use \`/submit-content social\` and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
 
 Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
 
@@ -5870,6 +5860,61 @@ async function handleSignalSubmission(interaction) {
   return interaction.reply({ content: `✅ Signal content submitted for review. Destination: **${signalSectionLabel(section)}**. If approved, LINKO publishes it there and credits you.`, ephemeral: true });
 }
 
+async function publishApprovedSocialSubmission(guild, sub, { backfill = false } = {}) {
+  const feed = guild.channels.cache.find((ch) =>
+    ch.isTextBased() && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.sharePost)
+  );
+  if (!feed) return null;
+
+  if (sub.share_message_id) {
+    const existing = await feed.messages.fetch(sub.share_message_id).catch(() => null);
+    if (existing) return existing;
+  }
+
+  const creatorSubmission = Number(sub.creator_eligible) === 1;
+  const campaign = creatorSubmission && sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
+  const label = xpLabel();
+  const reactionLine = creatorSubmission
+    ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.`
+    : '';
+  const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
+  const laneLine = creatorSubmission ? '🎨 **Lane:** KREATOR' : '👥 **Lane:** Community Member';
+  const restoredLine = backfill ? '\n🗂️ **Restored from an earlier approved submission.**' : '';
+  const awarded = Number(sub.xp_awarded ?? 0);
+
+  const posted = await feed.send({
+    content: `**📣 ${communityName()} Kontent Published**\n<@${sub.user_id}> · **+${awarded} ${label}**\n${laneLine}${campaignLine}${reactionLine}${restoredLine}\n${sub.url}`,
+    allowedMentions: { parse: [], users: [sub.user_id] },
+  });
+  db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, sub.id);
+  return posted;
+}
+
+async function backfillApprovedSocialPosts(guild) {
+  if (getSetting('v10_20_1_published_backfill_done') === '1') return;
+  const feed = guild.channels.cache.find((ch) =>
+    ch.isTextBased() && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.sharePost)
+  );
+  if (!feed) return;
+
+  const rows = db.prepare("SELECT * FROM social_submissions WHERE status='approved' ORDER BY reviewed_at ASC, id ASC").all();
+  let restored = 0;
+  for (const sub of rows) {
+    let visible = false;
+    if (sub.share_message_id) {
+      visible = !!(await feed.messages.fetch(sub.share_message_id).catch(() => null));
+    }
+    if (visible) continue;
+    const posted = await publishApprovedSocialSubmission(guild, sub, { backfill: true }).catch((error) => {
+      logLinkoError(`v10.20.1:backfill-social:${sub.id}`, error);
+      return null;
+    });
+    if (posted) restored++;
+  }
+  setSetting('v10_20_1_published_backfill_done', '1');
+  console.log(`LINKO v10.20.1 Published Kontents backfill complete · restored ${restored} approved post(s).`);
+}
+
 async function handleSocialReview(interaction, id, approved) {
   const xp = approved ? getSettingInt('kxp_social_post') : 0;
   const label = xpLabel();
@@ -5892,18 +5937,7 @@ async function handleSocialReview(interaction, id, approved) {
     await addXp(interaction.guild, sub.user_id, xp, `Approved ${communityName()} social contribution #${id}`, interaction.user.id);
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
 
-    const share = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.sharePost) && ch.isTextBased());
-    if (share) {
-      const campaign = creatorSubmission && sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
-      const reactionLine = creatorSubmission ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.` : '';
-      const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
-      const laneLine = creatorSubmission ? '🎨 **Lane:** KREATOR' : '👥 **Lane:** Community Member';
-      const posted = await share.send({
-        content: `**📣 ${communityName()} Kontent Published**\n<@${sub.user_id}> · **+${xp} ${label}**\n${laneLine}${campaignLine}${reactionLine}\n${sub.url}`,
-        allowedMentions: { parse: [], users: [sub.user_id] },
-      });
-      db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, id);
-    }
+    await publishApprovedSocialSubmission(interaction.guild, { ...sub, xp_awarded: xp }).catch((error) => logLinkoError(`social-publish:${id}`, error));
   } else {
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?').run('rejected', interaction.user.id, now(), id);
   }
@@ -6052,9 +6086,10 @@ client.once('clientReady', async () => {
         await syncV1019DiscordStructure(fullGuild).catch((error) => logLinkoError('v10.19-structure-sync', error));
         await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
         await syncV1020ContentStructure(fullGuild).catch((error) => logLinkoError('v10.20-content-structure', error));
+        await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20 active: unified content submissions, Community + KREATOR social posts, Signal Room review/publishing, Published Kontents feed.');
+        console.log('LINKO v10.20.1 active: one /submit-content command, approved social backfill, Published Kontents delivery verified.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6821,7 +6856,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/kreator-profile` · `/submit-content` · `/submit-post` (legacy social shortcut) · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
+      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/kreator-profile` · `/submit-content` · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
@@ -6982,7 +7017,6 @@ client.on('interactionCreate', async (interaction) => {
       if (subcommand === 'social') return handleSocialSubmission(interaction);
       if (subcommand === 'signal') return handleSignalSubmission(interaction);
     }
-    if (interaction.commandName === 'submit-post') return handleSocialSubmission(interaction);
     if (interaction.commandName === 'apply-founder') return createFounderApplicationModal(interaction);
 
     if (interaction.commandName === 'onboarding') {
