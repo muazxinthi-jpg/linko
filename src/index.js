@@ -136,6 +136,13 @@ const SCHEMA_SQL = `
     PRIMARY KEY (submission_id, user_id, emoji_key)
   );
 
+  CREATE TABLE IF NOT EXISTS reaction_reward_progress (
+    user_id TEXT PRIMARY KEY,
+    normal_milestones_awarded INTEGER NOT NULL DEFAULT 0,
+    super_milestones_awarded INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+  );
+
   CREATE TABLE IF NOT EXISTS member_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL UNIQUE,
@@ -569,6 +576,12 @@ const DEFAULT_SETTINGS = {
   creator_reaction_threshold: '100',
   creator_reaction_kxp: '1',
   creator_reaction_cap: '3',
+  creator_super_reaction_threshold: '10',
+  creator_super_reaction_kxp: '1',
+  member_reaction_threshold: '100',
+  member_reaction_kxp: '1',
+  member_super_reaction_threshold: '10',
+  member_super_reaction_kxp: '1',
   campaign_leaderboard_retention_days: '7',
   kxp_bug_report: '3',
   kxp_profile_submission: '1',
@@ -624,6 +637,8 @@ function initializeGuildDatabase(database) {
   ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'social_submissions', 'super_reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'social_submissions', 'super_reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'community_events', 'native_scheduled_event_id', 'TEXT');
   ensureSqliteColumn(database, 'community_events', 'event_access', "TEXT NOT NULL DEFAULT 'verified'");
   ensureSqliteColumn(database, 'community_events', 'permission_snapshot_json', 'TEXT');
@@ -3251,6 +3266,34 @@ function campaignLeaderboardRows(guild, campaignId, limit = 50) {
 function creatorReactionCount(submissionId) {
   return Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM creator_post_reactions WHERE submission_id = ?').get(submissionId)?.c ?? 0);
 }
+function creatorSuperReactionCount(submissionId) {
+  return Number(db.prepare("SELECT COUNT(DISTINCT user_id) AS c FROM creator_post_reactions WHERE submission_id = ? AND emoji_key LIKE 'burst:%'").get(submissionId)?.c ?? 0);
+}
+function memberReactionCount(userId) {
+  return Number(db.prepare(`
+    SELECT COUNT(DISTINCT r.submission_id) AS c
+    FROM creator_post_reactions r
+    JOIN social_submissions s ON s.id = r.submission_id
+    WHERE r.user_id = ?
+      AND s.status = 'approved'
+      AND COALESCE(s.creator_eligible, 0) = 1
+  `).get(userId)?.c ?? 0);
+}
+function memberSuperReactionCount(userId) {
+  return Number(db.prepare(`
+    SELECT COUNT(DISTINCT r.submission_id) AS c
+    FROM creator_post_reactions r
+    JOIN social_submissions s ON s.id = r.submission_id
+    WHERE r.user_id = ?
+      AND s.status = 'approved'
+      AND COALESCE(s.creator_eligible, 0) = 1
+      AND r.emoji_key LIKE 'burst:%'
+  `).get(userId)?.c ?? 0);
+}
+function reactionRewardProgress(userId) {
+  db.prepare('INSERT OR IGNORE INTO reaction_reward_progress (user_id, updated_at) VALUES (?, ?)').run(userId, now());
+  return db.prepare('SELECT * FROM reaction_reward_progress WHERE user_id = ?').get(userId);
+}
 
 function buildCommunityLeaderboardEmbeds(guild, limit = 50) {
   const label = xpLabel();
@@ -4446,6 +4489,69 @@ async function syncV10207KxpEveryoneGreeting(guild) {
   console.log(`LINKO v10.20.7 KXP announcement greeting sync complete · updated ${updated} announcement(s).`);
 }
 
+async function syncV10208ReactionEconomyAnnouncement(guild) {
+  if (getSetting('v10_20_8_reaction_economy_announcement_synced') === '1') return;
+  const channel = guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'announcements' && ch.isTextBased());
+  if (!channel) return;
+
+  const rows = db.prepare("SELECT * FROM announcements WHERE discord_message_id IS NOT NULL AND x_only=0 ORDER BY id DESC").all();
+  let updated = 0;
+  for (const row of rows) {
+    if (!String(row.title || '').toUpperCase().includes('HOW TO EARN KXP')) continue;
+
+    const oldBody = String(row.body || '');
+    const replacement = `🔥 **KREATOR + COMMUNITY REACTION REWARDS**
+On approved KREATOR posts, engagement rewards work both ways.
+
+🎨 **KREATOR:** +${getSettingInt('creator_reaction_kxp')} KXP for every **${getSettingInt('creator_reaction_threshold')} unique verified members** who react.
+
+🤝 **COMMUNITY MEMBER:** +${getSettingInt('member_reaction_kxp')} KXP for every **${getSettingInt('member_reaction_threshold')} approved KREATOR posts** you react to.
+
+💥 **SUPER REACTIONS - KREATOR:** +${getSettingInt('creator_super_reaction_kxp')} KXP for every **${getSettingInt('creator_super_reaction_threshold')} unique Super Reactors**.
+
+⚡ **SUPER REACTIONS - MEMBER:** +${getSettingInt('member_super_reaction_kxp')} KXP for every **${getSettingInt('member_super_reaction_threshold')} approved KREATOR posts** you Super React to.
+
+**Anti-farming:** one member counts only once per KREATOR post for the normal reaction total, even if they add multiple emojis. A Super Reaction also counts toward the normal reaction total while separately progressing the Super Reaction milestone. Self-reactions do not count.
+
+`;
+
+    let newBody = oldBody;
+    const start = oldBody.indexOf('🔥 **KREATOR engagement rewards**');
+    const end = oldBody.indexOf('🐛 **Find something broken?**');
+    if (start >= 0 && end > start) newBody = oldBody.slice(0, start) + replacement + oldBody.slice(end);
+    else if (!oldBody.includes('KREATOR + COMMUNITY REACTION REWARDS')) newBody = oldBody + '\n\n' + replacement;
+
+    db.prepare('UPDATE announcements SET body = ? WHERE id = ?').run(newBody, row.id);
+
+    const message = await channel.messages.fetch(row.discord_message_id).catch(() => null);
+    if (!message || message.author?.id !== client.user.id) continue;
+    let links = [];
+    try { links = JSON.parse(row.cta_json || '[]'); } catch {}
+    const payload = buildAnnouncementPayload({
+      title: row.title || '',
+      body: newBody,
+      imageUrl: row.image_url || '',
+      links: Array.isArray(links) ? links : [],
+      xOnly: false,
+      createdAt: Number(row.created_at) || now(),
+    }, guild);
+    const ok = await message.edit({
+      content: message.content || 'Hello @everyone 👋',
+      embeds: payload.embeds,
+      components: payload.components,
+      allowedMentions: { parse: [] },
+    }).then(() => true).catch((error) => {
+      logLinkoError(`v10.20.8:reaction-announcement:${row.id}`, error);
+      return false;
+    });
+    if (ok) updated++;
+    break;
+  }
+
+  setSetting('v10_20_8_reaction_economy_announcement_synced', '1');
+  console.log(`LINKO v10.20.8 reaction economy announcement sync complete · updated ${updated} announcement(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -4496,7 +4602,10 @@ OBSERVER 0 · SCOUT 300 · ANALYST 1,000 · OPERATOR 2,000 · STRATEGIST 10,000 
 • Active Server Boost: **+${getSettingInt('kxp_boost_daily')} / active boost/day**
 • Valid referral: **+${getSettingInt('kxp_valid_referral')}**
 • Approved social post: **+${getSettingInt('kxp_social_post')}**
-• KREATOR milestone: **+${getSettingInt('creator_reaction_kxp')} / ${getSettingInt('creator_reaction_threshold')} verified reactions**
+• KREATOR reactions received: **+${getSettingInt('creator_reaction_kxp')} / ${getSettingInt('creator_reaction_threshold')} unique verified reactors**
+• KREATOR Super Reactions received: **+${getSettingInt('creator_super_reaction_kxp')} / ${getSettingInt('creator_super_reaction_threshold')} unique Super Reactors**
+• Reactions you give on approved KREATOR posts: **+${getSettingInt('member_reaction_kxp')} / ${getSettingInt('member_reaction_threshold')} unique posts**
+• Super Reactions you give on approved KREATOR posts: **+${getSettingInt('member_super_reaction_kxp')} / ${getSettingInt('member_super_reaction_threshold')} unique posts**
 • Valid bug report: **+${getSettingInt('kxp_bug_report')}**
 • First-time X / Telegram / EVM / Solana submission: **+${getSettingInt('kxp_profile_submission')} each**
 
@@ -4514,7 +4623,7 @@ Use \`/submit-content social\` and submit your direct X, LinkedIn, YouTube, TikT
 
 Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
 
-Approved posts from Community Members and KREATORS are published in **Published Kontents**. KREATOR posts can also earn reaction-based ${label}, and KREATOR campaign-tagged posts count toward a campaign leaderboard.
+Approved posts from Community Members and KREATORS are published in **Published Kontents**. On approved KREATOR posts, both creators and reacting verified members can earn reaction-based ${label}. Super Reactions use the faster 10-action milestone. Multiple emojis from the same member on the same post do not multiply the count. KREATOR campaign-tagged posts count toward a campaign leaderboard.
 
 [KLINEO-SOCIAL]`;
 }
@@ -6101,7 +6210,9 @@ async function publishApprovedSocialSubmission(guild, sub, { backfill = false } 
   const campaign = creatorSubmission && sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
   const label = xpLabel();
   const reactionLine = creatorSubmission
-    ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.`
+    ? `\n🏅 **KREATOR:** +${getSettingInt('creator_reaction_kxp')} ${label} / ${getSettingInt('creator_reaction_threshold')} unique verified reactors (up to ${getSettingInt('creator_reaction_cap')} normal milestones per post).`
+      + `\n💥 **SUPER:** +${getSettingInt('creator_super_reaction_kxp')} ${label} / ${getSettingInt('creator_super_reaction_threshold')} unique Super Reactors.`
+      + `\n🤝 **MEMBERS:** +${getSettingInt('member_reaction_kxp')} ${label} / ${getSettingInt('member_reaction_threshold')} approved KREATOR posts reacted to, and +${getSettingInt('member_super_reaction_kxp')} ${label} / ${getSettingInt('member_super_reaction_threshold')} approved KREATOR posts Super Reacted to. Multiple emojis from the same member on one post do not multiply the count.`
     : '';
   const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
   const laneLine = creatorSubmission ? '🎨 **Lane:** KREATOR' : '👥 **Lane:** Community Member';
@@ -6223,8 +6334,12 @@ async function handleSignalReview(interaction, id, approved) {
   scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild); scheduleLeaderboardUpdate(interaction.guild);
 }
 
-function creatorEmojiKey(reaction) {
-  return reaction.emoji.id ? `${reaction.emoji.name ?? 'emoji'}:${reaction.emoji.id}` : String(reaction.emoji.name ?? 'emoji');
+function reactionEventIsSuper(details) {
+  return details?.burst === true || Number(details?.type) === 1;
+}
+function creatorEmojiKey(reaction, isSuper = false) {
+  const base = reaction.emoji.id ? `${reaction.emoji.name ?? 'emoji'}:${reaction.emoji.id}` : String(reaction.emoji.name ?? 'emoji');
+  return `${isSuper ? 'burst' : 'normal'}:${base}`;
 }
 
 async function reconcileCreatorReactionRewards(guild, submissionId) {
@@ -6237,28 +6352,73 @@ async function reconcileCreatorReactionRewards(guild, submissionId) {
     const campaign = creatorCampaignById(Number(sub.campaign_id));
     if (!campaign || campaign.status !== 'active') return;
   }
+
   const threshold = Math.max(1, getSettingInt('creator_reaction_threshold'));
   const cap = Math.max(0, getSettingInt('creator_reaction_cap'));
   const perMilestone = Math.max(0, getSettingInt('creator_reaction_kxp'));
   const count = creatorReactionCount(submissionId);
   const targetMilestones = Math.min(cap, Math.floor(count / threshold));
   const currentMilestones = Number(sub.reaction_milestones_awarded ?? 0);
-  if (targetMilestones <= currentMilestones || !perMilestone) return;
-  const deltaMilestones = targetMilestones - currentMilestones;
-  const deltaXp = deltaMilestones * perMilestone;
-  await addXp(guild, sub.user_id, deltaXp, `Creator reaction reward #${submissionId}: ${count} unique verified reactions`);
-  db.prepare('UPDATE social_submissions SET reaction_milestones_awarded = ?, reaction_xp_awarded = COALESCE(reaction_xp_awarded, 0) + ? WHERE id = ?').run(targetMilestones, deltaXp, submissionId);
+  if (targetMilestones > currentMilestones && perMilestone) {
+    const deltaMilestones = targetMilestones - currentMilestones;
+    const deltaXp = deltaMilestones * perMilestone;
+    await addXp(guild, sub.user_id, deltaXp, `Creator reaction reward #${submissionId}: ${count} unique verified reactors`);
+    db.prepare('UPDATE social_submissions SET reaction_milestones_awarded = ?, reaction_xp_awarded = COALESCE(reaction_xp_awarded, 0) + ? WHERE id = ?').run(targetMilestones, deltaXp, submissionId);
+  }
+
+  const superThreshold = Math.max(1, getSettingInt('creator_super_reaction_threshold'));
+  const superPerMilestone = Math.max(0, getSettingInt('creator_super_reaction_kxp'));
+  const superCount = creatorSuperReactionCount(submissionId);
+  const targetSuperMilestones = Math.floor(superCount / superThreshold);
+  const currentSuperMilestones = Number(sub.super_reaction_milestones_awarded ?? 0);
+  if (targetSuperMilestones > currentSuperMilestones && superPerMilestone) {
+    const deltaMilestones = targetSuperMilestones - currentSuperMilestones;
+    const deltaXp = deltaMilestones * superPerMilestone;
+    await addXp(guild, sub.user_id, deltaXp, `Creator Super Reaction reward #${submissionId}: ${superCount} unique Super Reactors`);
+    db.prepare('UPDATE social_submissions SET super_reaction_milestones_awarded = ?, super_reaction_xp_awarded = COALESCE(super_reaction_xp_awarded, 0) + ? WHERE id = ?').run(targetSuperMilestones, deltaXp, submissionId);
+  }
   scheduleLeaderboardUpdate(guild);
 }
 
-async function handleCreatorPostReaction(reaction, user, added) {
+async function reconcileMemberReactionRewards(guild, userId) {
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member || member.user.bot || !hasVerifiedRole(member)) return;
+  const progress = reactionRewardProgress(userId);
+
+  const normalThreshold = Math.max(1, getSettingInt('member_reaction_threshold'));
+  const normalPerMilestone = Math.max(0, getSettingInt('member_reaction_kxp'));
+  const normalCount = memberReactionCount(userId);
+  const targetNormal = Math.floor(normalCount / normalThreshold);
+  const currentNormal = Number(progress.normal_milestones_awarded ?? 0);
+  if (targetNormal > currentNormal && normalPerMilestone) {
+    const delta = targetNormal - currentNormal;
+    await addXp(guild, userId, delta * normalPerMilestone, `Community reaction reward: ${normalCount} unique KREATOR posts reacted to`);
+    db.prepare('UPDATE reaction_reward_progress SET normal_milestones_awarded = ?, updated_at = ? WHERE user_id = ?').run(targetNormal, now(), userId);
+  }
+
+  const refreshed = reactionRewardProgress(userId);
+  const superThreshold = Math.max(1, getSettingInt('member_super_reaction_threshold'));
+  const superPerMilestone = Math.max(0, getSettingInt('member_super_reaction_kxp'));
+  const superCount = memberSuperReactionCount(userId);
+  const targetSuper = Math.floor(superCount / superThreshold);
+  const currentSuper = Number(refreshed.super_milestones_awarded ?? 0);
+  if (targetSuper > currentSuper && superPerMilestone) {
+    const delta = targetSuper - currentSuper;
+    await addXp(guild, userId, delta * superPerMilestone, `Community Super Reaction reward: ${superCount} unique KREATOR posts Super Reacted to`);
+    db.prepare('UPDATE reaction_reward_progress SET super_milestones_awarded = ?, updated_at = ? WHERE user_id = ?').run(targetSuper, now(), userId);
+  }
+}
+
+async function handleCreatorPostReaction(reaction, user, added, details = null) {
   if (user.bot) return;
   const guild = reaction.message.guild;
   if (!guild || !isAllowedGuild(guild.id)) return;
   const sub = db.prepare('SELECT * FROM social_submissions WHERE share_message_id = ? AND status = ?').get(reaction.message.id, 'approved');
-  if (!sub) return;
+  if (!sub || !Number(sub.creator_eligible)) return;
   if (user.id === sub.user_id) return;
-  const emojiKey = creatorEmojiKey(reaction);
+
+  const isSuper = reactionEventIsSuper(details);
+  const emojiKey = creatorEmojiKey(reaction, isSuper);
   if (added) {
     const member = await guild.members.fetch(user.id).catch(() => null);
     if (!member || member.user.bot || !hasVerifiedRole(member)) return;
@@ -6267,6 +6427,7 @@ async function handleCreatorPostReaction(reaction, user, added) {
     db.prepare('DELETE FROM creator_post_reactions WHERE submission_id = ? AND user_id = ? AND emoji_key = ?').run(sub.id, user.id, emojiKey);
   }
   await reconcileCreatorReactionRewards(guild, sub.id);
+  await reconcileMemberReactionRewards(guild, user.id);
 }
 
 client.once('clientReady', async () => {
@@ -6319,9 +6480,10 @@ client.once('clientReady', async () => {
         await syncV10205CommunityCountryCodes(fullGuild).catch((error) => logLinkoError('v10.20.5-community-country-codes', error));
         await syncV10206UnifiedAnnouncements(fullGuild).catch((error) => logLinkoError('v10.20.6-unified-announcements', error));
         await syncV10207KxpEveryoneGreeting(fullGuild).catch((error) => logLinkoError('v10.20.7-kxp-everyone-greeting', error));
+        await syncV10208ReactionEconomyAnnouncement(fullGuild).catch((error) => logLinkoError('v10.20.8-reaction-economy-announcement', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.7 active: KXP announcement @everyone greeting, unified embeds, clickable channel mentions, and country/region community codes.');
+        console.log('LINKO v10.20.8 active: two-sided reaction KXP, Super Reaction rewards, unified announcements, and clickable channel mentions.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6475,7 +6637,7 @@ client.on('inviteDelete', (invite) => {
   inviteCacheForGuild(invite.guild.id).delete(invite.code);
 });
 
-client.on('messageReactionAdd', async (reaction, user) => {
+client.on('messageReactionAdd', async (reaction, user, details) => {
   if (user.bot) return;
   try {
     if (reaction.partial) await reaction.fetch();
@@ -6484,18 +6646,18 @@ client.on('messageReactionAdd', async (reaction, user) => {
     await runWithGuild(reaction.message.guild.id, async () => {
       touchActivity(user.id, 'reaction');
       await recordImpactEngagement(reaction.message.id, user.id, 'reaction');
-      await handleCreatorPostReaction(reaction, user, true);
+      await handleCreatorPostReaction(reaction, user, true, details);
     });
   } catch (error) { logLinkoError('messageReactionAdd', error); }
 });
 
-client.on('messageReactionRemove', async (reaction, user) => {
+client.on('messageReactionRemove', async (reaction, user, details) => {
   if (user.bot) return;
   try {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
     if (!reaction.message.guild || !isAllowedGuild(reaction.message.guild.id)) return;
-    await runWithGuild(reaction.message.guild.id, () => handleCreatorPostReaction(reaction, user, false));
+    await runWithGuild(reaction.message.guild.id, () => handleCreatorPostReaction(reaction, user, false, details));
   } catch (error) { logLinkoError('messageReactionRemove', error); }
 });
 

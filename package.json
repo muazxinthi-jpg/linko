@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.7",
+  "version": "10.20.8",
   "private": true,
-  "description": "LINKO v10.20.7 — KXP announcement everyone greeting and unified announcement embeds",
+  "description": "LINKO v10.20.8 — two-sided reaction KXP with Super Reaction rewards",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
