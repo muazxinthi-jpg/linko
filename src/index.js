@@ -1751,7 +1751,15 @@ function announcementLinkRow(links = []) {
       .setLabel(announcementButtonLabel(link.url, link.label, index + 1))
   ));
 }
-function buildAnnouncementPayload(draft) {
+function resolveAnnouncementChannelMentions(guild, body = '') {
+  if (!guild || !body) return String(body ?? '');
+  return String(body).replace(/<#([a-z0-9][a-z0-9-]{0,99})>/gi, (full, rawName) => {
+    const wanted = String(rawName).toLowerCase();
+    const channel = guild.channels.cache.find((ch) => ch?.isTextBased?.() && baseChannelName(ch.name).toLowerCase() === wanted);
+    return channel ? `<#${channel.id}>` : full;
+  });
+}
+function buildAnnouncementPayload(draft, guild = null) {
   const links = draft.links ?? [];
   const linkRow = announcementLinkRow(links);
 
@@ -1764,29 +1772,17 @@ function buildAnnouncementPayload(draft) {
   }
 
   const title = draft.title || `📣 ${communityNameUpper()} ANNOUNCEMENT`;
-  const embeds = [];
-  if (draft.imageUrl) {
-    embeds.push(new EmbedBuilder()
-      .setColor(BRAND.lime)
-      .setTitle(title)
-      .setImage(draft.imageUrl));
-    if (draft.body) {
-      embeds.push(new EmbedBuilder()
-        .setColor(BRAND.lime)
-        .setDescription(draft.body)
-        .setFooter({ text: `${communityName()} Official Announcement` })
-        .setTimestamp());
-    } else {
-      embeds[0].setFooter({ text: `${communityName()} Official Announcement` }).setTimestamp();
-    }
-  } else {
-    const embed = new EmbedBuilder().setColor(BRAND.lime).setTitle(title);
-    if (draft.body) embed.setDescription(draft.body);
-    embed.setFooter({ text: `${communityName()} Official Announcement` }).setTimestamp();
-    embeds.push(embed);
-  }
+  const body = resolveAnnouncementChannelMentions(guild, draft.body || '');
+  const embed = new EmbedBuilder()
+    .setColor(BRAND.lime)
+    .setTitle(title)
+    .setFooter({ text: `${communityName()} Official Announcement` })
+    .setTimestamp(draft.createdAt || now());
 
-  return { embeds, components: linkRow ? [linkRow] : [] };
+  if (body) embed.setDescription(body);
+  if (draft.imageUrl) embed.setImage(draft.imageUrl);
+
+  return { embeds: [embed], components: linkRow ? [linkRow] : [] };
 }
 function staffRoleNames() {
   return [coreRoleName(), teamRoleName(), 'MODERATOR'];
@@ -4368,6 +4364,45 @@ async function syncV10205CommunityCountryCodes(guild) {
   console.log(`LINKO v10.20.5 community country-code sync complete · updated ${renamed} channel(s).`);
 }
 
+
+async function syncV10206UnifiedAnnouncements(guild) {
+  if (getSetting('v10_20_6_unified_announcements_synced') === '1') return;
+  const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'announcements' && c.isTextBased());
+  if (!channel) return;
+
+  const rows = db.prepare("SELECT * FROM announcements WHERE discord_message_id IS NOT NULL ORDER BY id").all();
+  let repaired = 0;
+  for (const row of rows) {
+    if (Number(row.x_only) === 1) continue;
+    const message = await channel.messages.fetch(row.discord_message_id).catch(() => null);
+    if (!message || message.author?.id !== client.user.id) continue;
+
+    let links = [];
+    try { links = JSON.parse(row.cta_json || '[]'); } catch {}
+    const payload = buildAnnouncementPayload({
+      title: row.title || '',
+      body: row.body || '',
+      imageUrl: row.image_url || '',
+      links: Array.isArray(links) ? links : [],
+      xOnly: false,
+      createdAt: Number(row.created_at) || now(),
+    }, guild);
+
+    const ok = await message.edit({
+      content: null,
+      embeds: payload.embeds,
+      components: payload.components,
+    }).then(() => true).catch((error) => {
+      logLinkoError(`v10.20.6:announcement-repair:${row.id}`, error);
+      return false;
+    });
+    if (ok) repaired++;
+  }
+
+  setSetting('v10_20_6_unified_announcements_synced', '1');
+  console.log(`LINKO v10.20.6 unified announcement sync complete · repaired ${repaired} published announcement(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6239,9 +6274,10 @@ client.once('clientReady', async () => {
         await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
         await syncV10204CommunityChannelPrefixes(fullGuild).catch((error) => logLinkoError('v10.20.4-community-channel-prefixes', error));
         await syncV10205CommunityCountryCodes(fullGuild).catch((error) => logLinkoError('v10.20.5-community-country-codes', error));
+        await syncV10206UnifiedAnnouncements(fullGuild).catch((error) => logLinkoError('v10.20.6-unified-announcements', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.5 active: community channels use 🌐 + explicit country/region codes in the sidebar while real flags remain in topics and profiles.');
+        console.log('LINKO v10.20.6 active: unified announcement embeds, clickable resolved channel mentions, and country/region community codes.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6615,7 +6651,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const channel = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'announcements' && c.isTextBased());
         if (!channel) return interaction.reply({ content: '#announcements could not be found. Run /setup-linko first.', ephemeral: true });
-        const payload = buildAnnouncementPayload(draft);
+        const payload = buildAnnouncementPayload(draft, interaction.guild);
         const sent = await channel.send(payload);
         db.prepare(`INSERT INTO announcements
           (created_by, title, body, image_url, cta_json, x_only, discord_message_id, created_at)
@@ -7321,7 +7357,7 @@ client.on('interactionCreate', async (interaction) => {
       };
       announcementDrafts.set(draftId, draft);
 
-      const preview = buildAnnouncementPayload(draft);
+      const preview = buildAnnouncementPayload(draft, interaction.guild);
       const confirmRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`announcement_publish:${draftId}`).setLabel('PUBLISH').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`announcement_cancel:${draftId}`).setLabel('CANCEL').setStyle(ButtonStyle.Danger),
