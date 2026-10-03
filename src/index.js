@@ -5753,6 +5753,8 @@ async function saveKreatorProfileFromModal(interaction) {
   if (secondaryUrl && (!Number.isSafeInteger(secondaryFollowers) || secondaryFollowers < 0)) return interaction.reply({ content: 'Secondary follower/subscriber count must be a whole number.', ephemeral: true });
 
   const existing = kreatorProfile(interaction.user.id);
+  const cooldownText = kreatorReapplyText(existing);
+  if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
   const keepApproved = existing?.status === 'approved' && hasKreatorRole(await interaction.guild.members.fetch(interaction.user.id));
   const status = keepApproved ? 'approved' : 'pending';
   db.prepare(`INSERT INTO kreator_profiles (user_id,primary_url,primary_followers,secondary_url,secondary_followers,category,status,submitted_at,reviewed_by,reviewed_at,review_message_id)
