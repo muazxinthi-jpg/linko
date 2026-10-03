@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.1",
+  "version": "10.20.2",
   "private": true,
-  "description": "LINKO v10.20.1 — one submit-content command, approved-social backfill, Published Kontents delivery hardening",
+  "description": "LINKO v10.20.2 — dedicated KREATOR application queue and 24h re-apply cooldown",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

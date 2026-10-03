@@ -1118,7 +1118,7 @@ const CHANNEL_NAMES = {
   studioAnnouncements: '📢・studio-announcements', clientSupport: '🆘・client-support',
   strategist: '♟️・strategist-room', vanguard: '🛡️・vanguard-lounge', prime: '💎・prime-room',
   productRoadmap: '🧩・product-roadmap', languageAccess: '🌐・language-access',
-  teamChat: '💬・team-chat', modCommands: '🛠️・mod-commands', communityHealth: '📊・community-health', modInbox: '📥・mod-inbox', suggestionReview: '💡・suggestion-review', verificationLog: '✅・verification-log', founderVerification: '🏛️・founder-verification', socialSubmissions: '📥・content-submissions', moderation: '🛡️・moderation', securityAlerts: '🚨・security-alerts', kxpLog: '⚡・kxp-log', walletLog: '🔐・wallet-log', botLog: '🤖・bot-log',
+  teamChat: '💬・team-chat', modCommands: '🛠️・mod-commands', communityHealth: '📊・community-health', modInbox: '📥・mod-inbox', suggestionReview: '💡・suggestion-review', verificationLog: '✅・verification-log', founderVerification: '🏛️・founder-verification', kreatorApplications: '🎨・kreator-applications', socialSubmissions: '📥・content-submissions', moderation: '🛡️・moderation', securityAlerts: '🚨・security-alerts', kxpLog: '⚡・kxp-log', walletLog: '🔐・wallet-log', botLog: '🤖・bot-log',
 };
 
 const INTERESTS = [
@@ -3585,9 +3585,22 @@ function participationStepPayload(prefix = '') {
     embeds: [],
   };
 }
+const KREATOR_REAPPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+function kreatorReapplyRemainingMs(profile) {
+  if (!profile || profile.status !== 'declined' || !profile.reviewed_at) return 0;
+  return Math.max(0, Number(profile.reviewed_at) + KREATOR_REAPPLY_COOLDOWN_MS - now());
+}
+function kreatorReapplyText(profile) {
+  const ms = kreatorReapplyRemainingMs(profile);
+  if (ms <= 0) return null;
+  const hours = Math.max(1, Math.ceil(ms / (60 * 60 * 1000)));
+  return `You can re-apply as KREATOR in about **${hours} hour${hours === 1 ? '' : 's'}**.`;
+}
 async function showKreatorProfileModal(interaction) {
   if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
   const existing = kreatorProfile(interaction.user.id);
+  const cooldownText = kreatorReapplyText(existing);
+  if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
   const modal = new ModalBuilder().setCustomId('linko_kreator_profile_modal').setTitle('KREATOR Profile');
   const primary = new TextInputBuilder().setCustomId('primary_url').setLabel('Primary social profile URL').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(220).setPlaceholder('https://x.com/username');
   const primaryFollowers = new TextInputBuilder().setCustomId('primary_followers').setLabel('Primary followers / subscribers').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(12).setPlaceholder('12500');
@@ -3624,14 +3637,20 @@ function profileKreatorActionRow(member) {
     label = 'KREATOR Profile';
     style = ButtonStyle.Secondary;
   } else if (profile?.status === 'declined') {
-    label = 'Re-apply as KREATOR';
+    const remaining = kreatorReapplyRemainingMs(profile);
+    if (remaining > 0) {
+      const hours = Math.max(1, Math.ceil(remaining / (60 * 60 * 1000)));
+      label = `Re-apply in ${hours}h`;
+      style = ButtonStyle.Secondary;
+    } else label = 'Re-apply as KREATOR';
   }
+  const cooldownActive = profile?.status === 'declined' && kreatorReapplyRemainingMs(profile) > 0;
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('linko_profile_kreator_apply')
       .setLabel(label)
       .setStyle(style)
-      .setDisabled(profile?.status === 'pending' || lane === 'kreator_pending'),
+      .setDisabled(profile?.status === 'pending' || lane === 'kreator_pending' || cooldownActive),
   );
 }
 function profileActionRows(member) {
@@ -4222,6 +4241,22 @@ async function syncV1020ContentStructure(guild) {
   setSetting('v10_20_content_structure_synced', 1);
 }
 
+async function syncV10202KreatorApplications(guild) {
+  if (getSetting('v10_20_2_kreator_applications_synced') === '1') return;
+  const staffCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.staff);
+  if (!staffCategory) return;
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const staffPrivate = [overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]))];
+  const review = await ensureTextChannel(guild, staffCategory, { name: CHANNEL_NAMES.kreatorApplications, topic: 'Dedicated KREATOR application review queue. Declined applicants may re-apply after 24 hours.' }, staffPrivate);
+  const pending = db.prepare("SELECT * FROM kreator_profiles WHERE status='pending' ORDER BY submitted_at ASC").all();
+  for (const row of pending) {
+    const msg = await review.send({ embeds: [kreatorProfileEmbed(row.user_id, row)], components: [kreatorProfileReviewButtons(row.user_id)] });
+    db.prepare('UPDATE kreator_profiles SET review_message_id=? WHERE user_id=?').run(msg.id, row.user_id);
+  }
+  setSetting('v10_20_2_kreator_applications_synced', '1');
+  console.log(`LINKO v10.20.2 KREATOR application queue synced · ${pending.length} pending application(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -4732,6 +4767,7 @@ async function buildKlineO(guild) {
     ['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product suggestion review and status controls.'],
     ['verificationLog', CHANNEL_NAMES.verificationLog, 'Member verification activity.'],
     ['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.'],
+    ['kreatorApplications', CHANNEL_NAMES.kreatorApplications, 'Dedicated KREATOR application review queue.'],
     ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `Unified review queue for ${communityName()} social posts and Signal Room content.`],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
@@ -5733,6 +5769,8 @@ async function saveKreatorProfileFromModal(interaction) {
   if (secondaryUrl && (!Number.isSafeInteger(secondaryFollowers) || secondaryFollowers < 0)) return interaction.reply({ content: 'Secondary follower/subscriber count must be a whole number.', ephemeral: true });
 
   const existing = kreatorProfile(interaction.user.id);
+  const cooldownText = kreatorReapplyText(existing);
+  if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
   const keepApproved = existing?.status === 'approved' && hasKreatorRole(await interaction.guild.members.fetch(interaction.user.id));
   const status = keepApproved ? 'approved' : 'pending';
   db.prepare(`INSERT INTO kreator_profiles (user_id,primary_url,primary_followers,secondary_url,secondary_followers,category,status,submitted_at,reviewed_by,reviewed_at,review_message_id)
@@ -5742,8 +5780,7 @@ async function saveKreatorProfileFromModal(interaction) {
   setParticipationLane(interaction.user.id, keepApproved ? 'kreator' : 'kreator_pending');
   const row = kreatorProfile(interaction.user.id);
   if (!keepApproved) {
-    const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'mod-inbox' && ch.isTextBased())
-      || interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions) && ch.isTextBased());
+    const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.kreatorApplications) && ch.isTextBased());
     if (!review) return interaction.reply({ content: 'KREATOR profile saved, but the moderator review channel is missing. Please alert staff.', ephemeral: true });
     const msg = await review.send({ embeds: [kreatorProfileEmbed(interaction.user.id, row)], components: [kreatorProfileReviewButtons(interaction.user.id)] });
     db.prepare('UPDATE kreator_profiles SET review_message_id=? WHERE user_id=?').run(msg.id, interaction.user.id);
@@ -6087,9 +6124,10 @@ client.once('clientReady', async () => {
         await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
         await syncV1020ContentStructure(fullGuild).catch((error) => logLinkoError('v10.20-content-structure', error));
         await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
+        await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.1 active: one /submit-content command, approved social backfill, Published Kontents delivery verified.');
+        console.log('LINKO v10.20.2 active: dedicated KREATOR application queue and 24h re-apply cooldown.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6329,6 +6367,8 @@ client.on('interactionCreate', async (interaction) => {
         if (profile?.status === 'pending' || participationLane(member) === 'kreator_pending') {
           return interaction.reply({ content: 'Your KREATOR application is already pending staff review.', ephemeral: true });
         }
+        const cooldownText = kreatorReapplyText(profile);
+        if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
         return showKreatorProfileModal(interaction);
       }
       if (interaction.customId === 'linko_profile_socials') return showProfileSocialsModal(interaction);
@@ -6347,7 +6387,7 @@ client.on('interactionCreate', async (interaction) => {
           setParticipationLane(userId, 'community');
           const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
           if (kreatorRole && member.roles.cache.has(kreatorRole.id)) await member.roles.remove(kreatorRole, 'KREATOR profile declined').catch(() => {});
-          await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane.`).catch(() => {});
+          await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane. You can re-apply after **24 hours**.`).catch(() => {});
           scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
           return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
         }
@@ -7010,6 +7050,8 @@ client.on('interactionCreate', async (interaction) => {
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify first, or choose KREATOR during START ONBOARDING.', ephemeral: true });
       const profile = kreatorProfile(member.id);
       if (profile?.status === 'pending') return interaction.reply({ content: 'Your KREATOR profile is already pending staff review.', embeds: [kreatorProfileEmbed(member.id, profile)], ephemeral: true });
+      const cooldownText = kreatorReapplyText(profile);
+      if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
       return showKreatorProfileModal(interaction);
     }
     if (interaction.commandName === 'submit-content') {
