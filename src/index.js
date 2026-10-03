@@ -4241,6 +4241,22 @@ async function syncV1020ContentStructure(guild) {
   setSetting('v10_20_content_structure_synced', 1);
 }
 
+async function syncV10202KreatorApplications(guild) {
+  if (getSetting('v10_20_2_kreator_applications_synced') === '1') return;
+  const staffCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.staff);
+  if (!staffCategory) return;
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const staffPrivate = [overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]))];
+  const review = await ensureTextChannel(guild, staffCategory, { name: CHANNEL_NAMES.kreatorApplications, topic: 'Dedicated KREATOR application review queue. Declined applicants may re-apply after 24 hours.' }, staffPrivate);
+  const pending = db.prepare("SELECT * FROM kreator_profiles WHERE status='pending' ORDER BY submitted_at ASC").all();
+  for (const row of pending) {
+    const msg = await review.send({ embeds: [kreatorProfileEmbed(row.user_id, row)], components: [kreatorProfileReviewButtons(row.user_id)] });
+    db.prepare('UPDATE kreator_profiles SET review_message_id=? WHERE user_id=?').run(msg.id, row.user_id);
+  }
+  setSetting('v10_20_2_kreator_applications_synced', '1');
+  console.log(`LINKO v10.20.2 KREATOR application queue synced · ${pending.length} pending application(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6108,9 +6124,10 @@ client.once('clientReady', async () => {
         await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
         await syncV1020ContentStructure(fullGuild).catch((error) => logLinkoError('v10.20-content-structure', error));
         await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
+        await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.1 active: one /submit-content command, approved social backfill, Published Kontents delivery verified.');
+        console.log('LINKO v10.20.2 active: dedicated KREATOR application queue and 24h re-apply cooldown.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
