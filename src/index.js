@@ -6780,7 +6780,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isModalSubmit() && interaction.customId === 'founder_application_modal') return handleFounderModal(interaction);
     if (!interaction.isChatInputCommand()) return;
 
-    if (!moduleEnabled('kreator') && ['creator-campaign', 'submit-post'].includes(interaction.commandName)) {
+    if (!moduleEnabled('kreator') && interaction.commandName === 'creator-campaign') {
       return interaction.reply({ content: 'The **KREATOR** module is disabled in this server.', ephemeral: true });
     }
     if (!moduleEnabled('founder_hub') && interaction.commandName === 'apply-founder') {
