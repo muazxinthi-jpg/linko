@@ -5688,80 +5688,201 @@ async function saveKreatorProfileFromModal(interaction) {
 async function handleSocialSubmission(interaction) {
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first in #verify.', ephemeral: true });
-  if (!hasKreatorRole(member)) return interaction.reply({ content: 'Only approved **KREATORS** can submit social posts for KXP. Community Members compete through community contribution instead.', ephemeral: true });
-  if (!kreatorProfileApproved(member.id)) return interaction.reply({ content: 'Your KREATOR profile must be approved before post submissions. Run **/kreator-profile** to submit your primary/secondary socials and follower counts.', ephemeral: true });
+
+  const approvedKreator = hasKreatorRole(member) && kreatorProfileApproved(member.id);
   const platform = interaction.options.getString('platform', true);
   const url = interaction.options.getString('url', true).trim();
   const campaignId = interaction.options.getInteger('campaign');
   if (!platformUrlValid(platform, url)) return interaction.reply({ content: 'That URL does not match the selected platform or is not a valid HTTPS post URL.', ephemeral: true });
+
   let campaign = null;
   if (campaignId) {
+    if (!approvedKreator) return interaction.reply({ content: 'Creator Campaigns are available only to approved **KREATORS**. Submit without a campaign to earn normal Community KXP.', ephemeral: true });
     campaign = creatorCampaignById(campaignId);
     if (!campaign || campaign.status !== 'active') return interaction.reply({ content: `Creator campaign #${campaignId} is not active or does not exist.`, ephemeral: true });
   }
+
+  const lane = approvedKreator ? 'kreator' : 'community';
   try {
-    const result = db.prepare('INSERT INTO social_submissions (user_id, url, platform, submitted_at, campaign_id) VALUES (?, ?, ?, ?, ?)').run(member.id, url, platform, now(), campaignId ?? null);
+    const result = db.prepare('INSERT INTO social_submissions (user_id, url, platform, submitted_at, campaign_id, creator_eligible, submitter_lane) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(member.id, url, platform, now(), campaignId ?? null, approvedKreator ? 1 : 0, lane);
     const id = Number(result.lastInsertRowid);
-    const review = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'social-submissions' && c.isTextBased());
-    if (!review) return interaction.reply({ content: 'Social review channel is missing. Ask staff to run /setup-linko.', ephemeral: true });
+    touchActivity(member.id, 'submission');
+
+    const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions) && ch.isTextBased());
+    if (!review) return interaction.reply({ content: 'Content review channel is missing. Ask staff to run /setup-linko.', ephemeral: true });
+
     const embed = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${communityName()} social submission #${id}`).setDescription(`${member}\n${url}`).addFields(
+      { name: 'Type', value: '📣 Social Post', inline: true },
       { name: 'Platform', value: platform.toUpperCase(), inline: true },
+      { name: 'Lane', value: approvedKreator ? 'KREATOR' : 'COMMUNITY', inline: true },
+      { name: 'Destination', value: '#published-kontents', inline: true },
       { name: 'Status', value: 'Pending', inline: true },
-      { name: 'KREATOR', value: 'Yes · approved', inline: true },
       ...(campaign ? [{ name: 'Campaign', value: `#${campaign.id} · ${campaign.name}`, inline: false }] : []),
     ).setTimestamp();
+
     const configuredAward = getSettingInt('kxp_social_post');
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`social_approve:${id}`).setLabel(`Approve +${configuredAward} ${xpLabel()}`).setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`social_approve:${id}`).setLabel(`Approve +${configuredAward} ${xpLabel()} & Publish`).setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`social_reject:${id}`).setLabel('Reject').setStyle(ButtonStyle.Danger),
     );
     const msg = await review.send({ embeds: [embed], components: [row] });
     db.prepare('UPDATE social_submissions SET review_message_id = ? WHERE id = ?').run(msg.id, id);
     scheduleModInboxUpdate(interaction.guild);
-    return interaction.reply({ content: `Submitted for review.${campaign ? ` Campaign: **#${campaign.id} · ${campaign.name}**.` : ''} Approved posts can earn ${xpLabel()}.`, ephemeral: true });
-  } catch (e) {
-    if (String(e.message).includes('UNIQUE')) return interaction.reply({ content: 'That post URL has already been submitted.', ephemeral: true });
-    throw e;
+    return interaction.reply({ content: `✅ Social post submitted for review as **${approvedKreator ? 'KREATOR' : 'Community Member'}**.${campaign ? ` Campaign: **#${campaign.id} · ${campaign.name}**.` : ''} If approved, LINKO publishes it in **#published-kontents**.`, ephemeral: true });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) return interaction.reply({ content: 'That post URL has already been submitted.', ephemeral: true });
+    throw err;
   }
 }
+
+function signalSectionLabel(section) {
+  return ({
+    'analyst-chat': '🧠 Analyst Chat',
+    'trade-analysis': '📉 Trade Analysis',
+    'market-thesis': '🌐 Market Thesis',
+    'ai-strategies': '🤖 AI Strategies',
+  })[section] ?? section;
+}
+function validHttpsUrl(raw) {
+  if (!raw) return true;
+  try { return new URL(raw).protocol === 'https:'; } catch { return false; }
+}
+async function handleSignalSubmission(interaction) {
+  if (!moduleEnabled('signal_room')) return interaction.reply({ content: 'Signal Room is disabled in this server.', ephemeral: true });
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify yourself first in #verify.', ephemeral: true });
+
+  const section = interaction.options.getString('section', true);
+  if (!SIGNAL_CHANNELS.has(section)) return interaction.reply({ content: 'Choose a valid Signal Room section.', ephemeral: true });
+  const title = interaction.options.getString('title', true).trim();
+  const body = interaction.options.getString('content', true).trim();
+  const sourceUrl = interaction.options.getString('source')?.trim() || null;
+  if (title.length < 3 || body.length < 20) return interaction.reply({ content: 'Signal submissions need a clear title and at least 20 characters of original content.', ephemeral: true });
+  if (sourceUrl && !validHttpsUrl(sourceUrl)) return interaction.reply({ content: 'The optional source must be a valid **https://** URL.', ephemeral: true });
+
+  const result = db.prepare('INSERT INTO signal_submissions (user_id, section, title, body, source_url, submitted_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(member.id, section, title, body, sourceUrl, now());
+  const id = Number(result.lastInsertRowid);
+  touchActivity(member.id, 'submission');
+
+  const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions) && ch.isTextBased());
+  if (!review) return interaction.reply({ content: 'Content review channel is missing. Ask staff to run /setup-linko.', ephemeral: true });
+
+  const lane = hasKreatorRole(member) && kreatorProfileApproved(member.id) ? 'KREATOR' : participationLane(member) === 'kreator_pending' ? 'KREATOR · PENDING' : 'COMMUNITY';
+  const embed = new EmbedBuilder().setColor(BRAND.cyan).setTitle(`${communityName()} Signal submission #${id}`)
+    .setDescription(`**${title}**\n\n${body.slice(0, 3800)}`)
+    .addFields(
+      { name: 'Type', value: '📈 Signal Room', inline: true },
+      { name: 'Destination', value: signalSectionLabel(section), inline: true },
+      { name: 'Submitted by', value: `${member} · ${lane}`, inline: false },
+      ...(sourceUrl ? [{ name: 'Source', value: sourceUrl, inline: false }] : []),
+      { name: 'Status', value: 'Pending', inline: true },
+    ).setTimestamp();
+  const award = Math.max(0, getSettingInt('kxp_message'));
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`signal_approve:${id}`).setLabel(`Approve & Publish${award ? ` +${award} ${xpLabel()}` : ''}`).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`signal_reject:${id}`).setLabel('Reject').setStyle(ButtonStyle.Danger),
+  );
+  const msg = await review.send({ embeds: [embed], components: [row] });
+  db.prepare('UPDATE signal_submissions SET review_message_id=? WHERE id=?').run(msg.id, id);
+  scheduleModInboxUpdate(interaction.guild);
+  return interaction.reply({ content: `✅ Signal content submitted for review. Destination: **${signalSectionLabel(section)}**. If approved, LINKO publishes it there and credits you.`, ephemeral: true });
+}
+
 async function handleSocialReview(interaction, id, approved) {
-  if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
   const xp = approved ? getSettingInt('kxp_social_post') : 0;
   const label = xpLabel();
   if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
   const sub = db.prepare('SELECT * FROM social_submissions WHERE id = ?').get(id);
   if (!sub || sub.status !== 'pending') return interaction.reply({ content: 'This submission has already been reviewed or does not exist.', ephemeral: true });
-  const creator = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
-  const isApprovedKreator = !!creator && hasVerifiedRole(creator) && hasKreatorRole(creator) && kreatorProfileApproved(creator.id);
-  if (xp > 0 && !isApprovedKreator) {
-    return interaction.reply({ content: 'Cannot approve this post. The submitter is no longer an approved KREATOR. Restore an approved KREATOR profile/role first, or reject the submission.', ephemeral: true });
+
+  const member = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
+  if (!member || !hasVerifiedRole(member)) return interaction.reply({ content: 'Cannot approve because the submitter is no longer a verified member.', ephemeral: true });
+
+  const creatorSubmission = Number(sub.creator_eligible) === 1;
+  if (creatorSubmission && !(hasKreatorRole(member) && kreatorProfileApproved(member.id))) {
+    return interaction.reply({ content: 'Cannot approve this as a KREATOR post because the submitter is no longer an approved KREATOR.', ephemeral: true });
   }
+
   if (xp > 0) {
     const daily = getDaily(sub.user_id);
     if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
-    await addXp(interaction.guild, sub.user_id, xp, `Approved KlineO social contribution #${id}`, interaction.user.id);
-    db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ?, creator_eligible = 1 WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
-    const isKreator = true;
-    const share = interaction.guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
+    await addXp(interaction.guild, sub.user_id, xp, `Approved ${communityName()} social contribution #${id}`, interaction.user.id);
+    db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
+
+    const share = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.sharePost) && ch.isTextBased());
     if (share) {
-      const campaign = sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
-      const reactionLine = isKreator ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.` : '';
+      const campaign = creatorSubmission && sub.campaign_id ? creatorCampaignById(Number(sub.campaign_id)) : null;
+      const reactionLine = creatorSubmission ? `\n🏅 **KREATOR:** every **${getSettingInt('creator_reaction_threshold')} unique verified reactions** adds **+${getSettingInt('creator_reaction_kxp')} ${label}**, up to ${getSettingInt('creator_reaction_cap')} milestones.` : '';
       const campaignLine = campaign ? `\n🏁 **Campaign #${campaign.id}: ${campaign.name}**` : '';
-      const posted = await share.send(`**Approved ${communityName()} community post** — <@${sub.user_id}> earned **${xp} ${label}**${campaignLine}${reactionLine}\n${sub.url}`);
+      const laneLine = creatorSubmission ? '🎨 **Lane:** KREATOR' : '👥 **Lane:** Community Member';
+      const posted = await share.send({
+        content: `**📣 ${communityName()} Kontent Published**\n<@${sub.user_id}> · **+${xp} ${label}**\n${laneLine}${campaignLine}${reactionLine}\n${sub.url}`,
+        allowedMentions: { parse: [], users: [sub.user_id] },
+      });
       db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, id);
     }
   } else {
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?').run('rejected', interaction.user.id, now(), id);
   }
+
   const embed = EmbedBuilder.from(interaction.message.embeds[0]).setColor(xp > 0 ? BRAND.emerald : BRAND.rose).setFields(
     { name: 'Platform', value: sub.platform.toUpperCase(), inline: true },
-    { name: 'Status', value: xp > 0 ? `Approved · +${xp} ${label}` : 'Rejected', inline: true },
+    { name: 'Lane', value: Number(sub.creator_eligible) ? 'KREATOR' : 'COMMUNITY', inline: true },
+    { name: 'Status', value: xp > 0 ? `Approved · +${xp} ${label} · Published` : 'Rejected', inline: true },
     ...(sub.campaign_id ? [{ name: 'Campaign', value: `#${sub.campaign_id}`, inline: true }] : []),
   ).setFooter({ text: `${xp > 0 ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
   await interaction.update({ embeds: [embed], components: [] });
   scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild); scheduleLeaderboardUpdate(interaction.guild);
 }
+
+async function handleSignalReview(interaction, id, approved) {
+  if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+  const sub = db.prepare('SELECT * FROM signal_submissions WHERE id=?').get(id);
+  if (!sub || sub.status !== 'pending') return interaction.reply({ content: 'This Signal submission has already been reviewed or does not exist.', ephemeral: true });
+
+  let xp = 0;
+  if (approved) {
+    const target = interaction.guild.channels.cache.find((ch) => ch.isTextBased() && baseChannelName(ch.name) === sub.section);
+    if (!target) return interaction.reply({ content: `Cannot publish because **${signalSectionLabel(sub.section)}** is missing. Run /setup-linko or enable Signal Room first.`, ephemeral: true });
+
+    const member = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
+    if (!member || !hasVerifiedRole(member)) return interaction.reply({ content: 'Cannot approve because the submitter is no longer a verified member.', ephemeral: true });
+
+    const configured = Math.max(0, getSettingInt('kxp_message'));
+    const daily = getDaily(sub.user_id);
+    const remaining = Math.max(0, getSettingInt('message_daily_cap') - Number(daily.message_xp));
+    xp = Math.min(configured, remaining);
+    if (xp > 0) {
+      db.prepare('UPDATE daily_xp SET message_xp = message_xp + ? WHERE user_id = ? AND day = ?').run(xp, sub.user_id, dayKey());
+      await addXp(interaction.guild, sub.user_id, xp, `Approved Signal Room content #${id} → ${sub.section}`, interaction.user.id);
+    }
+
+    const embed = new EmbedBuilder().setColor(BRAND.cyan).setTitle(sub.title)
+      .setDescription(sub.body.slice(0, 4000))
+      .addFields(
+        { name: 'Contributor', value: `<@${sub.user_id}>`, inline: true },
+        { name: 'Reviewed by', value: `<@${interaction.user.id}>`, inline: true },
+        ...(sub.source_url ? [{ name: 'Source / context', value: sub.source_url.slice(0, 1024), inline: false }] : []),
+      ).setFooter({ text: `LINKO approved Signal submission #${id}` }).setTimestamp();
+    const posted = await target.send({ embeds: [embed], allowedMentions: { parse: [], users: [sub.user_id, interaction.user.id] } });
+    db.prepare('UPDATE signal_submissions SET status=?,reviewed_by=?,reviewed_at=?,xp_awarded=?,published_message_id=? WHERE id=?')
+      .run('approved', interaction.user.id, now(), xp, posted.id, id);
+  } else {
+    db.prepare('UPDATE signal_submissions SET status=?,reviewed_by=?,reviewed_at=? WHERE id=?').run('rejected', interaction.user.id, now(), id);
+  }
+
+  const updated = EmbedBuilder.from(interaction.message.embeds[0]).setColor(approved ? BRAND.emerald : BRAND.rose).setFields(
+    { name: 'Type', value: '📈 Signal Room', inline: true },
+    { name: 'Destination', value: signalSectionLabel(sub.section), inline: true },
+    { name: 'Status', value: approved ? `Approved · Published${xp ? ` · +${xp} ${xpLabel()}` : ''}` : 'Rejected', inline: true },
+  ).setFooter({ text: `${approved ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
+  await interaction.update({ embeds: [updated], components: [] });
+  scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild); scheduleLeaderboardUpdate(interaction.guild);
+}
+
 function creatorEmojiKey(reaction) {
   return reaction.emoji.id ? `${reaction.emoji.name ?? 'emoji'}:${reaction.emoji.id}` : String(reaction.emoji.name ?? 'emoji');
 }
