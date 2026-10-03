@@ -6350,6 +6350,8 @@ client.on('interactionCreate', async (interaction) => {
         if (profile?.status === 'pending' || participationLane(member) === 'kreator_pending') {
           return interaction.reply({ content: 'Your KREATOR application is already pending staff review.', ephemeral: true });
         }
+        const cooldownText = kreatorReapplyText(profile);
+        if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
         return showKreatorProfileModal(interaction);
       }
       if (interaction.customId === 'linko_profile_socials') return showProfileSocialsModal(interaction);
