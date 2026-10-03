@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.6",
+  "version": "10.20.7",
   "private": true,
-  "description": "LINKO v10.20.6 — unified announcement embeds with clickable Discord channel references",
+  "description": "LINKO v10.20.7 — KXP announcement everyone greeting and unified announcement embeds",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
