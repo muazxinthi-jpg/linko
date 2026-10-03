@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.2",
+  "version": "10.20.3",
   "private": true,
-  "description": "LINKO v10.20.2 — dedicated KREATOR application queue and 24h re-apply cooldown",
+  "description": "LINKO v10.20.3 — pending-only KREATOR review queue with automatic cleanup of completed cards",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

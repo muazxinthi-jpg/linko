@@ -4257,6 +4257,30 @@ async function syncV10202KreatorApplications(guild) {
   console.log(`LINKO v10.20.2 KREATOR application queue synced · ${pending.length} pending application(s).`);
 }
 
+async function syncV10203KreatorQueueCleanup(guild) {
+  if (getSetting('v10_20_3_kreator_queue_cleanup_done') === '1') return;
+  const review = guild.channels.cache.find((ch) =>
+    ch.isTextBased?.() && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.kreatorApplications)
+  );
+  if (!review) return;
+
+  const completed = db.prepare("SELECT user_id, review_message_id FROM kreator_profiles WHERE status!='pending' AND review_message_id IS NOT NULL").all();
+  let removed = 0;
+  for (const row of completed) {
+    const msg = await review.messages.fetch(row.review_message_id).catch(() => null);
+    if (!msg || msg.author?.id !== client.user.id) continue;
+    const marker = msg.embeds?.[0]?.footer?.text || '';
+    if (!marker.includes('[LINKO-KREATOR-PROFILE]')) continue;
+    const ok = await msg.delete().then(() => true).catch((error) => {
+      logLinkoError(`v10.20.3:kreator-queue-cleanup:${row.user_id}`, error);
+      return false;
+    });
+    if (ok) removed++;
+  }
+  setSetting('v10_20_3_kreator_queue_cleanup_done', '1');
+  console.log(`LINKO v10.20.3 KREATOR queue cleanup complete · removed ${removed} completed review card(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6125,9 +6149,10 @@ client.once('clientReady', async () => {
         await syncV1020ContentStructure(fullGuild).catch((error) => logLinkoError('v10.20-content-structure', error));
         await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
         await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
+        await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.2 active: dedicated KREATOR application queue and 24h re-apply cooldown.');
+        console.log('LINKO v10.20.3 active: KREATOR application queue shows pending reviews only; completed cards are removed automatically.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6389,7 +6414,9 @@ client.on('interactionCreate', async (interaction) => {
           if (kreatorRole && member.roles.cache.has(kreatorRole.id)) await member.roles.remove(kreatorRole, 'KREATOR profile declined').catch(() => {});
           await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane. You can re-apply after **24 hours**.`).catch(() => {});
           scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-          return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
+          await interaction.deferUpdate();
+          await interaction.message.delete().catch((error) => logLinkoError(`kreator-review-delete:declined:${userId}`, error));
+          return;
         }
         const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
         if (!kreatorRole) return interaction.reply({ content: 'KREATOR role is missing. Run /setup-linko first.', ephemeral: true });
@@ -6403,7 +6430,9 @@ client.on('interactionCreate', async (interaction) => {
           ? `✅ Your ${communityName()} KREATOR profile was approved. You are now eligible for the KREATOR Leaderboard and creator post submissions. You will not appear on the Community Leaderboard.`
           : `✅ Your ${communityName()} KREATOR profile was approved. Complete verification to activate the KREATOR role and creator access.`).catch(() => {});
         scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
-        return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
+        await interaction.deferUpdate();
+        await interaction.message.delete().catch((error) => logLinkoError(`kreator-review-delete:approved:${userId}`, error));
+        return;
       }
       if (interaction.customId.startsWith('language_request_approve:') || interaction.customId.startsWith('language_request_decline:')) {
         if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
