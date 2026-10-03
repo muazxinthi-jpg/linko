@@ -102,6 +102,22 @@ const SCHEMA_SQL = `
     review_message_id TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS signal_submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    section TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    source_url TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    submitted_at INTEGER NOT NULL,
+    reviewed_by TEXT,
+    reviewed_at INTEGER,
+    xp_awarded INTEGER NOT NULL DEFAULT 0,
+    review_message_id TEXT,
+    published_message_id TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS creator_campaigns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -604,6 +620,7 @@ function initializeGuildDatabase(database) {
   ensureSqliteColumn(database, 'wallet_profiles', 'linkedin_account', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'campaign_id', 'INTEGER');
   ensureSqliteColumn(database, 'social_submissions', 'creator_eligible', 'INTEGER NOT NULL DEFAULT 0');
+  ensureSqliteColumn(database, 'social_submissions', 'submitter_lane', "TEXT NOT NULL DEFAULT 'community'");
   ensureSqliteColumn(database, 'social_submissions', 'share_message_id', 'TEXT');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_xp_awarded', 'INTEGER NOT NULL DEFAULT 0');
   ensureSqliteColumn(database, 'social_submissions', 'reaction_milestones_awarded', 'INTEGER NOT NULL DEFAULT 0');
@@ -1095,13 +1112,13 @@ const CHANNEL_NAMES = {
   productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
   howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', communityLeaderboard: '👥・community-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
   analystChat: '🧠・analyst-chat', tradeAnalysis: '📉・trade-analysis', marketThesis: '🌐・market-thesis', aiStrategies: '🤖・ai-strategies',
-  sharePost: '📣・submit-your-post', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
+  sharePost: '📣・published-kontents', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
   creatorLounge: '🎨・kreator-lounge', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
   founderLobby: '🏛️・founder-lobby', founderDirectory: '📇・founder-directory', liquidityStudio: '💧・liquidity-studio', marketStructure: '📐・market-structure', founderResources: '📚・founder-resources', studioRequests: '📩・studio-requests',
   studioAnnouncements: '📢・studio-announcements', clientSupport: '🆘・client-support',
   strategist: '♟️・strategist-room', vanguard: '🛡️・vanguard-lounge', prime: '💎・prime-room',
   productRoadmap: '🧩・product-roadmap', languageAccess: '🌐・language-access',
-  teamChat: '💬・team-chat', modCommands: '🛠️・mod-commands', communityHealth: '📊・community-health', modInbox: '📥・mod-inbox', suggestionReview: '💡・suggestion-review', verificationLog: '✅・verification-log', founderVerification: '🏛️・founder-verification', socialSubmissions: '📣・social-submissions', moderation: '🛡️・moderation', securityAlerts: '🚨・security-alerts', kxpLog: '⚡・kxp-log', walletLog: '🔐・wallet-log', botLog: '🤖・bot-log',
+  teamChat: '💬・team-chat', modCommands: '🛠️・mod-commands', communityHealth: '📊・community-health', modInbox: '📥・mod-inbox', suggestionReview: '💡・suggestion-review', verificationLog: '✅・verification-log', founderVerification: '🏛️・founder-verification', socialSubmissions: '📥・content-submissions', moderation: '🛡️・moderation', securityAlerts: '🚨・security-alerts', kxpLog: '⚡・kxp-log', walletLog: '🔐・wallet-log', botLog: '🤖・bot-log',
 };
 
 const INTERESTS = [
@@ -1176,12 +1193,12 @@ const LEGACY_CHANNEL_NAMES = new Map([
   ['product-updates', CHANNEL_NAMES.productUpdates], ['product-feedback', CHANNEL_NAMES.productFeedback], ['bug-reports', CHANNEL_NAMES.bugReports], ['help', CHANNEL_NAMES.help], ['introductions', CHANNEL_NAMES.introductions], ['wins-and-learnings', CHANNEL_NAMES.wins],
   ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['community-leaderboard', CHANNEL_NAMES.communityLeaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
   ['analyst-chat', CHANNEL_NAMES.analystChat], ['trade-analysis', CHANNEL_NAMES.tradeAnalysis], ['market-thesis', CHANNEL_NAMES.marketThesis], ['ai-strategies', CHANNEL_NAMES.aiStrategies],
-  ['share-your-post', CHANNEL_NAMES.sharePost], ['submit-your-post', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
+  ['share-your-post', CHANNEL_NAMES.sharePost], ['submit-your-post', CHANNEL_NAMES.sharePost], ['published-kontents', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
   ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['kreator-lounge', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
   ['founder-lobby', CHANNEL_NAMES.founderLobby], ['founder-directory', CHANNEL_NAMES.founderDirectory], ['liquidity-studio', CHANNEL_NAMES.liquidityStudio], ['market-structure', CHANNEL_NAMES.marketStructure], ['founder-resources', CHANNEL_NAMES.founderResources], ['studio-requests', CHANNEL_NAMES.studioRequests],
   ['studio-announcements', CHANNEL_NAMES.studioAnnouncements], ['client-support', CHANNEL_NAMES.clientSupport],
   ['strategist-room', CHANNEL_NAMES.strategist], ['vanguard-lounge', CHANNEL_NAMES.vanguard], ['prime-room', CHANNEL_NAMES.prime],
-  ['team-chat', CHANNEL_NAMES.teamChat], ['mod-commands', CHANNEL_NAMES.modCommands], ['verification-log', CHANNEL_NAMES.verificationLog], ['profile-submissions', '📇・profile-submissions'], ['founder-verification', CHANNEL_NAMES.founderVerification], ['social-submissions', CHANNEL_NAMES.socialSubmissions], ['moderation', CHANNEL_NAMES.moderation], ['security-alerts', CHANNEL_NAMES.securityAlerts], ['kxp-log', CHANNEL_NAMES.kxpLog], ['wallet-log', CHANNEL_NAMES.walletLog], ['bot-log', CHANNEL_NAMES.botLog],
+  ['team-chat', CHANNEL_NAMES.teamChat], ['mod-commands', CHANNEL_NAMES.modCommands], ['verification-log', CHANNEL_NAMES.verificationLog], ['profile-submissions', '📇・profile-submissions'], ['founder-verification', CHANNEL_NAMES.founderVerification], ['social-submissions', CHANNEL_NAMES.socialSubmissions], ['content-submissions', CHANNEL_NAMES.socialSubmissions], ['moderation', CHANNEL_NAMES.moderation], ['security-alerts', CHANNEL_NAMES.securityAlerts], ['kxp-log', CHANNEL_NAMES.kxpLog], ['wallet-log', CHANNEL_NAMES.walletLog], ['bot-log', CHANNEL_NAMES.botLog],
   ['Analyst Room', '🔊 Analyst Room'], ['Founder Roundtable', '🎙️ Founder Roundtable'], ['Strategy Room', '🎙️ Strategy Room'], ['Vanguard Room', '🎙️ Vanguard Room'],
   ['Trading Floor', '📈 Trading Floor'], ['Market Room', '🌐 Market Room'], ['AI Lab', '🤖 AI Lab'], ['Co-Working', '💻 Co-Working'], ['Community Lounge', '💬 Community Lounge'], ['KlineO AMA', '🎙️ KlineO AMA'], ['AFK', '💤 AFK'],
 ]);
@@ -4010,7 +4027,7 @@ async function ensureKreatorHubCategory(guild, permissionOverwrites = []) {
     x.type === ChannelType.GuildCategory && x.id !== hub.id && legacyNames.has(x.name)
   );
   const kreatorBases = new Set([
-    'share-your-post','submit-your-post','content-missions','kreator-leaderboard','creator-leaderboard',
+    'share-your-post','submit-your-post','published-kontents','content-missions','kreator-leaderboard','creator-leaderboard',
     'campaign-leaderboard','creator-lounge','kreator-lounge','content-and-collabs','creator-opportunities',
   ]);
   for (const oldCategory of legacyCategories.values()) {
@@ -4023,8 +4040,8 @@ async function ensureKreatorHubCategory(guild, permissionOverwrites = []) {
     if (remaining.size === 0) await oldCategory.delete('LINKO v10.19 remove empty legacy creator category').catch((error) => logLinkoError(`kreator-hub:delete:${oldCategory.id}`, error));
   }
 
-  const oldSubmit = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === hub.id && baseChannelName(x.name) === 'share-your-post');
-  if (oldSubmit) await oldSubmit.edit({ name: CHANNEL_NAMES.sharePost, reason: 'LINKO v10.19 rename creator submission channel' }).catch((error) => logLinkoError('kreator-hub:rename-submit', error));
+  const oldSubmit = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === hub.id && ['share-your-post','submit-your-post'].includes(baseChannelName(x.name)));
+  if (oldSubmit) await oldSubmit.edit({ name: CHANNEL_NAMES.sharePost, reason: 'LINKO v10.20 rename approved social feed to Published Kontents' }).catch((error) => logLinkoError('kreator-hub:rename-published', error));
   const oldLounge = guild.channels.cache.find((x) => x.type === ChannelType.GuildText && x.parentId === hub.id && baseChannelName(x.name) === 'creator-lounge');
   if (oldLounge) await oldLounge.edit({ name: CHANNEL_NAMES.creatorLounge, reason: 'LINKO v10.19 rename creator lounge' }).catch((error) => logLinkoError('kreator-hub:rename-lounge', error));
   return hub;
