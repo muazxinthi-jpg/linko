@@ -4154,6 +4154,49 @@ async function syncV1019DiscordStructure(guild) {
   setSetting('v10_19_structure_synced', 1);
 }
 
+async function syncV1020ContentStructure(guild) {
+  if (getSetting('v10_20_content_structure_synced') === '1') return;
+  await guild.channels.fetch();
+
+  const everyone = guild.roles.everyone;
+  const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const kreator = guild.roles.cache.find((r) => r.name === 'KREATOR' || r.name === 'CREATOR');
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const staffCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.staff);
+
+  if (staffCategory) {
+    const review = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildText && ['social-submissions','content-submissions'].includes(baseChannelName(ch.name)));
+    if (review) {
+      await review.edit({
+        name: CHANNEL_NAMES.socialSubmissions,
+        parent: staffCategory.id,
+        topic: 'Unified review queue for social posts and Signal Room content submissions.',
+        reason: 'LINKO v10.20 unified content review queue',
+      }).catch((error) => logLinkoError('v10.20:content-review-channel', error));
+    }
+  }
+
+  if (moduleEnabled('kreator') && verified && kreator) {
+    const creatorsPrivate = [
+      overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+      overwrite(kreator.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]),
+      ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+    ];
+    const hub = await ensureKreatorHubCategory(guild, creatorsPrivate);
+    const feed = await ensureTextChannel(guild, hub, {
+      name: CHANNEL_NAMES.sharePost,
+      topic: 'Approved social posts from Community Members and KREATORS. Submit privately with /submit-content social.',
+    }, [
+      overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+      overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]),
+      ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+    ]);
+    await seedMessage(feed, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
+  }
+
+  setSetting('v10_20_content_structure_synced', 1);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -5972,6 +6015,7 @@ client.once('clientReady', async () => {
         await ensureMemberProfileLauncher(fullGuild).catch((error) => logLinkoError('member-profile-launcher', error));
         await syncV1019DiscordStructure(fullGuild).catch((error) => logLinkoError('v10.19-structure-sync', error));
         await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
+        await syncV1020ContentStructure(fullGuild).catch((error) => logLinkoError('v10.20-content-structure', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
         console.log('LINKO v10.20 active: unified content submissions, Community + KREATOR social posts, Signal Room review/publishing, Published Kontents feed.');
