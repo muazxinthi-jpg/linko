@@ -4403,6 +4403,49 @@ async function syncV10206UnifiedAnnouncements(guild) {
   console.log(`LINKO v10.20.6 unified announcement sync complete · repaired ${repaired} published announcement(s).`);
 }
 
+
+async function syncV10207KxpEveryoneGreeting(guild) {
+  if (getSetting('v10_20_7_kxp_everyone_greeting_synced') === '1') return;
+  const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'announcements' && c.isTextBased());
+  if (!channel) return;
+
+  const rows = db.prepare("SELECT * FROM announcements WHERE discord_message_id IS NOT NULL AND x_only=0 ORDER BY id DESC").all();
+  let updated = 0;
+  for (const row of rows) {
+    if (!String(row.title || '').toUpperCase().includes('HOW TO EARN KXP')) continue;
+    const message = await channel.messages.fetch(row.discord_message_id).catch(() => null);
+    if (!message || message.author?.id !== client.user.id) continue;
+
+    let links = [];
+    try { links = JSON.parse(row.cta_json || '[]'); } catch {}
+    const payload = buildAnnouncementPayload({
+      title: row.title || '',
+      body: row.body || '',
+      imageUrl: row.image_url || '',
+      links: Array.isArray(links) ? links : [],
+      xOnly: false,
+      createdAt: Number(row.created_at) || now(),
+    }, guild);
+
+    const ok = await message.edit({
+      content: 'Hello @everyone 👋',
+      embeds: payload.embeds,
+      components: payload.components,
+      allowedMentions: { parse: ['everyone'] },
+    }).then(() => true).catch((error) => {
+      logLinkoError(`v10.20.7:kxp-everyone-greeting:${row.id}`, error);
+      return false;
+    });
+    if (ok) {
+      updated++;
+      break;
+    }
+  }
+
+  setSetting('v10_20_7_kxp_everyone_greeting_synced', '1');
+  console.log(`LINKO v10.20.7 KXP announcement greeting sync complete · updated ${updated} announcement(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6275,9 +6318,10 @@ client.once('clientReady', async () => {
         await syncV10204CommunityChannelPrefixes(fullGuild).catch((error) => logLinkoError('v10.20.4-community-channel-prefixes', error));
         await syncV10205CommunityCountryCodes(fullGuild).catch((error) => logLinkoError('v10.20.5-community-country-codes', error));
         await syncV10206UnifiedAnnouncements(fullGuild).catch((error) => logLinkoError('v10.20.6-unified-announcements', error));
+        await syncV10207KxpEveryoneGreeting(fullGuild).catch((error) => logLinkoError('v10.20.7-kxp-everyone-greeting', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.6 active: unified announcement embeds, clickable resolved channel mentions, and country/region community codes.');
+        console.log('LINKO v10.20.7 active: KXP announcement @everyone greeting, unified embeds, clickable channel mentions, and country/region community codes.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
