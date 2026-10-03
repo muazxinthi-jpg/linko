@@ -2257,9 +2257,13 @@ async function createLanguageCommunity(guild, { name = null, languageKey = null,
   const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const perms = privateFor(guild.roles.everyone, [role, ...staff]);
   const channelSlug = slugifyChannelName(slug || cleanName);
-  const chName = `${cleanEmoji}・${channelSlug}`;
+  // Discord may render Unicode country flags as regional letter codes (for example 🇮🇳 → IN)
+  // in channel names. Use a stable globe prefix in the sidebar, while keeping the real
+  // country/language flag in the topic, profile UI, catalog and stored community metadata.
+  const chName = `🌍・${channelSlug}`;
+  const channelTopic = `${cleanEmoji} ${cleanName} · ${communityName()} community space.`;
   let channel = guild.channels.cache.find((c) => c.parentId === category.id && c.name === chName && c.type === ChannelType.GuildText);
-  if (!channel) channel = await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: `${cleanName} · ${communityName()} community space.`, permissionOverwrites: perms, reason: 'LINKO community demand manager' });
+  if (!channel) channel = await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: channelTopic, permissionOverwrites: perms, reason: 'LINKO community demand manager' });
   db.prepare(`INSERT INTO language_roles (role_id,name,emoji,channel_id,created_by,created_at,archived) VALUES (?,?,?,?,?,?,0)
     ON CONFLICT(role_id) DO UPDATE SET name=excluded.name, emoji=excluded.emoji, channel_id=excluded.channel_id, archived=0`)
     .run(role.id, cleanName, cleanEmoji, channel.id, actorId, now());
@@ -4281,6 +4285,37 @@ async function syncV10203KreatorQueueCleanup(guild) {
   console.log(`LINKO v10.20.3 KREATOR queue cleanup complete · removed ${removed} completed review card(s).`);
 }
 
+async function syncV10204CommunityChannelPrefixes(guild) {
+  if (getSetting('v10_20_4_community_channel_prefixes_synced') === '1') return;
+  await guild.channels.fetch();
+
+  const rows = db.prepare("SELECT * FROM language_roles WHERE archived=0 AND channel_id IS NOT NULL").all();
+  let renamed = 0;
+  for (const row of rows) {
+    const channel = guild.channels.cache.get(row.channel_id);
+    if (!channel || channel.type !== ChannelType.GuildText) continue;
+
+    const entry = languageCatalogFindByInput(row.name);
+    const cleanName = entry?.name || row.name;
+    const flag = entry?.emoji || row.emoji || '🌐';
+    const slug = slugifyChannelName(cleanName);
+    const desiredName = `🌍・${slug}`;
+    const desiredTopic = `${flag} ${cleanName} · ${communityName()} community space.`;
+
+    if (channel.name !== desiredName || channel.topic !== desiredTopic) {
+      await channel.edit({
+        name: desiredName,
+        topic: desiredTopic,
+        reason: 'LINKO v10.20.4 avoid Discord regional-letter flag rendering in channel names',
+      }).catch((error) => logLinkoError(`v10.20.4:community-prefix:${channel.id}`, error));
+      renamed++;
+    }
+  }
+
+  setSetting('v10_20_4_community_channel_prefixes_synced', '1');
+  console.log(`LINKO v10.20.4 community channel prefix sync complete · updated ${renamed} channel(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6150,9 +6185,10 @@ client.once('clientReady', async () => {
         await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
         await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
+        await syncV10204CommunityChannelPrefixes(fullGuild).catch((error) => logLinkoError('v10.20.4-community-channel-prefixes', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.3 active: KREATOR application queue shows pending reviews only; completed cards are removed automatically.');
+        console.log('LINKO v10.20.4 active: community channels use stable 🌍 sidebar prefixes while country/language flags remain in metadata and topics.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
