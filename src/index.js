@@ -4165,14 +4165,22 @@ async function syncV1020ContentStructure(guild) {
   const staffCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.staff);
 
   if (staffCategory) {
-    const review = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildText && ['social-submissions','content-submissions'].includes(baseChannelName(ch.name)));
-    if (review) {
-      await review.edit({
+    const reviewCandidates = [...guild.channels.cache.filter((ch) =>
+      ch.type === ChannelType.GuildText && ['social-submissions','content-submissions'].includes(baseChannelName(ch.name))
+    ).values()];
+    if (reviewCandidates.length) {
+      const current = reviewCandidates.find((ch) => ch.name === CHANNEL_NAMES.socialSubmissions);
+      const keep = current ?? await chooseHistoryPreservingChannel(reviewCandidates);
+      await keep.edit({
         name: CHANNEL_NAMES.socialSubmissions,
         parent: staffCategory.id,
         topic: 'Unified review queue for social posts and Signal Room content submissions.',
         reason: 'LINKO v10.20 unified content review queue',
       }).catch((error) => logLinkoError('v10.20:content-review-channel', error));
+      for (const duplicate of reviewCandidates) {
+        if (duplicate.id === keep.id) continue;
+        await archiveDuplicateChannel(guild, duplicate, staffCategory, 'content-submissions');
+      }
     }
   }
 
@@ -4183,14 +4191,41 @@ async function syncV1020ContentStructure(guild) {
       ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
     ];
     const hub = await ensureKreatorHubCategory(guild, creatorsPrivate);
-    const feed = await ensureTextChannel(guild, hub, {
-      name: CHANNEL_NAMES.sharePost,
-      topic: 'Approved social posts from Community Members and KREATORS. Submit privately with /submit-content social.',
-    }, [
-      overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
-      overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]),
-      ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
-    ]);
+
+    const feedCandidates = [...guild.channels.cache.filter((ch) =>
+      ch.type === ChannelType.GuildText &&
+      ch.parentId === hub.id &&
+      ['share-your-post','submit-your-post','published-kontents'].includes(baseChannelName(ch.name))
+    ).values()];
+    let feed = feedCandidates.find((ch) => ch.name === CHANNEL_NAMES.sharePost) ?? null;
+    if (!feed && feedCandidates.length) feed = await chooseHistoryPreservingChannel(feedCandidates);
+    if (feed) {
+      await feed.edit({
+        name: CHANNEL_NAMES.sharePost,
+        parent: hub.id,
+        topic: 'Approved social posts from Community Members and KREATORS. Submit privately with /submit-content social.',
+        reason: 'LINKO v10.20 Published Kontents feed',
+      }).catch((error) => logLinkoError('v10.20:published-kontents', error));
+      const feedPerms = [
+        overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+        overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]),
+        ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+      ];
+      await feed.permissionOverwrites.set(feedPerms, 'LINKO v10.20 Published Kontents permissions').catch((error) => logLinkoError('v10.20:published-kontents-perms', error));
+      for (const duplicate of feedCandidates) {
+        if (duplicate.id === feed.id) continue;
+        await archiveDuplicateChannel(guild, duplicate, staffCategory, 'published-kontents');
+      }
+    } else {
+      feed = await ensureTextChannel(guild, hub, {
+        name: CHANNEL_NAMES.sharePost,
+        topic: 'Approved social posts from Community Members and KREATORS. Submit privately with /submit-content social.',
+      }, [
+        overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+        overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]),
+        ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+      ]);
+    }
     await seedMessage(feed, '[KLINEO-SOCIAL]', { embeds: [buildSocialEmbed()] });
   }
 
