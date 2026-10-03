@@ -2717,7 +2717,8 @@ function scheduleHealthUpdate(_guild) {
 function modInboxCounts() {
   const cutoff = now() - 7 * 86400000;
   return {
-    social: moduleEnabled('kreator') ? Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status='pending'").get()?.c ?? 0) : 0,
+    social: Number(db.prepare("SELECT COUNT(*) AS c FROM social_submissions WHERE status='pending'").get()?.c ?? 0),
+    signalContent: moduleEnabled('signal_room') ? Number(db.prepare("SELECT COUNT(*) AS c FROM signal_submissions WHERE status='pending'").get()?.c ?? 0) : 0,
     kreatorProfiles: moduleEnabled('kreator') ? Number(db.prepare("SELECT COUNT(*) AS c FROM kreator_profiles WHERE status='pending'").get()?.c ?? 0) : 0,
     founders: moduleEnabled('founder_hub') ? Number(db.prepare("SELECT COUNT(*) AS c FROM founder_applications WHERE status='pending'").get()?.c ?? 0) : 0,
     suggestions: Number(db.prepare("SELECT COUNT(*) AS c FROM product_suggestions WHERE status IN ('submitted','reviewing')").get()?.c ?? 0),
@@ -2732,11 +2733,11 @@ function modInboxCounts() {
 }
 function buildModInboxEmbed() {
   const c = modInboxCounts();
-  const total = c.social + c.kreatorProfiles + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
+  const total = c.social + c.signalContent + c.kreatorProfiles + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
   return new EmbedBuilder().setColor(total ? BRAND.rose : BRAND.emerald).setTitle('📥 LINKO Moderator Inbox')
     .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**` : '**No pending review items.**')
     .addFields(
-      { name: 'Reviews', value: `KREATOR profiles: **${c.kreatorProfiles}**\nKREATOR posts: **${c.social}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nCommunity demand reviews: **${c.languageDemand}**`, inline: true },
+      { name: 'Reviews', value: `KREATOR profiles: **${c.kreatorProfiles}**\nSocial posts: **${c.social}**\nSignal content: **${c.signalContent}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nCommunity demand reviews: **${c.languageDemand}**`, inline: true },
       { name: 'Operations', value: `Impact candidates evaluating: **${c.impact}**\nUpcoming/live events: **${c.events}**\nNew unverified (7d): **${c.unverified}**\nJoin source missing: **${c.unattributed}**\nAwaiting inviter confirmation: **${c.pendingInviterConfirmations}**`, inline: true },
     ).setFooter({ text: '[KLINEO-MOD-INBOX] · Auto-updated by LINKO' }).setTimestamp();
 }
@@ -5973,7 +5974,7 @@ client.once('clientReady', async () => {
         await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.19.1 active: history-safe channel dedupe, one canonical General, KREATOR HUB consolidated, Community + Referral leaderboards retained.');
+        console.log('LINKO v10.20 active: unified content submissions, Community + KREATOR social posts, Signal Room review/publishing, Published Kontents feed.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6175,7 +6176,7 @@ client.on('messageCreate', async (message) => {
     if (shouldDelete) {
       await message.delete().catch(() => {});
       const note = isSignal ? 'Links in Signal Room unlock at **STRATEGIST**.' : `Links are not permitted in public ${communityName()} community channels.`;
-      const socialHint = moduleEnabled('kreator') ? `\nUse **/submit-post** for ${communityName()} social content.` : '';
+      const socialHint = moduleEnabled('kreator') ? `\nUse **/submit-content social** for ${communityName()} social content.` : '';
       await message.author.send(`Your message in **#${channelName}** was removed. ${note}${socialHint}`).catch(() => {});
       return;
     }
@@ -6357,6 +6358,14 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.customId.startsWith('social_reject:')) {
         const [, id] = interaction.customId.split(':');
         return handleSocialReview(interaction, Number(id), false);
+      }
+      if (interaction.customId.startsWith('signal_approve:')) {
+        const [, id] = interaction.customId.split(':');
+        return handleSignalReview(interaction, Number(id), true);
+      }
+      if (interaction.customId.startsWith('signal_reject:')) {
+        const [, id] = interaction.customId.split(':');
+        return handleSignalReview(interaction, Number(id), false);
       }
       if (interaction.customId.startsWith('founder_approve:')) {
         const [, id] = interaction.customId.split(':');
@@ -6732,7 +6741,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (interaction.commandName === 'commands') {
-      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/kreator-profile` · `/submit-post` (KREATOR only) · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
+      return interaction.reply({ content: '**LINKO Member Commands**\n**Primary:** `/profile` opens your permanent private profile dashboard.\n\n**Other commands:** `/rank` · `/points` · `/leaderboard` · `/invite` · `/invites` · `/join-source` · `/confirm-invited` · `/wallet` · `/kreator-profile` · `/submit-content` · `/submit-post` (legacy social shortcut) · `/social-card` · `/apply-founder` · `/onboarding` · `/interest` · `/language` · `/suggest` · `/events`', components: [profileLauncherRow()], ephemeral: true });
     }
 
     if (interaction.commandName === 'invite') {
@@ -6887,6 +6896,11 @@ client.on('interactionCreate', async (interaction) => {
       const profile = kreatorProfile(member.id);
       if (profile?.status === 'pending') return interaction.reply({ content: 'Your KREATOR profile is already pending staff review.', embeds: [kreatorProfileEmbed(member.id, profile)], ephemeral: true });
       return showKreatorProfileModal(interaction);
+    }
+    if (interaction.commandName === 'submit-content') {
+      const subcommand = interaction.options.getSubcommand();
+      if (subcommand === 'social') return handleSocialSubmission(interaction);
+      if (subcommand === 'signal') return handleSignalSubmission(interaction);
     }
     if (interaction.commandName === 'submit-post') return handleSocialSubmission(interaction);
     if (interaction.commandName === 'apply-founder') return createFounderApplicationModal(interaction);
