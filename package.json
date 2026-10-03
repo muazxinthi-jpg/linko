@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.4",
+  "version": "10.20.5",
   "private": true,
-  "description": "LINKO v10.20.4 — stable community channel prefixes with country/language flags preserved in topics and profiles",
+  "description": "LINKO v10.20.5 — community sidebar country/region codes with real flags preserved in topics and profiles",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
