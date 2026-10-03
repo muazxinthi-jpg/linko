@@ -2102,6 +2102,27 @@ function interestByKey(key) { return INTERESTS.find((x) => x[0] === key) ?? null
 function slugifyChannelName(raw) {
   return String(raw ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'channel';
 }
+function countryCodeFromFlag(emoji = '') {
+  const regional = [...String(emoji)].filter((ch) => {
+    const cp = ch.codePointAt(0);
+    return cp >= 0x1F1E6 && cp <= 0x1F1FF;
+  });
+  if (regional.length !== 2) return null;
+  return regional.map((ch) => String.fromCharCode(65 + ch.codePointAt(0) - 0x1F1E6)).join('');
+}
+function communityChannelCode(entry) {
+  const explicit = String(entry?.channelCode ?? '').trim().toUpperCase();
+  if (explicit) return explicit.replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'INTL';
+  const flagCode = countryCodeFromFlag(entry?.emoji);
+  if (flagCode) return flagCode;
+  if (entry?.key === 'arabic') return 'GCC';
+  if (entry?.key === 'croatian') return 'BALKAN';
+  return 'INTL';
+}
+function communityChannelName(entry, slug = null) {
+  const channelSlug = slugifyChannelName(slug || entry?.name || 'community');
+  return `🌐・${communityChannelCode(entry)}・${channelSlug}`;
+}
 function languageRows() { return db.prepare('SELECT * FROM language_roles WHERE archived = 0 ORDER BY name COLLATE NOCASE').all(); }
 function customLanguageCatalogRows() { return db.prepare("SELECT * FROM language_catalog_custom WHERE active=1 ORDER BY name COLLATE NOCASE").all(); }
 function languageCatalog() {
@@ -2257,10 +2278,10 @@ async function createLanguageCommunity(guild, { name = null, languageKey = null,
   const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
   const perms = privateFor(guild.roles.everyone, [role, ...staff]);
   const channelSlug = slugifyChannelName(slug || cleanName);
-  // Discord may render Unicode country flags as regional letter codes (for example 🇮🇳 → IN)
-  // in channel names. Use a stable globe prefix in the sidebar, while keeping the real
-  // country/language flag in the topic, profile UI, catalog and stored community metadata.
-  const chName = `🌍・${channelSlug}`;
+  // Discord may render Unicode country flags as regional letter codes in text-channel names.
+  // Keep the real flag in topics/profiles, and use a stable globe + explicit country/region
+  // code in the sidebar (for example 🌐・IN・india-hindi).
+  const chName = communityChannelName(entry, channelSlug);
   const channelTopic = `${cleanEmoji} ${cleanName} · ${communityName()} community space.`;
   let channel = guild.channels.cache.find((c) => c.parentId === category.id && c.name === chName && c.type === ChannelType.GuildText);
   if (!channel) channel = await guild.channels.create({ name: chName, type: ChannelType.GuildText, parent: category.id, topic: channelTopic, permissionOverwrites: perms, reason: 'LINKO community demand manager' });
@@ -4316,6 +4337,37 @@ async function syncV10204CommunityChannelPrefixes(guild) {
   console.log(`LINKO v10.20.4 community channel prefix sync complete · updated ${renamed} channel(s).`);
 }
 
+async function syncV10205CommunityCountryCodes(guild) {
+  if (getSetting('v10_20_5_community_country_codes_synced') === '1') return;
+  await guild.channels.fetch();
+
+  const rows = db.prepare("SELECT * FROM language_roles WHERE archived=0 AND channel_id IS NOT NULL").all();
+  let renamed = 0;
+  for (const row of rows) {
+    const channel = guild.channels.cache.get(row.channel_id);
+    if (!channel || channel.type !== ChannelType.GuildText) continue;
+
+    const entry = languageCatalogFindByInput(row.name);
+    if (!entry) continue;
+    const cleanName = entry.name || row.name;
+    const flag = entry.emoji || row.emoji || '🌐';
+    const desiredName = communityChannelName(entry);
+    const desiredTopic = `${flag} ${cleanName} · ${communityName()} community space.`;
+
+    if (channel.name !== desiredName || channel.topic !== desiredTopic) {
+      await channel.edit({
+        name: desiredName,
+        topic: desiredTopic,
+        reason: 'LINKO v10.20.5 add explicit country/region codes to community channel names',
+      }).catch((error) => logLinkoError(`v10.20.5:community-country-code:${channel.id}`, error));
+      renamed++;
+    }
+  }
+
+  setSetting('v10_20_5_community_country_codes_synced', '1');
+  console.log(`LINKO v10.20.5 community country-code sync complete · updated ${renamed} channel(s).`);
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6186,9 +6238,10 @@ client.once('clientReady', async () => {
         await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
         await syncV10204CommunityChannelPrefixes(fullGuild).catch((error) => logLinkoError('v10.20.4-community-channel-prefixes', error));
+        await syncV10205CommunityCountryCodes(fullGuild).catch((error) => logLinkoError('v10.20.5-community-country-codes', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.4 active: community channels use stable 🌍 sidebar prefixes while country/language flags remain in metadata and topics.');
+        console.log('LINKO v10.20.5 active: community channels use 🌐 + explicit country/region codes in the sidebar while real flags remain in topics and profiles.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
