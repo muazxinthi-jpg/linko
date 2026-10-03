@@ -3029,8 +3029,8 @@ function buildVerifyEmbed() {
 function buildSocialEmbed() {
   const label = xpLabel();
   const name = communityName();
-  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Social & KREATORs`)
-    .setDescription(`**KREATOR content is tracked separately from Community Member competition.**\n\nApproved KREATORS must submit every trackable/rewarded post through \`/submit-post\`. Approved posts earn **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day. KREATOR reaction milestones and campaign posts add to the same lifetime ${label}.\n\nKREATORS appear on the **KREATOR Leaderboard** and **Overall Leaderboard**, never on the **Community Leaderboard**.`)
+  const e = new EmbedBuilder().setColor(BRAND.blue).setTitle(`${name} Published Kontents`)
+    .setDescription(`Approved social posts from **Community Members and KREATORS** are published here. Use **/submit-content social** (or legacy **/submit-post**) to submit a post for review.\n\nEach approved post earns **+${getSettingInt('kxp_social_post')} ${label}**, maximum 2 rewarded posts/day. Approved KREATORS may also receive reaction milestone rewards and attach active KREATOR campaigns. Community Member posts contribute to Community + Overall rankings. KREATOR posts contribute to KREATOR + Overall rankings.`)
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
@@ -3073,7 +3073,7 @@ function buildFounderHubEmbed() {
 }
 async function refreshBrandMessages(guild) {
   const ch = (base) => guild.channels.cache.find((c) => baseChannelName(c.name) === base && c.isTextBased());
-  const welcome = ch('welcome'), verify = ch('verify'), links = ch('official-links'), social = ch('share-your-post'), founder = ch('founder-lobby');
+  const welcome = ch('welcome'), verify = ch('verify'), links = ch('official-links'), social = ch(baseChannelName(CHANNEL_NAMES.sharePost)), founder = ch('founder-lobby');
   if (welcome && verify) {
     const channels = { rules: ch('rules'), verify };
     if (channels.rules) await seedMessage(welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
@@ -4131,7 +4131,7 @@ async function syncV1019DiscordStructure(guild) {
       ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
     ];
     const hub = await ensureKreatorHubCategory(guild, creatorsPrivate);
-    await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.sharePost, topic: 'KREATORS submit every trackable/rewarded post with /submit-post. Approved submissions are tracked by LINKO.' }, verifiedReadOnly);
+    await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.sharePost, topic: 'Approved social posts from Community Members and KREATORS. Submit privately with /submit-content social.' }, verifiedReadOnly);
     await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.contentMissions, topic: 'KREATOR content missions and campaign briefs.' }, verifiedReadOnly);
     await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Total ${xpLabel()}, including referral ${xpLabel()}, determines position among approved KREATORS.` }, staffPrivate);
     await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `KREATOR campaign leaderboards. Campaign ${xpLabel()} also counts toward KREATOR + overall ${xpLabel()}.` }, staffPrivate);
@@ -4217,17 +4217,17 @@ function socialRulesContent() {
   const label = xpLabel();
   return `**Share ${communityName()}. Earn ${label} for genuine contributions.**
 
-Use \`/submit-post\` and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
+Use \`/submit-content social\` (or legacy \`/submit-post\`) and submit your direct X, LinkedIn, YouTube, TikTok or Instagram post.
 
 Moderators review submissions. Each approved post earns **+${getSettingInt('kxp_social_post')} ${label}**. Maximum **2 rewarded posts per day**. Duplicate, deleted or low-effort spam does not qualify.
 
-Approved posts are published here by LINKO. KREATOR posts can also earn reaction-based ${label}, and campaign-tagged posts count toward a campaign leaderboard.
+Approved posts from Community Members and KREATORS are published in **Published Kontents**. KREATOR posts can also earn reaction-based ${label}, and KREATOR campaign-tagged posts count toward a campaign leaderboard.
 
 [KLINEO-SOCIAL]`;
 }
 async function updatePublicKxpDocs(guild) {
   const how = guild.channels.cache.find((c) => baseChannelName(c.name) === xpChannelBase('how') && c.isTextBased());
-  const social = guild.channels.cache.find((c) => baseChannelName(c.name) === 'share-your-post' && c.isTextBased());
+  const social = guild.channels.cache.find((c) => baseChannelName(c.name) === baseChannelName(CHANNEL_NAMES.sharePost) && c.isTextBased());
   const links = guild.channels.cache.find((c) => baseChannelName(c.name) === 'official-links' && c.isTextBased());
   if (how) await seedMessage(how, '[KLINEO-KXP]', { content: kxpRulesContent() });
   if (links) await seedMessage(links, '[KLINEO-OFFICIAL-LINKS]', { embeds: [buildOfficialLinksEmbed()] });
@@ -4585,7 +4585,7 @@ async function buildKlineO(guild) {
 
   setSetupPhase('05/11 · Create KXP + persistent leaderboard channels');
   channels.howKxp = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('how'), topic: `How ${xpLabel()}, referrals and rank progression work.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
-  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Open MY LINKO PROFILE here, or use member commands such as /profile /rank /points /leaderboard /invite /wallet /submit-post.' }, verifiedBase);
+  channels.botCommands = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.botCommands, topic: 'Open MY LINKO PROFILE here, or use member commands such as /profile /rank /points /leaderboard /invite /wallet /submit-content.' }, verifiedBase);
   channels.leaderboard = await ensureTextChannel(guild, categories.kxp, { name: xpChannelName('leaderboard'), topic: `${communityName()} Overall Top 50 by total ${xpLabel()}, including Community Members and KREATORS.` }, staffPrivate);
   channels.communityLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.communityLeaderboard, topic: `${communityName()} Community Member leaderboard. KREATORS are excluded from this competitive lane.` }, staffPrivate);
   channels.referralLeaderboard = await ensureTextChannel(guild, categories.kxp, { name: CHANNEL_NAMES.referralLeaderboard, topic: `${communityName()} Top 50 valid-referral leaderboard. Auto-refreshes; visibility is controlled by moderators.` }, staffPrivate);
@@ -4608,7 +4608,7 @@ async function buildKlineO(guild) {
   }
 
   if (moduleEnabled('kreator')) {
-    channels.sharePost = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.sharePost, topic: `KREATORS submit every trackable/rewarded post with /submit-post. Approved submissions are tracked by LINKO.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.sharePost = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.sharePost, topic: `Approved social posts from Community Members and KREATORS. Submit privately with /submit-content social.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
     channels.contentMissions = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.contentMissions, topic: `KREATOR content missions and campaign briefs.` }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
     channels.creatorLeaderboard = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.creatorLeaderboard, topic: `Live KREATOR leaderboard. Creator ${xpLabel()} also counts toward the overall ${xpLabel()} leaderboard.` }, staffPrivate);
     channels.campaignLeaderboard = await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.campaignLeaderboard, topic: `Public KREATOR campaign leaderboards. Campaign ${xpLabel()} also counts toward KREATOR + overall ${xpLabel()}.` }, staffPrivate);
@@ -4663,7 +4663,7 @@ async function buildKlineO(guild) {
     ['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product suggestion review and status controls.'],
     ['verificationLog', CHANNEL_NAMES.verificationLog, 'Member verification activity.'],
     ['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.'],
-    ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `${communityName()} social-post ${xpLabel()} review queue.`],
+    ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `Unified review queue for ${communityName()} social posts and Signal Room content.`],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
     ['kxpLog', xpChannelName('log'), `${xpLabel()} awards and deductions.`],
