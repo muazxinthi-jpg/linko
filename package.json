@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.0",
+  "version": "10.20.1",
   "private": true,
-  "description": "LINKO v10.20.0 — unified social + Signal Room content submissions, Community and KREATOR social publishing, Published Kontents feed",
+  "description": "LINKO v10.20.1 — one submit-content command, approved-social backfill, Published Kontents delivery hardening",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
