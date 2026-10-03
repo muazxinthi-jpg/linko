@@ -6370,7 +6370,7 @@ client.on('interactionCreate', async (interaction) => {
           setParticipationLane(userId, 'community');
           const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
           if (kreatorRole && member.roles.cache.has(kreatorRole.id)) await member.roles.remove(kreatorRole, 'KREATOR profile declined').catch(() => {});
-          await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane.`).catch(() => {});
+          await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane. You can re-apply after **24 hours**.`).catch(() => {});
           scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
           return interaction.update({ embeds: [kreatorProfileEmbed(userId, kreatorProfile(userId))], components: [] });
         }
@@ -7033,6 +7033,8 @@ client.on('interactionCreate', async (interaction) => {
       if (!hasVerifiedRole(member)) return interaction.reply({ content: 'Verify first, or choose KREATOR during START ONBOARDING.', ephemeral: true });
       const profile = kreatorProfile(member.id);
       if (profile?.status === 'pending') return interaction.reply({ content: 'Your KREATOR profile is already pending staff review.', embeds: [kreatorProfileEmbed(member.id, profile)], ephemeral: true });
+      const cooldownText = kreatorReapplyText(profile);
+      if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
       return showKreatorProfileModal(interaction);
     }
     if (interaction.commandName === 'submit-content') {
