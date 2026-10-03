@@ -4729,7 +4729,7 @@ async function buildKlineO(guild) {
     '4. No phishing, wallet-drainers, impersonation or malicious files.',
     '5. **No user-posted links in public community channels.**',
     ...(moduleEnabled('signal_room') ? ['6. In the ANALYST+ Signal Room, links unlock at **STRATEGIST**.'] : []),
-    ...(moduleEnabled('kreator') ? [`7. Social posts about ${communityName()} must use \`/submit-post\`; approved posts can earn ${xpLabel()}.`] : []),
+    ...(moduleEnabled('kreator') ? [`7. Social posts about ${communityName()} should use \`/submit-content social\`; approved posts can earn ${xpLabel()}.`] : []),
     '8. No spam, unsolicited promotion or guaranteed-return claims.',
     ...(moduleEnabled('founder_hub') ? ['9. Do not redistribute private Founder Hub discussions.'] : []),
     '10. Respect other members and moderators.',
@@ -4753,7 +4753,8 @@ async function buildKlineO(guild) {
     '• `/confirm-invited @member` — confirm a pending referral after you are verified',
     '• `/wallet view/set/remove/primary` — legacy/manual wallet controls; profile buttons are easier',
     ...(moduleEnabled('kreator') ? [
-      `• \`/submit-post\` — submit ${communityName()} social content for ${xpLabel()} review`,
+      `• \`/submit-content social\` — submit ${communityName()} social content for ${xpLabel()} review`,
+      '• `/submit-content signal` — submit Analyst / Trade / Market Thesis / AI content for staff review and publishing',
       '• `/leaderboard type:Kreators` — lifetime KREATOR leaderboard',
       '• `/leaderboard type:Creator Campaign campaign:<ID>` — campaign leaderboard',
     ] : []),
@@ -5717,7 +5718,7 @@ async function saveKreatorProfileFromModal(interaction) {
   const row = kreatorProfile(interaction.user.id);
   if (!keepApproved) {
     const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'mod-inbox' && ch.isTextBased())
-      || interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'social-submissions' && ch.isTextBased());
+      || interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions) && ch.isTextBased());
     if (!review) return interaction.reply({ content: 'KREATOR profile saved, but the moderator review channel is missing. Please alert staff.', ephemeral: true });
     const msg = await review.send({ embeds: [kreatorProfileEmbed(interaction.user.id, row)], components: [kreatorProfileReviewButtons(interaction.user.id)] });
     db.prepare('UPDATE kreator_profiles SET review_message_id=? WHERE user_id=?').run(msg.id, interaction.user.id);
@@ -7410,7 +7411,7 @@ client.on('interactionCreate', async (interaction) => {
         const result = db.prepare('INSERT INTO creator_campaigns (name, description, status, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(name, description, 'active', interaction.user.id, now());
         const id = Number(result.lastInsertRowid);
         await updateCampaignLeaderboardMessages(interaction.guild);
-        return interaction.reply({ content: `✅ Created creator campaign **#${id} · ${name}**. KREATORs can tag approved posts with \`/submit-post campaign:${id}\`.`, ephemeral: true });
+        return interaction.reply({ content: `✅ Created creator campaign **#${id} · ${name}**. KREATORs can tag approved posts with \`/submit-content social campaign:${id}\`.`, ephemeral: true });
       }
       if (action === 'close') {
         const id = interaction.options.getInteger('campaign', true);
@@ -7855,7 +7856,7 @@ Speaker bonus: **+${getSettingInt('kxp_voice_speaker_bonus')} ${label} once/even
       await interaction.deferReply({ ephemeral: true });
       const card = await generateSocialCard(interaction.guild, member, type);
       const file = new AttachmentBuilder(card.buffer, { name: `linko-${type}-${interaction.user.id}.png` });
-      const submitLine = moduleEnabled('kreator') ? `\n\nIf the post is about ${communityName()}, submit its URL with \`/submit-post\` for review.` : '';
+      const submitLine = moduleEnabled('kreator') ? `\n\nIf the post is about ${communityName()}, submit its URL with \`/submit-content social\` for review.` : '';
       return interaction.editReply({ content: `**Your ${card.title} is ready.**\nSuggested caption:\n${card.caption}\n\nShare the image on your socials.${submitLine}`, files: [file] });
     }
 
