@@ -5762,8 +5762,7 @@ async function saveKreatorProfileFromModal(interaction) {
   setParticipationLane(interaction.user.id, keepApproved ? 'kreator' : 'kreator_pending');
   const row = kreatorProfile(interaction.user.id);
   if (!keepApproved) {
-    const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === 'mod-inbox' && ch.isTextBased())
-      || interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions) && ch.isTextBased());
+    const review = interaction.guild.channels.cache.find((ch) => baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.kreatorApplications) && ch.isTextBased());
     if (!review) return interaction.reply({ content: 'KREATOR profile saved, but the moderator review channel is missing. Please alert staff.', ephemeral: true });
     const msg = await review.send({ embeds: [kreatorProfileEmbed(interaction.user.id, row)], components: [kreatorProfileReviewButtons(interaction.user.id)] });
     db.prepare('UPDATE kreator_profiles SET review_message_id=? WHERE user_id=?').run(msg.id, interaction.user.id);
