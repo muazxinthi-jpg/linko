@@ -1273,14 +1273,35 @@ const commands = [
   new SlashCommandBuilder().setName('kreator-profile').setDescription('Submit or view your required KREATOR profile for approval.'),
 
   new SlashCommandBuilder()
+    .setName('submit-content')
+    .setDescription('Submit social content or a Signal Room contribution for review.')
+    .addSubcommand((sc) => sc.setName('social').setDescription('Submit a social post for review.')
+      .addStringOption((o) => o.setName('platform').setDescription('Platform').setRequired(true).addChoices(
+        { name: 'X', value: 'x' }, { name: 'LinkedIn', value: 'linkedin' }, { name: 'YouTube', value: 'youtube' },
+        { name: 'TikTok', value: 'tiktok' }, { name: 'Instagram', value: 'instagram' },
+      ))
+      .addStringOption((o) => o.setName('url').setDescription('Direct URL to your post').setRequired(true))
+      .addIntegerOption((o) => o.setName('campaign').setDescription('KREATOR only: optional active campaign ID').setMinValue(1)))
+    .addSubcommand((sc) => sc.setName('signal').setDescription('Submit original content for a Signal Room section.')
+      .addStringOption((o) => o.setName('section').setDescription('Where should approved content be published?').setRequired(true).addChoices(
+        { name: 'Analyst Chat', value: 'analyst-chat' },
+        { name: 'Trade Analysis', value: 'trade-analysis' },
+        { name: 'Market Thesis', value: 'market-thesis' },
+        { name: 'AI Strategies', value: 'ai-strategies' },
+      ))
+      .addStringOption((o) => o.setName('title').setDescription('Short title').setRequired(true).setMaxLength(120))
+      .addStringOption((o) => o.setName('content').setDescription('Your analysis / signal / thesis').setRequired(true).setMaxLength(3500))
+      .addStringOption((o) => o.setName('source').setDescription('Optional supporting https:// source').setMaxLength(500))),
+
+  new SlashCommandBuilder()
     .setName('submit-post')
-    .setDescription('KREATOR: submit a social post for KXP review.')
+    .setDescription('Legacy shortcut: submit a social post for review.')
     .addStringOption((o) => o.setName('platform').setDescription('Platform').setRequired(true).addChoices(
       { name: 'X', value: 'x' }, { name: 'LinkedIn', value: 'linkedin' }, { name: 'YouTube', value: 'youtube' },
       { name: 'TikTok', value: 'tiktok' }, { name: 'Instagram', value: 'instagram' },
     ))
     .addStringOption((o) => o.setName('url').setDescription('Direct URL to your post').setRequired(true))
-    .addIntegerOption((o) => o.setName('campaign').setDescription('Optional active Creator Campaign ID').setMinValue(1)),
+    .addIntegerOption((o) => o.setName('campaign').setDescription('KREATOR only: optional active campaign ID').setMinValue(1)),
 
   new SlashCommandBuilder()
     .setName('creator-campaign')
