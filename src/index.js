@@ -1118,7 +1118,7 @@ const CHANNEL_NAMES = {
   studioAnnouncements: '📢・studio-announcements', clientSupport: '🆘・client-support',
   strategist: '♟️・strategist-room', vanguard: '🛡️・vanguard-lounge', prime: '💎・prime-room',
   productRoadmap: '🧩・product-roadmap', languageAccess: '🌐・language-access',
-  teamChat: '💬・team-chat', modCommands: '🛠️・mod-commands', communityHealth: '📊・community-health', modInbox: '📥・mod-inbox', suggestionReview: '💡・suggestion-review', verificationLog: '✅・verification-log', founderVerification: '🏛️・founder-verification', socialSubmissions: '📥・content-submissions', moderation: '🛡️・moderation', securityAlerts: '🚨・security-alerts', kxpLog: '⚡・kxp-log', walletLog: '🔐・wallet-log', botLog: '🤖・bot-log',
+  teamChat: '💬・team-chat', modCommands: '🛠️・mod-commands', communityHealth: '📊・community-health', modInbox: '📥・mod-inbox', suggestionReview: '💡・suggestion-review', verificationLog: '✅・verification-log', founderVerification: '🏛️・founder-verification', kreatorApplications: '🎨・kreator-applications', socialSubmissions: '📥・content-submissions', moderation: '🛡️・moderation', securityAlerts: '🚨・security-alerts', kxpLog: '⚡・kxp-log', walletLog: '🔐・wallet-log', botLog: '🤖・bot-log',
 };
 
 const INTERESTS = [
@@ -3585,6 +3585,17 @@ function participationStepPayload(prefix = '') {
     embeds: [],
   };
 }
+const KREATOR_REAPPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+function kreatorReapplyRemainingMs(profile) {
+  if (!profile || profile.status !== 'declined' || !profile.reviewed_at) return 0;
+  return Math.max(0, Number(profile.reviewed_at) + KREATOR_REAPPLY_COOLDOWN_MS - now());
+}
+function kreatorReapplyText(profile) {
+  const ms = kreatorReapplyRemainingMs(profile);
+  if (ms <= 0) return null;
+  const hours = Math.max(1, Math.ceil(ms / (60 * 60 * 1000)));
+  return `You can re-apply as KREATOR in about **${hours} hour${hours === 1 ? '' : 's'}**.`;
+}
 async function showKreatorProfileModal(interaction) {
   if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
   const existing = kreatorProfile(interaction.user.id);
@@ -4732,6 +4743,7 @@ async function buildKlineO(guild) {
     ['suggestionReview', CHANNEL_NAMES.suggestionReview, 'Product suggestion review and status controls.'],
     ['verificationLog', CHANNEL_NAMES.verificationLog, 'Member verification activity.'],
     ['founderVerification', CHANNEL_NAMES.founderVerification, 'Founder access applications with project and founder socials.'],
+    ['kreatorApplications', CHANNEL_NAMES.kreatorApplications, 'Dedicated KREATOR application review queue.'],
     ['socialSubmissions', CHANNEL_NAMES.socialSubmissions, `Unified review queue for ${communityName()} social posts and Signal Room content.`],
     ['moderation', CHANNEL_NAMES.moderation, 'Moderation notes and actions.'],
     ['securityAlerts', CHANNEL_NAMES.securityAlerts, 'Scams, impersonation and security incidents.'],
