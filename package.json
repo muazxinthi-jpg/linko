@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.19.1",
+  "version": "10.20.0",
   "private": true,
-  "description": "LINKO v10.19.1 — history-safe channel deduplication, one canonical General, consolidated KREATOR HUB, Community and Referral leaderboards",
+  "description": "LINKO v10.20.0 — unified social + Signal Room content submissions, Community and KREATOR social publishing, Published Kontents feed",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
