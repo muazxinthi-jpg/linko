@@ -3599,6 +3599,8 @@ function kreatorReapplyText(profile) {
 async function showKreatorProfileModal(interaction) {
   if (!moduleEnabled('kreator')) return interaction.reply({ content: 'The KREATOR module is disabled in this server.', ephemeral: true });
   const existing = kreatorProfile(interaction.user.id);
+  const cooldownText = kreatorReapplyText(existing);
+  if (cooldownText) return interaction.reply({ content: cooldownText, ephemeral: true });
   const modal = new ModalBuilder().setCustomId('linko_kreator_profile_modal').setTitle('KREATOR Profile');
   const primary = new TextInputBuilder().setCustomId('primary_url').setLabel('Primary social profile URL').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(220).setPlaceholder('https://x.com/username');
   const primaryFollowers = new TextInputBuilder().setCustomId('primary_followers').setLabel('Primary followers / subscribers').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(12).setPlaceholder('12500');
@@ -3635,14 +3637,20 @@ function profileKreatorActionRow(member) {
     label = 'KREATOR Profile';
     style = ButtonStyle.Secondary;
   } else if (profile?.status === 'declined') {
-    label = 'Re-apply as KREATOR';
+    const remaining = kreatorReapplyRemainingMs(profile);
+    if (remaining > 0) {
+      const hours = Math.max(1, Math.ceil(remaining / (60 * 60 * 1000)));
+      label = `Re-apply in ${hours}h`;
+      style = ButtonStyle.Secondary;
+    } else label = 'Re-apply as KREATOR';
   }
+  const cooldownActive = profile?.status === 'declined' && kreatorReapplyRemainingMs(profile) > 0;
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('linko_profile_kreator_apply')
       .setLabel(label)
       .setStyle(style)
-      .setDisabled(profile?.status === 'pending' || lane === 'kreator_pending'),
+      .setDisabled(profile?.status === 'pending' || lane === 'kreator_pending' || cooldownActive),
   );
 }
 function profileActionRows(member) {
