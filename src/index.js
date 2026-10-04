@@ -1124,7 +1124,7 @@ const CATEGORY_NAMES = {
 const CHANNEL_NAMES = {
   welcome: '👋・welcome', rules: '📜・rules', verify: '✅・verify', links: '🔗・official-links', announcements: '📢・announcements',
   general: '💬・general', marketChat: '📊・market-chat', tradeSetups: '🎯・trade-setups', aiAgentLab: '🤖・ai-agent-lab',
-  productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
+  productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', onboardingHelp: '🆘・onboarding-help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
   howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', communityLeaderboard: '👥・community-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
   analystChat: '🧠・analyst-chat', tradeAnalysis: '📉・trade-analysis', marketThesis: '🌐・market-thesis', aiStrategies: '🤖・ai-strategies',
   sharePost: '📣・published-kontents', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
@@ -4331,6 +4331,34 @@ async function syncV1020ContentStructure(guild) {
   setSetting('v10_20_content_structure_synced', 1);
 }
 
+async function removeKreatorReviewCards(guild, userId) {
+  const review = guild.channels.cache.find((ch) =>
+    ch.isTextBased?.() && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.kreatorApplications)
+  );
+  if (!review) return 0;
+
+  const recent = await review.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!recent) return 0;
+
+  let removed = 0;
+  for (const msg of recent.values()) {
+    if (msg.author?.id !== client.user.id) continue;
+    const hasUserButton = msg.components?.some((row) =>
+      row.components?.some((component) => {
+        const id = String(component.customId ?? component.data?.custom_id ?? '');
+        return id === `kreator_profile_approve:${userId}` || id === `kreator_profile_decline:${userId}`;
+      })
+    );
+    if (!hasUserButton) continue;
+    const ok = await msg.delete().then(() => true).catch((error) => {
+      logLinkoError(`kreator-review-cleanup:${userId}:${msg.id}`, error);
+      return false;
+    });
+    if (ok) removed++;
+  }
+  return removed;
+}
+
 async function syncV10202KreatorApplications(guild) {
   if (getSetting('v10_20_2_kreator_applications_synced') === '1') return;
   const staffCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.staff);
@@ -4625,6 +4653,88 @@ async function syncV102011ModeratorReviewQueues(guild) {
   await updateModInbox(guild).catch((error) => logLinkoError('v10.20.11:mod-inbox-refresh', error));
   setSetting('v10_20_11_moderator_review_queues_synced', '1');
   console.log(`LINKO v10.20.11 moderator review queue sync complete · content review: #${review?.name ?? 'missing'}.`);
+}
+
+async function syncV102012PublicOnboardingAndKreatorQueue(guild) {
+  if (getSetting('v10_20_12_public_onboarding_kreator_queue_synced') === '1') return;
+  await guild.channels.fetch();
+
+  const startCategory = guild.channels.cache.find((ch) =>
+    ch.type === ChannelType.GuildCategory && ch.name === categoryName('start')
+  );
+  const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+
+  if (startCategory) {
+    const publicHelpPerms = [
+      overwrite(guild.roles.everyone.id, [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.SendMessages,
+      ], [
+        PermissionFlagsBits.EmbedLinks,
+        PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.CreatePublicThreads,
+        PermissionFlagsBits.CreatePrivateThreads,
+        PermissionFlagsBits.SendMessagesInThreads,
+        PermissionFlagsBits.MentionEveryone,
+      ]),
+      ...(verified ? [overwrite(verified.id, [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.SendMessages,
+      ], [
+        PermissionFlagsBits.MentionEveryone,
+      ])] : []),
+      ...staff.map((r) => overwrite(r.id, [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ManageMessages,
+      ])),
+    ];
+
+    const help = await ensureTextChannel(guild, startCategory, {
+      name: CHANNEL_NAMES.onboardingHelp,
+      topic: `Having trouble verifying or accessing ${communityName()}? Ask here. Never share private keys, seed phrases, passwords or wallet recovery information.`,
+      slowmode: 20,
+    }, publicHelpPerms);
+    await help.permissionOverwrites.set(publicHelpPerms, 'LINKO v10.20.12 public onboarding support').catch((error) => logLinkoError('v10.20.12:onboarding-help-perms', error));
+  }
+
+  const review = guild.channels.cache.find((ch) =>
+    ch.isTextBased?.() && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.kreatorApplications)
+  );
+  let removed = 0;
+  if (review) {
+    const recent = await review.messages.fetch({ limit: 100 }).catch(() => null);
+    if (recent) {
+      for (const msg of recent.values()) {
+        if (msg.author?.id !== client.user.id) continue;
+        let userId = null;
+        for (const row of msg.components ?? []) {
+          for (const component of row.components ?? []) {
+            const id = String(component.customId ?? component.data?.custom_id ?? '');
+            const match = id.match(/^kreator_profile_(?:approve|decline):(\d+)$/);
+            if (match) { userId = match[1]; break; }
+          }
+          if (userId) break;
+        }
+        if (!userId) continue;
+        const profile = kreatorProfile(userId);
+        if (profile?.status === 'pending') continue;
+        const ok = await msg.delete().then(() => true).catch((error) => {
+          logLinkoError(`v10.20.12:kreator-stale-card:${userId}:${msg.id}`, error);
+          return false;
+        });
+        if (ok) removed++;
+      }
+    }
+  }
+
+  await updateModInbox(guild).catch((error) => logLinkoError('v10.20.12:mod-inbox-refresh', error));
+  setSetting('v10_20_12_public_onboarding_kreator_queue_synced', '1');
+  console.log(`LINKO v10.20.12 onboarding/KREATOR sync complete · removed ${removed} stale KREATOR review card(s).`);
 }
 
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
@@ -5041,6 +5151,24 @@ async function buildKlineO(guild) {
   channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `${communityName()} verification and access.` }, startReadOnly);
   channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: `${communityName()} official links only.` }, startReadOnly);
   channels.announcements = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.announcements, topic: `${communityName()} official announcements. Published through /announce by Core/Team.` }, announcementReadOnly);
+
+  const onboardingHelpPerms = [
+    overwrite(everyone.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages], [
+      PermissionFlagsBits.EmbedLinks,
+      PermissionFlagsBits.AttachFiles,
+      PermissionFlagsBits.CreatePublicThreads,
+      PermissionFlagsBits.CreatePrivateThreads,
+      PermissionFlagsBits.SendMessagesInThreads,
+      PermissionFlagsBits.MentionEveryone,
+    ]),
+    overwrite(roles.verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages], [PermissionFlagsBits.MentionEveryone]),
+    ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages])),
+  ];
+  channels.onboardingHelp = await ensureTextChannel(guild, categories.start, {
+    name: CHANNEL_NAMES.onboardingHelp,
+    topic: `Having trouble verifying or accessing ${communityName()}? Ask here. Never share private keys, seed phrases, passwords or wallet recovery information.`,
+    slowmode: 20,
+  }, onboardingHelpPerms);
 
   for (const [key, name, topic, slowmode] of [
     ['general', CHANNEL_NAMES.general, `General ${communityName()} discussion. Public links are blocked.`, 2],
@@ -6571,9 +6699,10 @@ client.once('clientReady', async () => {
         await syncV10209LeaderboardAudit(fullGuild).catch((error) => logLinkoError('v10.20.9-leaderboard-audit', error));
         await syncV102010LeaderboardAndSubmissionAudit(fullGuild).catch((error) => logLinkoError('v10.20.10-leaderboard-submission-audit', error));
         await syncV102011ModeratorReviewQueues(fullGuild).catch((error) => logLinkoError('v10.20.11-moderator-review-queues', error));
+        await syncV102012PublicOnboardingAndKreatorQueue(fullGuild).catch((error) => logLinkoError('v10.20.12-public-onboarding-kreator-queue', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.11 active: moderator inbox review links, repaired content review queue, LinkedIn submissions, and audited leaderboards.');
+        console.log('LINKO v10.20.12 active: public onboarding help, stale KREATOR review cleanup, moderator review links, and audited leaderboards.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -6836,7 +6965,7 @@ client.on('interactionCreate', async (interaction) => {
           await member.send(`Your ${communityName()} KREATOR profile was not approved at this time. You are now in the Community Member leaderboard lane. You can re-apply after **24 hours**.`).catch(() => {});
           scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
           await interaction.deferUpdate();
-          await interaction.message.delete().catch((error) => logLinkoError(`kreator-review-delete:declined:${userId}`, error));
+          await removeKreatorReviewCards(interaction.guild, userId);
           return;
         }
         const kreatorRole = interaction.guild.roles.cache.find((r) => r.name === 'KREATOR');
@@ -6852,7 +6981,7 @@ client.on('interactionCreate', async (interaction) => {
           : `✅ Your ${communityName()} KREATOR profile was approved. Complete verification to activate the KREATOR role and creator access.`).catch(() => {});
         scheduleLeaderboardUpdate(interaction.guild); scheduleModInboxUpdate(interaction.guild);
         await interaction.deferUpdate();
-        await interaction.message.delete().catch((error) => logLinkoError(`kreator-review-delete:approved:${userId}`, error));
+        await removeKreatorReviewCards(interaction.guild, userId);
         return;
       }
       if (interaction.customId.startsWith('language_request_approve:') || interaction.customId.startsWith('language_request_decline:')) {
