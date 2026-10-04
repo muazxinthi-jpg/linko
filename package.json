@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.12",
+  "version": "10.20.13",
   "private": true,
-  "description": "LINKO v10.20.12 — public onboarding help and stale KREATOR review cleanup",
+  "description": "LINKO v10.20.13 — corrected Community Health active-member population and rates",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",

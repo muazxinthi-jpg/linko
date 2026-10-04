@@ -2685,6 +2685,15 @@ function formatVoiceDuration(seconds) {
   if (hours) return `${hours}h`;
   return `${mins}m`;
 }
+function currentHumanMemberIds(guild) {
+  return new Set(guild.members.cache.filter((m) => !m.user.bot).map((m) => m.id));
+}
+function currentActiveMemberCount(guild, start, end = now()) {
+  const currentIds = currentHumanMemberIds(guild);
+  if (!currentIds.size) return 0;
+  const rows = db.prepare('SELECT DISTINCT user_id FROM activity_daily WHERE last_activity_at >= ? AND first_activity_at < ?').all(start, end);
+  return rows.reduce((count, row) => count + (currentIds.has(String(row.user_id)) ? 1 : 0), 0);
+}
 function healthMetrics(guild, days = 7) {
   const cutoff = now() - days * 86400000;
   const humans = guild.members.cache.filter((m) => !m.user.bot);
@@ -2693,8 +2702,8 @@ function healthMetrics(guild, days = 7) {
   const online = humans.filter((m) => m.presence && m.presence.status !== 'offline').size;
   const joins = Number(db.prepare('SELECT COUNT(*) AS c FROM users WHERE joined_at >= ?').get(cutoff)?.c ?? 0);
   const verifications = Number(db.prepare('SELECT COUNT(*) AS c FROM users WHERE verified_at >= ?').get(cutoff)?.c ?? 0);
-  const activeMembers = Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM activity_daily WHERE last_activity_at >= ?').get(cutoff)?.c ?? 0);
-  const activeRate = humans.size ? Math.round((activeMembers / humans.size) * 100) : 0;
+  const activeMembers = currentActiveMemberCount(guild, cutoff, now());
+  const activeRate = humans.size ? Math.min(100, Math.round((activeMembers / humans.size) * 100)) : 0;
   const contributors = Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM xp_log WHERE created_at >= ? AND amount > 0').get(cutoff)?.c ?? 0);
   const qualifiedMessages = qualifiedMessageCountBetween(cutoff, now());
   const validReferrals = Number(db.prepare("SELECT COUNT(*) AS c FROM xp_log WHERE created_at >= ? AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0").get(cutoff)?.c ?? 0);
@@ -4737,6 +4746,13 @@ async function syncV102012PublicOnboardingAndKreatorQueue(guild) {
   console.log(`LINKO v10.20.12 onboarding/KREATOR sync complete · removed ${removed} stale KREATOR review card(s).`);
 }
 
+async function syncV102013CommunityHealthActiveRate(guild) {
+  if (getSetting('v10_20_13_health_active_rate_synced') === '1') return;
+  await updateCommunityHealthDashboard(guild).catch((error) => logLinkoError('v10.20.13:health-dashboard-refresh', error));
+  setSetting('v10_20_13_health_active_rate_synced', '1');
+  console.log('LINKO v10.20.13 community health sync complete · active-member rate now uses current human server members only.');
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -5480,7 +5496,7 @@ async function drawGuildIdentity(ctx, guild, x, y, size, accent) {
   ctx.stroke();
 }
 
-function healthPeriodMetrics(days, offsetPeriods = 0) {
+function healthPeriodMetrics(guild, days, offsetPeriods = 0) {
   const duration = days * 86400000;
   const end = now() - (offsetPeriods * duration);
   const start = end - duration;
@@ -5488,7 +5504,7 @@ function healthPeriodMetrics(days, offsetPeriods = 0) {
 
   const joins = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('joined_at')}`).get(start, end)?.c ?? 0);
   const verifications = Number(db.prepare(`SELECT COUNT(*) AS c FROM users WHERE ${between('verified_at')}`).get(start, end)?.c ?? 0);
-  const activeMembers = Number(db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM activity_daily WHERE last_activity_at >= ? AND first_activity_at < ?').get(start, end)?.c ?? 0);
+  const activeMembers = currentActiveMemberCount(guild, start, end);
   const contributors = Number(db.prepare(`SELECT COUNT(DISTINCT user_id) AS c FROM xp_log WHERE ${between('created_at')} AND amount > 0`).get(start, end)?.c ?? 0);
   const qualifiedMessages = qualifiedMessageCountBetween(start, end);
   const validReferrals = Number(db.prepare(`SELECT COUNT(*) AS c FROM xp_log WHERE ${between('created_at')} AND (reason LIKE 'Valid 7-day referral:%' OR reason LIKE 'Moderator-confirmed 7-day referral:%') AND amount > 0`).get(start, end)?.c ?? 0);
@@ -5546,8 +5562,8 @@ async function generateHealthCard(guild, days = 7) {
   const ctx = canvas.getContext('2d');
   const accent = brandAccent();
   const m = healthMetrics(guild, days);
-  const current = healthPeriodMetrics(days, 0);
-  const previous = healthPeriodMetrics(days, 1);
+  const current = healthPeriodMetrics(guild, days, 0);
+  const previous = healthPeriodMetrics(guild, days, 1);
   const insight = healthCardInsight(m, previous, days);
   const verifiedRate = m.total ? Math.round((m.verified / m.total) * 100) : 0;
   const startDate = new Date(current.start);
@@ -6700,9 +6716,10 @@ client.once('clientReady', async () => {
         await syncV102010LeaderboardAndSubmissionAudit(fullGuild).catch((error) => logLinkoError('v10.20.10-leaderboard-submission-audit', error));
         await syncV102011ModeratorReviewQueues(fullGuild).catch((error) => logLinkoError('v10.20.11-moderator-review-queues', error));
         await syncV102012PublicOnboardingAndKreatorQueue(fullGuild).catch((error) => logLinkoError('v10.20.12-public-onboarding-kreator-queue', error));
+        await syncV102013CommunityHealthActiveRate(fullGuild).catch((error) => logLinkoError('v10.20.13-health-active-rate', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.12 active: public onboarding help, stale KREATOR review cleanup, moderator review links, and audited leaderboards.');
+        console.log('LINKO v10.20.13 active: corrected Community Health active-rate population, public onboarding help, KREATOR queue cleanup, and audited leaderboards.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
