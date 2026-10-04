@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.13",
+  "version": "10.20.14",
   "private": true,
-  "description": "LINKO v10.20.13 — corrected Community Health active-member population and rates",
+  "description": "LINKO v10.20.14 — Community Health sparklines, compact metrics and sane trend labels",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
