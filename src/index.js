@@ -4753,6 +4753,13 @@ async function syncV102013CommunityHealthActiveRate(guild) {
   console.log('LINKO v10.20.13 community health sync complete · active-member rate now uses current human server members only.');
 }
 
+async function syncV102014CommunityHealthVisuals(guild) {
+  if (getSetting('v10_20_14_health_visuals_synced') === '1') return;
+  await updateCommunityHealthDashboard(guild).catch((error) => logLinkoError('v10.20.14:health-dashboard-refresh', error));
+  setSetting('v10_20_14_health_visuals_synced', '1');
+  console.log('LINKO v10.20.14 Community Health visual sync complete · compact metrics, sane trends and sparklines enabled.');
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -5457,6 +5464,24 @@ function fitText(ctx, text, maxWidth, startSize = 72, minSize = 34, family = 'sa
 function compactMetric(value) {
   return Number(value ?? 0).toLocaleString('en-US');
 }
+function compactHealthMetric(value) {
+  const num = Number(value ?? 0);
+  const abs = Math.abs(num);
+  if (abs < 1000) return String(Math.round(num));
+  const units = [
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ];
+  for (const [base, suffix] of units) {
+    if (abs >= base) {
+      const scaled = num / base;
+      const decimals = Math.abs(scaled) < 100 ? 1 : 0;
+      return `${Number(scaled.toFixed(decimals)).toString()}${suffix}`;
+    }
+  }
+  return String(Math.round(num));
+}
 
 async function drawGuildIdentity(ctx, guild, x, y, size, accent) {
   ctx.save();
@@ -5496,6 +5521,82 @@ async function drawGuildIdentity(ctx, guild, x, y, size, accent) {
   ctx.stroke();
 }
 
+function healthDailySeries(guild, days = 7) {
+  const pointCount = Math.max(2, Math.min(10, Math.round(Number(days) || 7)));
+  const end = now();
+  const windowStart = end - Number(days) * 86400000;
+  const bucketMs = (end - windowStart) / pointCount;
+  const currentIds = currentHumanMemberIds(guild);
+
+  const active = [];
+  const qualified = [];
+  const joins = [];
+  const activation = [];
+
+  for (let i = 0; i < pointCount; i++) {
+    const start = Math.floor(windowStart + i * bucketMs);
+    const stop = i === pointCount - 1 ? end : Math.floor(windowStart + (i + 1) * bucketMs);
+
+    const activeRows = db.prepare(
+      'SELECT DISTINCT user_id FROM activity_daily WHERE last_activity_at >= ? AND first_activity_at < ?'
+    ).all(start, stop);
+    active.push(activeRows.reduce((count, row) => count + (currentIds.has(String(row.user_id)) ? 1 : 0), 0));
+
+    qualified.push(qualifiedMessageCountBetween(start, stop));
+    joins.push(Number(db.prepare('SELECT COUNT(*) AS c FROM users WHERE joined_at >= ? AND joined_at < ?').get(start, stop)?.c ?? 0));
+
+    const verifiedRows = db.prepare('SELECT user_id, verified_at FROM users WHERE verified_at >= ? AND verified_at < ?').all(start, stop);
+    let activated = 0;
+    for (const row of verifiedRows) {
+      const a = db.prepare('SELECT * FROM member_activation WHERE user_id = ?').get(row.user_id);
+      const hasActivity = Number(db.prepare(
+        'SELECT COUNT(*) AS c FROM activity_daily WHERE user_id = ? AND last_activity_at >= ?'
+      ).get(row.user_id, row.verified_at)?.c ?? 0) > 0;
+      if (a?.interests_set || a?.language_set || a?.introduced_at || a?.first_impact_at || hasActivity) activated++;
+    }
+    activation.push(verifiedRows.length ? Math.min(100, Math.round((activated / verifiedRows.length) * 100)) : 0);
+  }
+
+  return { active, qualified, joins, activation };
+}
+
+function drawSparkline(ctx, values, x, y, width, height, ink, softInk) {
+  const nums = (values ?? []).map((v) => Number(v ?? 0));
+  if (nums.length < 2) return;
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const range = Math.max(1, max - min);
+  const pts = nums.map((value, index) => ({
+    x: x + (index / (nums.length - 1)) * width,
+    y: y + height - ((value - min) / range) * height,
+  }));
+
+  ctx.save();
+  ctx.strokeStyle = softInk;
+  ctx.globalAlpha = 0.28;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, y + height);
+  ctx.lineTo(x + width, y + height);
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.stroke();
+
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = ink;
+  ctx.beginPath();
+  ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function healthPeriodMetrics(guild, days, offsetPeriods = 0) {
   const duration = days * 86400000;
   const end = now() - (offsetPeriods * duration);
@@ -5519,11 +5620,15 @@ function healthPeriodMetrics(guild, days, offsetPeriods = 0) {
 function metricTrend(current, previous) {
   const c = Number(current ?? 0);
   const p = Number(previous ?? 0);
-  if (c === 0 && p === 0) return { label: 'No change', direction: 'flat' };
-  if (p === 0) return { label: c > 0 ? 'New vs prior' : 'No change', direction: c > 0 ? 'up' : 'flat' };
-  const pct = Math.round(((c - p) / p) * 100);
-  if (pct === 0) return { label: '0% vs prior', direction: 'flat' };
-  return { label: `${pct > 0 ? '+' : ''}${pct}% vs prior`, direction: pct > 0 ? 'up' : 'down' };
+  if (c === 0 && p === 0) return { label: 'NO CHANGE', direction: 'flat' };
+  if (p === 0) return { label: c > 0 ? 'NEW' : 'NO CHANGE', direction: c > 0 ? 'up' : 'flat' };
+  const delta = c - p;
+  if (delta === 0) return { label: 'NO CHANGE', direction: 'flat' };
+  const pct = Math.round((delta / p) * 100);
+  if (Math.abs(pct) >= 1000) {
+    return { label: `${delta > 0 ? '+' : ''}${compactHealthMetric(delta)} VS PRIOR`, direction: delta > 0 ? 'up' : 'down' };
+  }
+  return { label: `${pct > 0 ? '+' : ''}${pct}%`, direction: pct > 0 ? 'up' : 'down' };
 }
 
 function healthCardStatus(metrics, previous) {
@@ -5564,6 +5669,7 @@ async function generateHealthCard(guild, days = 7) {
   const m = healthMetrics(guild, days);
   const current = healthPeriodMetrics(guild, days, 0);
   const previous = healthPeriodMetrics(guild, days, 1);
+  const series = healthDailySeries(guild, days);
   const insight = healthCardInsight(m, previous, days);
   const verifiedRate = m.total ? Math.round((m.verified / m.total) * 100) : 0;
   const startDate = new Date(current.start);
@@ -5777,17 +5883,12 @@ async function generateHealthCard(guild, days = 7) {
   ctx.fillStyle = divider;
   ctx.fillRect(58, 418, 1484, 3);
 
-  const trendLabel = (trend) => {
-    if (!trend) return 'NO CHANGE';
-    if (trend.label === 'New vs prior') return 'NEW';
-    if (trend.direction === 'flat') return 'NO CHANGE';
-    return trend.label.toUpperCase();
-  };
+  const trendLabel = (trend) => trend?.label ?? 'NO CHANGE';
   const primary = [
-    { label: ['Active','Members'], value: compactMetric(m.activeMembers), icon: 'people', trend: metricTrend(current.activeMembers, previous.activeMembers), note: `${m.activeMembers} of ${m.total} · ${m.activeRate}% active` },
-    { label: ['Qualified','Messages'], value: compactMetric(m.qualifiedMessages), icon: 'message', trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages) },
-    { label: ['New','Joins'], value: compactMetric(m.joins), icon: 'join', trend: metricTrend(current.joins, previous.joins) },
-    { label: ['Activation'], value: m.activationRate == null ? 'N/A' : `${m.activationRate}%`, icon: 'bars', trend: m.activationRate == null || previousActivationRate == null ? null : metricTrend(m.activationRate, previousActivationRate), note: m.activationRate == null ? 'No verified joins yet' : `${m.activated} of ${m.verifications} activated` },
+    { label: ['Active','Members'], value: compactHealthMetric(m.activeMembers), icon: 'people', trend: metricTrend(current.activeMembers, previous.activeMembers), note: `${m.activeRate}% of current members`, spark: series.active },
+    { label: ['Qualified','Messages'], value: compactHealthMetric(m.qualifiedMessages), icon: 'message', trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages), note: `last ${days} days`, spark: series.qualified },
+    { label: ['New','Joins'], value: compactHealthMetric(m.joins), icon: 'join', trend: metricTrend(current.joins, previous.joins), note: `last ${days} days`, spark: series.joins },
+    { label: ['Activation'], value: m.activationRate == null ? 'N/A' : `${m.activationRate}%`, icon: 'bars', trend: m.activationRate == null || previousActivationRate == null ? null : metricTrend(m.activationRate, previousActivationRate), note: m.activationRate == null ? 'No verified joins yet' : `${m.activated} of ${m.verifications} activated`, spark: series.activation },
   ];
 
   const columnX = [58, 428, 798, 1168];
@@ -5815,12 +5916,13 @@ async function generateHealthCard(guild, days = 7) {
     ctx.fillStyle = ink;
     ctx.font = '800 20px sans-serif';
     item.label.forEach((line, li) => ctx.fillText(line, x + 94, 474 + li * 24));
-    ctx.font = `900 ${item.value === 'N/A' ? 58 : 72}px monospace`;
-    ctx.fillText(item.value, x, 588);
+    ctx.font = `900 ${item.value === 'N/A' ? 52 : 62}px monospace`;
+    ctx.fillText(item.value, x, 574);
     if (item.note) {
-      ctx.font = '700 14px sans-serif';
-      ctx.fillText(item.note, x + 3, 616);
+      ctx.font = '700 13px sans-serif';
+      ctx.fillText(item.note, x + 3, 600);
     }
+    drawSparkline(ctx, item.spark, x + 150, 604, 155, 28, ink, softInk);
     const tLabel = trendLabel(item.trend);
     drawPill(x, 622, tLabel, item.trend?.direction ?? 'flat');
   });
@@ -5829,12 +5931,12 @@ async function generateHealthCard(guild, days = 7) {
   ctx.fillRect(58, 660, 1484, 3);
 
   const secondary = [
-    { label:['Verified','Members'], value:compactMetric(m.verified), note:`${verifiedRate}% verified`, icon:'shield' },
-    { label:['Social','Posts'], value:compactMetric(m.social), note:'approved', icon:'social' },
-    { label:['Voice','Participants'], value:compactMetric(m.voiceParticipants), note:`${formatVoiceDuration(m.voiceSeconds)} total`, icon:'voice' },
-    { label:['Event','Attendees'], value:compactMetric(m.eventAttendees), note:m.eventAttendees ? `last ${days}d` : 'no official events', icon:'calendar' },
-    { label:['Referrals'], value:compactMetric(m.validReferrals), note:'valid', icon:'link' },
-    { label:['Suggestions'], value:compactMetric(m.suggestions), note:'submitted', icon:'bulb' },
+    { label:['Verified','Members'], value:compactHealthMetric(m.verified), note:`${verifiedRate}% verified`, icon:'shield' },
+    { label:['Social','Posts'], value:compactHealthMetric(m.social), note:'approved', icon:'social' },
+    { label:['Voice','Participants'], value:compactHealthMetric(m.voiceParticipants), note:`${formatVoiceDuration(m.voiceSeconds)} total`, icon:'voice' },
+    { label:['Event','Attendees'], value:compactHealthMetric(m.eventAttendees), note:m.eventAttendees ? `last ${days}d` : 'no official events', icon:'calendar' },
+    { label:['Referrals'], value:compactHealthMetric(m.validReferrals), note:'valid', icon:'link' },
+    { label:['Suggestions'], value:compactHealthMetric(m.suggestions), note:'submitted', icon:'bulb' },
   ];
   const secX = [58, 305, 552, 799, 1046, 1293];
 
@@ -5850,8 +5952,8 @@ async function generateHealthCard(guild, days = 7) {
     ctx.fillStyle = ink;
     ctx.font = '800 15px sans-serif';
     item.label.forEach((line, li) => ctx.fillText(line, x + 68, 709 + li * 19));
-    ctx.font = '900 37px monospace';
-    ctx.fillText(item.value, x + 68, 782);
+    ctx.font = '900 33px monospace';
+    ctx.fillText(item.value, x + 68, 780);
     ctx.fillStyle = softInk;
     ctx.font = '700 11px sans-serif';
     ctx.fillText(item.note, x + 68, 807);
@@ -6717,9 +6819,10 @@ client.once('clientReady', async () => {
         await syncV102011ModeratorReviewQueues(fullGuild).catch((error) => logLinkoError('v10.20.11-moderator-review-queues', error));
         await syncV102012PublicOnboardingAndKreatorQueue(fullGuild).catch((error) => logLinkoError('v10.20.12-public-onboarding-kreator-queue', error));
         await syncV102013CommunityHealthActiveRate(fullGuild).catch((error) => logLinkoError('v10.20.13-health-active-rate', error));
+        await syncV102014CommunityHealthVisuals(fullGuild).catch((error) => logLinkoError('v10.20.14-health-visuals', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.13 active: corrected Community Health active-rate population, public onboarding help, KREATOR queue cleanup, and audited leaderboards.');
+        console.log('LINKO v10.20.14 active: Community Health sparklines and compact metrics, corrected active-rate population, onboarding help, and audited leaderboards.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
