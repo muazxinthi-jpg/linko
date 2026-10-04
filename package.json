@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.9",
+  "version": "10.20.10",
   "private": true,
-  "description": "LINKO v10.20.9 — audited KREATOR and referral leaderboards with Super Reaction accounting",
+  "description": "LINKO v10.20.10 — LinkedIn share-link submissions and refreshed leaderboard audit",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
