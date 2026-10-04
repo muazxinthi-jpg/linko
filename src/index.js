@@ -2757,20 +2757,28 @@ function modInboxCounts() {
     pendingInviterConfirmations: Number(db.prepare("SELECT COUNT(*) AS c FROM join_attribution WHERE source = 'member' AND source_confirmed = 1 AND inviter_confirmed = 0").get()?.c ?? 0),
   };
 }
-function buildModInboxEmbed() {
+function modInboxChannelMention(guild, channelName) {
+  const ch = guild.channels.cache.find((x) => x.isTextBased?.() && baseChannelName(x.name) === baseChannelName(channelName));
+  return ch ? `<#${ch.id}>` : '**channel missing**';
+}
+function buildModInboxEmbed(guild) {
   const c = modInboxCounts();
   const total = c.social + c.signalContent + c.kreatorProfiles + c.founders + c.suggestions + c.languageRequests + c.languageDemand;
+  const contentReview = modInboxChannelMention(guild, CHANNEL_NAMES.socialSubmissions);
+  const kreatorReview = modInboxChannelMention(guild, CHANNEL_NAMES.kreatorApplications);
+  const founderReview = modInboxChannelMention(guild, CHANNEL_NAMES.founderVerification);
+  const suggestionReview = modInboxChannelMention(guild, CHANNEL_NAMES.suggestionReview);
   return new EmbedBuilder().setColor(total ? BRAND.rose : BRAND.emerald).setTitle('📥 LINKO Moderator Inbox')
-    .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**` : '**No pending review items.**')
+    .setDescription(total ? `**${total} review item${total === 1 ? '' : 's'} need attention.**\nUse the linked queues below to open pending reviews.` : '**No pending review items.**')
     .addFields(
-      { name: 'Reviews', value: `KREATOR profiles: **${c.kreatorProfiles}**\nSocial posts: **${c.social}**\nSignal content: **${c.signalContent}**\nFounder applications: **${c.founders}**\nProduct suggestions: **${c.suggestions}**\nCatalog requests: **${c.languageRequests}**\nCommunity demand reviews: **${c.languageDemand}**`, inline: true },
+      { name: 'Reviews', value: `KREATOR profiles: **${c.kreatorProfiles}** · ${kreatorReview}\nSocial posts: **${c.social}** · ${contentReview}\nSignal content: **${c.signalContent}** · ${contentReview}\nFounder applications: **${c.founders}** · ${founderReview}\nProduct suggestions: **${c.suggestions}** · ${suggestionReview}\nCatalog requests: **${c.languageRequests}**\nCommunity demand reviews: **${c.languageDemand}**`, inline: true },
       { name: 'Operations', value: `Impact candidates evaluating: **${c.impact}**\nUpcoming/live events: **${c.events}**\nNew unverified (7d): **${c.unverified}**\nJoin source missing: **${c.unattributed}**\nAwaiting inviter confirmation: **${c.pendingInviterConfirmations}**`, inline: true },
     ).setFooter({ text: '[KLINEO-MOD-INBOX] · Auto-updated by LINKO' }).setTimestamp();
 }
 async function updateModInbox(guild) {
   const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'mod-inbox' && c.isTextBased());
   if (!channel) return;
-  await seedMessage(channel, '[KLINEO-MOD-INBOX]', { embeds: [buildModInboxEmbed()] });
+  await seedMessage(channel, '[KLINEO-MOD-INBOX]', { embeds: [buildModInboxEmbed(guild)] });
 }
 function scheduleModInboxUpdate(guild) {
   scheduleGuildTimeout(modInboxUpdateTimers, guild, 3000, () => updateModInbox(guild).catch(console.error));
@@ -4582,6 +4590,41 @@ async function syncV102010LeaderboardAndSubmissionAudit(guild) {
   await updateAllLeaderboards(guild).catch((error) => logLinkoError('v10.20.10:leaderboard-refresh', error));
   setSetting('v10_20_10_leaderboard_submission_audit_synced', '1');
   console.log('LINKO v10.20.10 audit complete · refreshed all leaderboard systems and enabled LinkedIn lnkd.in submission links.');
+}
+
+async function syncV102011ModeratorReviewQueues(guild) {
+  if (getSetting('v10_20_11_moderator_review_queues_synced') === '1') return;
+  await guild.channels.fetch();
+
+  const staffCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.staff);
+  if (!staffCategory) return;
+
+  const staffRoles = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const staffPrivate = [
+    overwrite(guild.roles.everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+    ...staffRoles.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+  ];
+
+  let review = guild.channels.cache.find((ch) =>
+    ch.type === ChannelType.GuildText && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions)
+  );
+  if (!review) {
+    review = await ensureTextChannel(guild, staffCategory, {
+      name: CHANNEL_NAMES.socialSubmissions,
+      topic: `Unified review queue for ${communityName()} social posts and Signal Room content.`,
+    }, staffPrivate);
+  } else {
+    await review.edit({
+      parent: staffCategory.id,
+      topic: `Unified review queue for ${communityName()} social posts and Signal Room content.`,
+      reason: 'LINKO v10.20.11 ensure moderator content review queue',
+    }).catch((error) => logLinkoError('v10.20.11:content-review-channel', error));
+    await review.permissionOverwrites.set(staffPrivate, 'LINKO v10.20.11 staff-only content review queue').catch((error) => logLinkoError('v10.20.11:content-review-perms', error));
+  }
+
+  await updateModInbox(guild).catch((error) => logLinkoError('v10.20.11:mod-inbox-refresh', error));
+  setSetting('v10_20_11_moderator_review_queues_synced', '1');
+  console.log(`LINKO v10.20.11 moderator review queue sync complete · content review: #${review?.name ?? 'missing'}.`);
 }
 
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
@@ -6527,9 +6570,10 @@ client.once('clientReady', async () => {
         await syncV10208ReactionEconomyAnnouncement(fullGuild).catch((error) => logLinkoError('v10.20.8-reaction-economy-announcement', error));
         await syncV10209LeaderboardAudit(fullGuild).catch((error) => logLinkoError('v10.20.9-leaderboard-audit', error));
         await syncV102010LeaderboardAndSubmissionAudit(fullGuild).catch((error) => logLinkoError('v10.20.10-leaderboard-submission-audit', error));
+        await syncV102011ModeratorReviewQueues(fullGuild).catch((error) => logLinkoError('v10.20.11-moderator-review-queues', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.10 active: LinkedIn share-link submissions, audited leaderboards, two-sided reaction KXP, and unified announcements.');
+        console.log('LINKO v10.20.11 active: moderator inbox review links, repaired content review queue, LinkedIn submissions, and audited leaderboards.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
