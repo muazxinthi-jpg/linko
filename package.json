@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.8",
+  "version": "10.20.9",
   "private": true,
-  "description": "LINKO v10.20.8 — two-sided reaction KXP with Super Reaction rewards",
+  "description": "LINKO v10.20.9 — audited KREATOR and referral leaderboards with Super Reaction accounting",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
