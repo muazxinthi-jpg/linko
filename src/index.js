@@ -2803,13 +2803,16 @@ async function ensureManagedCategory(guild, categoryName, access) {
 function sanitizeProjectName(input) {
   return input.trim().replace(/[^a-zA-Z0-9 _.-]/g, '').replace(/\s+/g, ' ').slice(0, 40);
 }
+function normalizeSubmittedPostUrl(raw) {
+  return String(raw ?? '').trim().replace(/^<+|>+$/g, '');
+}
 function platformUrlValid(platform, raw) {
   try {
-    const u = new URL(raw);
+    const u = new URL(normalizeSubmittedPostUrl(raw));
     const h = u.hostname.toLowerCase().replace(/^www\./, '');
     const allowed = {
       x: ['x.com', 'twitter.com'],
-      linkedin: ['linkedin.com'],
+      linkedin: ['linkedin.com', 'lnkd.in'],
       youtube: ['youtube.com', 'youtu.be'],
       tiktok: ['tiktok.com'],
       instagram: ['instagram.com'],
@@ -4574,6 +4577,13 @@ async function syncV10209LeaderboardAudit(guild) {
   console.log('LINKO v10.20.9 leaderboard audit sync complete · refreshed Overall, Community, Referral, KREATOR and Campaign leaderboards.');
 }
 
+async function syncV102010LeaderboardAndSubmissionAudit(guild) {
+  if (getSetting('v10_20_10_leaderboard_submission_audit_synced') === '1') return;
+  await updateAllLeaderboards(guild).catch((error) => logLinkoError('v10.20.10:leaderboard-refresh', error));
+  setSetting('v10_20_10_leaderboard_submission_audit_synced', '1');
+  console.log('LINKO v10.20.10 audit complete · refreshed all leaderboard systems and enabled LinkedIn lnkd.in submission links.');
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -6118,9 +6128,21 @@ async function handleSocialSubmission(interaction) {
 
   const approvedKreator = hasKreatorRole(member) && kreatorProfileApproved(member.id);
   const platform = interaction.options.getString('platform', true);
-  const url = interaction.options.getString('url', true).trim();
+  const url = normalizeSubmittedPostUrl(interaction.options.getString('url', true));
   const campaignId = interaction.options.getInteger('campaign');
-  if (!platformUrlValid(platform, url)) return interaction.reply({ content: 'That URL does not match the selected platform or is not a valid HTTPS post URL.', ephemeral: true });
+  if (!platformUrlValid(platform, url)) {
+    const examples = {
+      x: 'https://x.com/.../status/...',
+      linkedin: 'https://www.linkedin.com/posts/... or https://lnkd.in/...',
+      youtube: 'https://youtube.com/... or https://youtu.be/...',
+      tiktok: 'https://www.tiktok.com/...',
+      instagram: 'https://www.instagram.com/...',
+    };
+    return interaction.reply({
+      content: `That URL does not match **${platform.toUpperCase()}** or is not a valid HTTPS post URL. Try a direct/shared link such as: \`${examples[platform] ?? 'https://...'}\`.`,
+      ephemeral: true,
+    });
+  }
 
   let campaign = null;
   if (campaignId) {
@@ -6504,9 +6526,10 @@ client.once('clientReady', async () => {
         await syncV10207KxpEveryoneGreeting(fullGuild).catch((error) => logLinkoError('v10.20.7-kxp-everyone-greeting', error));
         await syncV10208ReactionEconomyAnnouncement(fullGuild).catch((error) => logLinkoError('v10.20.8-reaction-economy-announcement', error));
         await syncV10209LeaderboardAudit(fullGuild).catch((error) => logLinkoError('v10.20.9-leaderboard-audit', error));
+        await syncV102010LeaderboardAndSubmissionAudit(fullGuild).catch((error) => logLinkoError('v10.20.10-leaderboard-submission-audit', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.9 active: audited KREATOR/referral leaderboards, Super Reaction accounting, two-sided reaction KXP, and unified announcements.');
+        console.log('LINKO v10.20.10 active: LinkedIn share-link submissions, audited leaderboards, two-sided reaction KXP, and unified announcements.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
