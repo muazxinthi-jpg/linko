@@ -4760,6 +4760,13 @@ async function syncV102014CommunityHealthVisuals(guild) {
   console.log('LINKO v10.20.14 Community Health visual sync complete · compact metrics, sane trends and sparklines enabled.');
 }
 
+async function syncV102015CommunityHealthPolish(guild) {
+  if (getSetting('v10_20_15_health_polish_synced') === '1') return;
+  await updateCommunityHealthDashboard(guild).catch((error) => logLinkoError('v10.20.15:health-dashboard-refresh', error));
+  setSetting('v10_20_15_health_polish_synced', '1');
+  console.log('LINKO v10.20.15 Community Health polish sync complete · refined sparklines, spacing, trend pills and active subtitle.');
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -5580,9 +5587,9 @@ function drawSparkline(ctx, values, x, y, width, height, ink, softInk) {
   ctx.lineTo(x + width, y + height);
   ctx.stroke();
 
-  ctx.globalAlpha = 0.85;
+  ctx.globalAlpha = 0.72;
   ctx.strokeStyle = ink;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.beginPath();
@@ -5592,7 +5599,7 @@ function drawSparkline(ctx, values, x, y, width, height, ink, softInk) {
   const last = pts[pts.length - 1];
   ctx.fillStyle = ink;
   ctx.beginPath();
-  ctx.arc(last.x, last.y, 3.5, 0, Math.PI * 2);
+  ctx.arc(last.x, last.y, 3, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -5885,7 +5892,7 @@ async function generateHealthCard(guild, days = 7) {
 
   const trendLabel = (trend) => trend?.label ?? 'NO CHANGE';
   const primary = [
-    { label: ['Active','Members'], value: compactHealthMetric(m.activeMembers), icon: 'people', trend: metricTrend(current.activeMembers, previous.activeMembers), note: `${m.activeRate}% of current members`, spark: series.active },
+    { label: ['Active','Members'], value: compactHealthMetric(m.activeMembers), icon: 'people', trend: metricTrend(current.activeMembers, previous.activeMembers), note: m.activeRate === 100 ? '100% active' : `${m.activeRate}% active`, spark: series.active },
     { label: ['Qualified','Messages'], value: compactHealthMetric(m.qualifiedMessages), icon: 'message', trend: metricTrend(current.qualifiedMessages, previous.qualifiedMessages), note: `last ${days} days`, spark: series.qualified },
     { label: ['New','Joins'], value: compactHealthMetric(m.joins), icon: 'join', trend: metricTrend(current.joins, previous.joins), note: `last ${days} days`, spark: series.joins },
     { label: ['Activation'], value: m.activationRate == null ? 'N/A' : `${m.activationRate}%`, icon: 'bars', trend: m.activationRate == null || previousActivationRate == null ? null : metricTrend(m.activationRate, previousActivationRate), note: m.activationRate == null ? 'No verified joins yet' : `${m.activated} of ${m.verifications} activated`, spark: series.activation },
@@ -5894,8 +5901,9 @@ async function generateHealthCard(guild, days = 7) {
   const columnX = [58, 428, 798, 1168];
   const columnW = 340;
   const drawPill = (x, y, label, direction) => {
-    ctx.font = '800 13px monospace';
-    const w = Math.max(128, ctx.measureText(label).width + 48);
+    const fontSize = String(label).length > 12 ? 11 : 13;
+    ctx.font = `800 ${fontSize}px monospace`;
+    const w = Math.max(128, Math.min(190, ctx.measureText(label).width + 48));
     drawRoundRect(ctx, x, y, w, 34, 17);
     ctx.fillStyle = pillFill; ctx.fill();
     ctx.fillStyle = direction === 'down' ? (useDarkInk ? '#7A1D16' : '#FFD0CA') : softInk;
@@ -5920,9 +5928,9 @@ async function generateHealthCard(guild, days = 7) {
     ctx.fillText(item.value, x, 574);
     if (item.note) {
       ctx.font = '700 13px sans-serif';
-      ctx.fillText(item.note, x + 3, 600);
+      ctx.fillText(item.note, x + 3, 598);
     }
-    drawSparkline(ctx, item.spark, x + 150, 604, 155, 28, ink, softInk);
+    drawSparkline(ctx, item.spark, x + 150, 610, 155, 24, ink, softInk);
     const tLabel = trendLabel(item.trend);
     drawPill(x, 622, tLabel, item.trend?.direction ?? 'flat');
   });
@@ -6820,9 +6828,10 @@ client.once('clientReady', async () => {
         await syncV102012PublicOnboardingAndKreatorQueue(fullGuild).catch((error) => logLinkoError('v10.20.12-public-onboarding-kreator-queue', error));
         await syncV102013CommunityHealthActiveRate(fullGuild).catch((error) => logLinkoError('v10.20.13-health-active-rate', error));
         await syncV102014CommunityHealthVisuals(fullGuild).catch((error) => logLinkoError('v10.20.14-health-visuals', error));
+        await syncV102015CommunityHealthPolish(fullGuild).catch((error) => logLinkoError('v10.20.15-health-polish', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.14 active: Community Health sparklines and compact metrics, corrected active-rate population, onboarding help, and audited leaderboards.');
+        console.log('LINKO v10.20.15 active: polished Community Health visuals, sparklines and compact metrics, corrected active-rate population, and audited systems.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);

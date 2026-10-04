@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.14",
+  "version": "10.20.15",
   "private": true,
-  "description": "LINKO v10.20.14 — Community Health sparklines, compact metrics and sane trend labels",
+  "description": "LINKO v10.20.15 — polished Community Health sparklines, spacing and trend pills",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
