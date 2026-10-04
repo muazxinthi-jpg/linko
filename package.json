@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.10",
+  "version": "10.20.11",
   "private": true,
-  "description": "LINKO v10.20.10 — LinkedIn share-link submissions and refreshed leaderboard audit",
+  "description": "LINKO v10.20.11 — moderator inbox review links and repaired content review queue",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
