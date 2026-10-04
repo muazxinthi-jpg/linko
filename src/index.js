@@ -3223,7 +3223,14 @@ function creatorLeaderboardRows(guild, limit = 50) {
   const rows = db.prepare(`
     SELECT u.user_id, u.xp,
       (SELECT COUNT(*) FROM social_submissions s WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1) AS approved_posts,
-      COALESCE((SELECT SUM(COALESCE(s.xp_awarded,0)+COALESCE(s.reaction_xp_awarded,0)) FROM social_submissions s WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1),0) AS creator_post_kxp,
+      COALESCE((SELECT SUM(
+        COALESCE(s.xp_awarded,0)
+        + COALESCE(s.reaction_xp_awarded,0)
+        + COALESCE(s.super_reaction_xp_awarded,0)
+      ) FROM social_submissions s
+        WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1),0) AS creator_post_kxp,
+      COALESCE((SELECT SUM(COALESCE(s.reaction_xp_awarded,0)) FROM social_submissions s WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1),0) AS reaction_kxp,
+      COALESCE((SELECT SUM(COALESCE(s.super_reaction_xp_awarded,0)) FROM social_submissions s WHERE s.user_id=u.user_id AND s.status='approved' AND COALESCE(s.creator_eligible,0)=1),0) AS super_reaction_kxp,
       COALESCE((SELECT MAX(created_at) FROM xp_log x WHERE x.user_id=u.user_id),0) AS last_xp_at
     FROM users u
     WHERE u.xp > 0
@@ -3248,14 +3255,15 @@ function creatorCampaigns(status = null) {
 function campaignLeaderboardRows(guild, campaignId, limit = 50) {
   const rows = db.prepare(`
     SELECT s.user_id,
-           SUM(COALESCE(s.xp_awarded, 0) + COALESCE(s.reaction_xp_awarded, 0)) AS campaign_kxp,
+           SUM(COALESCE(s.xp_awarded, 0) + COALESCE(s.reaction_xp_awarded, 0) + COALESCE(s.super_reaction_xp_awarded, 0)) AS campaign_kxp,
            COUNT(*) AS approved_posts,
-           SUM(COALESCE(s.reaction_xp_awarded, 0)) AS reaction_kxp
+           SUM(COALESCE(s.reaction_xp_awarded, 0)) AS reaction_kxp,
+           SUM(COALESCE(s.super_reaction_xp_awarded, 0)) AS super_reaction_kxp
     FROM social_submissions s
     WHERE s.status = 'approved' AND COALESCE(s.creator_eligible, 0) = 1 AND s.campaign_id = ?
     GROUP BY s.user_id
     HAVING campaign_kxp > 0
-    ORDER BY campaign_kxp DESC, approved_posts DESC, reaction_kxp DESC, s.user_id ASC
+    ORDER BY campaign_kxp DESC, approved_posts DESC, reaction_kxp DESC, super_reaction_kxp DESC, s.user_id ASC
   `).all(campaignId);
   return rows.filter((r) => {
     const member = guild.members.cache.get(r.user_id);
@@ -3321,13 +3329,20 @@ function buildCreatorLeaderboardEmbeds(guild, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.xp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved posts`;
+      const approved = Number(r.approved_posts ?? 0);
+      const creatorKxp = Number(r.creator_post_kxp ?? 0);
+      const normalReactionKxp = Number(r.reaction_kxp ?? 0);
+      const superReactionKxp = Number(r.super_reaction_kxp ?? 0);
+      const creatorStats = approved > 0
+        ? `${approved} approved · ${creatorKxp} creator ${label} · ${normalReactionKxp} reaction + ${superReactionKxp} super`
+        : `No approved KREATOR posts yet · total ${label} includes other community activity`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.xp).toLocaleString()} ${label}** · ${creatorStats}`;
     }).join('\n') : 'No approved KREATOR activity yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
       .setTitle(chunkIndex === 0 ? `🎨 ${guild.name} KREATOR Leaderboard · Top 50` : `🎨 ${guild.name} KREATOR Leaderboard · 26–50`)
       .setDescription(lines)
-      .setFooter({ text: `[KLINEO-KREATOR-LEADERBOARD] · Approved KREATORS only · Ranked by total ${label} · Auto-updated by LINKO` })
+      .setFooter({ text: `[KLINEO-KREATOR-LEADERBOARD] · Approved KREATORS only · Ranked by total ${label} · Creator stats shown separately · Auto-updated by LINKO` })
       .setTimestamp();
   });
 }
@@ -3342,7 +3357,7 @@ function buildCampaignLeaderboardEmbeds(guild, campaignId, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.campaign_kxp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction ${label}`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.campaign_kxp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction + ${Number(r.super_reaction_kxp ?? 0)} super ${label}`;
     }).join('\n') : 'No approved KREATOR posts in this campaign yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
@@ -3541,7 +3556,7 @@ function getKxpBreakdown(userId) {
     if (reason.startsWith('Meaningful message') || reason.startsWith('Qualified community message') || reason.startsWith('Reversed qualified community message')) out.messages += amount;
     else if (reason.startsWith('Qualifying voice activity') || reason.startsWith('Official voice event:') || reason.startsWith('Official voice speaker:')) out.voice += amount;
     else if (reason.startsWith('Server boost daily reward:')) out.boosts += amount;
-    else if (reason.startsWith('Approved KlineO social contribution') || reason.startsWith('Creator reaction')) out.social += amount;
+    else if (reason.startsWith('Approved KlineO social contribution') || reason.startsWith('Creator reaction') || reason.startsWith('Creator Super Reaction') || reason.startsWith('Community reaction reward') || reason.startsWith('Community Super Reaction reward')) out.social += amount;
     else if (reason.startsWith('Valid bug report')) out.bugs += amount;
     else if (reason.startsWith('Profile submission:')) out.profile += amount;
     else if (reason.startsWith('Valid 7-day referral') || reason.startsWith('Moderator-confirmed 7-day referral') || reason.startsWith('Referral ') || reason.startsWith('Referred member ')) out.referrals += amount;
@@ -4550,6 +4565,13 @@ On approved KREATOR posts, engagement rewards work both ways.
 
   setSetting('v10_20_8_reaction_economy_announcement_synced', '1');
   console.log(`LINKO v10.20.8 reaction economy announcement sync complete · updated ${updated} announcement(s).`);
+}
+
+async function syncV10209LeaderboardAudit(guild) {
+  if (getSetting('v10_20_9_leaderboard_audit_synced') === '1') return;
+  await updateAllLeaderboards(guild).catch((error) => logLinkoError('v10.20.9:leaderboard-refresh', error));
+  setSetting('v10_20_9_leaderboard_audit_synced', '1');
+  console.log('LINKO v10.20.9 leaderboard audit sync complete · refreshed Overall, Community, Referral, KREATOR and Campaign leaderboards.');
 }
 
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
@@ -6481,9 +6503,10 @@ client.once('clientReady', async () => {
         await syncV10206UnifiedAnnouncements(fullGuild).catch((error) => logLinkoError('v10.20.6-unified-announcements', error));
         await syncV10207KxpEveryoneGreeting(fullGuild).catch((error) => logLinkoError('v10.20.7-kxp-everyone-greeting', error));
         await syncV10208ReactionEconomyAnnouncement(fullGuild).catch((error) => logLinkoError('v10.20.8-reaction-economy-announcement', error));
+        await syncV10209LeaderboardAudit(fullGuild).catch((error) => logLinkoError('v10.20.9-leaderboard-audit', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.8 active: two-sided reaction KXP, Super Reaction rewards, unified announcements, and clickable channel mentions.');
+        console.log('LINKO v10.20.9 active: audited KREATOR/referral leaderboards, Super Reaction accounting, two-sided reaction KXP, and unified announcements.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
