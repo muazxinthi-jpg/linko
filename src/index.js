@@ -3402,6 +3402,17 @@ function reactionRewardProgress(userId) {
   return db.prepare('SELECT * FROM reaction_reward_progress WHERE user_id = ?').get(userId);
 }
 
+function leaderboardUsername(guild, userId) {
+  const member = guild.members.cache.get(String(userId));
+  const raw = member?.user?.username || member?.displayName || 'member';
+  const safe = String(raw)
+    .replace(/\\/g, '\\\\')
+    .replace(/([\`*_~|>])/g, '\\$1')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 40);
+  return `@${safe || 'member'}`;
+}
+
 function buildCommunityLeaderboardEmbeds(guild, limit = 50) {
   const label = xpLabel();
   const rows = communityLeaderboardRows(guild, limit);
@@ -3410,7 +3421,7 @@ function buildCommunityLeaderboardEmbeds(guild, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.xp).toLocaleString()} ${label}** · ${rankForXp(Number(r.xp)).name}`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** ${leaderboardUsername(guild, r.user_id)} — **${Number(r.xp).toLocaleString()} ${label}** · ${rankForXp(Number(r.xp)).name}`;
     }).join('\n') : 'No Community Member activity yet.';
     return new EmbedBuilder().setColor(BRAND.cyan)
       .setTitle(chunkIndex === 0 ? `👥 ${guild.name} Community Leaderboard · Top 50` : `👥 ${guild.name} Community Leaderboard · 26–50`)
@@ -3435,7 +3446,7 @@ function buildCreatorLeaderboardEmbeds(guild, limit = 50) {
       const creatorStats = approved > 0
         ? `${approved} approved · ${creatorKxp} creator ${label} · ${normalReactionKxp} reaction + ${superReactionKxp} super`
         : `No approved KREATOR posts yet · total ${label} includes other community activity`;
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.xp).toLocaleString()} ${label}** · ${creatorStats}`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** ${leaderboardUsername(guild, r.user_id)} — **${Number(r.xp).toLocaleString()} ${label}** · ${creatorStats}`;
     }).join('\n') : 'No approved KREATOR activity yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
@@ -3456,7 +3467,7 @@ function buildCampaignLeaderboardEmbeds(guild, campaignId, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.campaign_kxp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction + ${Number(r.super_reaction_kxp ?? 0)} super ${label}`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** ${leaderboardUsername(guild, r.user_id)} — **${Number(r.campaign_kxp).toLocaleString()} ${label}** · ${Number(r.approved_posts)} approved · ${Number(r.reaction_kxp)} reaction + ${Number(r.super_reaction_kxp ?? 0)} super ${label}`;
     }).join('\n') : 'No approved KREATOR posts in this campaign yet.';
     return new EmbedBuilder()
       .setColor(0xA855F7)
@@ -3483,7 +3494,7 @@ function buildLeaderboardEmbeds(guild, limit = 50) {
       const xp = Number(r.xp ?? 0);
       const rank = rankForXp(xp);
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${xp.toLocaleString()} ${label}** · ${rank.name}`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** ${leaderboardUsername(guild, r.user_id)} — **${xp.toLocaleString()} ${label}** · ${rank.name}`;
     }).join('\n') : `No ${label} activity yet.`;
     return new EmbedBuilder()
       .setColor(BRAND.lime)
@@ -3501,7 +3512,7 @@ function buildReferralLeaderboardEmbeds(guild, limit = 50) {
     const offset = chunkIndex * 25;
     const lines = chunk.length ? chunk.map((r, i) => {
       const medal = offset + i === 0 ? '🥇 ' : offset + i === 1 ? '🥈 ' : offset + i === 2 ? '🥉 ' : '';
-      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** <@${r.user_id}> — **${Number(r.valid_referrals).toLocaleString()} valid** · ${Number(r.total_referrals).toLocaleString()} total`;
+      return `${medal}**${String(offset + i + 1).padStart(2, '0')}.** ${leaderboardUsername(guild, r.user_id)} — **${Number(r.valid_referrals).toLocaleString()} valid** · ${Number(r.total_referrals).toLocaleString()} total`;
     }).join('\n') : 'No valid referrals yet.';
     return new EmbedBuilder()
       .setColor(BRAND.cyan)
@@ -4912,6 +4923,13 @@ async function syncV102016KreatorPublishingGate(guild) {
 
   setSetting('v10_20_16_kreator_publishing_gate_synced', '1');
   console.log('LINKO v10.20.16 KREATOR publishing gate sync complete · discussion stays open, direct social publishing routes through /submit-content social.');
+}
+
+async function syncV102019LeaderboardUsernames(guild) {
+  if (getSetting('v10_20_19_leaderboard_usernames_synced') === '1') return;
+  await updateAllLeaderboards(guild).catch((error) => logLinkoError('v10.20.19:leaderboard-refresh', error));
+  setSetting('v10_20_19_leaderboard_usernames_synced', '1');
+  console.log('LINKO v10.20.19 leaderboard username sync complete · raw Discord IDs removed from public leaderboard display.');
 }
 
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
@@ -6981,9 +6999,10 @@ client.once('clientReady', async () => {
         await syncV102015CommunityHealthPolish(fullGuild).catch((error) => logLinkoError('v10.20.15-health-polish', error));
         await syncV102016KreatorPublishingGate(fullGuild).catch((error) => logLinkoError('v10.20.16-kreator-publishing-gate', error));
         await syncV102017KlineOGuide(fullGuild).catch((error) => logLinkoError('v10.20.17-klineo-guide', error));
+        await syncV102019LeaderboardUsernames(fullGuild).catch((error) => logLinkoError('v10.20.19-leaderboard-usernames', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.18 active: cleaned KlineO guide styling, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
+        console.log('LINKO v10.20.19 active: mobile-safe leaderboard usernames, cleaned KlineO guide styling, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
