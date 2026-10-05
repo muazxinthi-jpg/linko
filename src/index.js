@@ -2837,6 +2837,16 @@ function platformUrlValid(platform, raw) {
     return u.protocol === 'https:' && (allowed[platform] ?? []).some((d) => h === d || h.endsWith(`.${d}`));
   } catch { return false; }
 }
+function extractHttpsUrls(text = '') {
+  return String(text).match(/https:\/\/[^\s<>]+/gi) ?? [];
+}
+function supportedSocialPostUrl(raw) {
+  const url = normalizeSubmittedPostUrl(raw).replace(/[),.!?]+$/g, '');
+  return ['x', 'linkedin', 'youtube', 'tiktok', 'instagram'].some((platform) => platformUrlValid(platform, url));
+}
+function containsSupportedSocialPostUrl(text = '') {
+  return extractHttpsUrls(text).some(supportedSocialPostUrl);
+}
 
 const IMAGE_SLOTS = { welcome: 'image_welcome', verify: 'image_verify', official: 'image_official', social: 'image_social', founder: 'image_founder' };
 function safePublicUrl(raw) {
@@ -4767,6 +4777,46 @@ async function syncV102015CommunityHealthPolish(guild) {
   console.log('LINKO v10.20.15 Community Health polish sync complete · refined sparklines, spacing, trend pills and active subtitle.');
 }
 
+async function syncV102016KreatorPublishingGate(guild) {
+  if (getSetting('v10_20_16_kreator_publishing_gate_synced') === '1') return;
+  await guild.channels.fetch();
+
+  if (moduleEnabled('kreator')) {
+    const everyone = guild.roles.everyone;
+    const kreator = guild.roles.cache.find((r) => r.name === 'KREATOR' || r.name === 'CREATOR');
+    const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+
+    const creatorReadOnly = [
+      overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+      ...(kreator ? [overwrite(kreator.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads])] : []),
+      ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages])),
+    ];
+
+    const opportunities = guild.channels.cache.find((ch) =>
+      ch.isTextBased?.() && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.creatorOpportunities)
+    );
+    if (opportunities) {
+      await opportunities.permissionOverwrites.set(creatorReadOnly, 'LINKO v10.20.16 creator opportunities read-only').catch((error) => logLinkoError('v10.20.16:creator-opportunities-perms', error));
+      await opportunities.edit({
+        topic: 'Approved KREATOR opportunities and briefs. Publishing is restricted to LINKO / KlineO staff.',
+        reason: 'LINKO v10.20.16 publishing gate',
+      }).catch((error) => logLinkoError('v10.20.16:creator-opportunities-topic', error));
+    }
+
+    for (const name of [CHANNEL_NAMES.creatorLounge, CHANNEL_NAMES.contentCollabs]) {
+      const channel = guild.channels.cache.find((ch) => ch.isTextBased?.() && baseChannelName(ch.name) === baseChannelName(name));
+      if (!channel) continue;
+      const topic = baseChannelName(name) === baseChannelName(CHANNEL_NAMES.creatorLounge)
+        ? 'Private lounge for approved KREATORS. Discussion is open; submit published social content with /submit-content social.'
+        : `${communityName()} KREATOR collaborations. Discussion is open; submit published social content with /submit-content social.`;
+      await channel.edit({ topic, reason: 'LINKO v10.20.16 publishing gate guidance' }).catch((error) => logLinkoError(`v10.20.16:kreator-discussion-topic:${channel.id}`, error));
+    }
+  }
+
+  setSetting('v10_20_16_kreator_publishing_gate_synced', '1');
+  console.log('LINKO v10.20.16 KREATOR publishing gate sync complete · discussion stays open, direct social publishing routes through /submit-content social.');
+}
+
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
   try {
     let c = guild.channels.cache.find((x) => x.type === ChannelType.GuildVoice && x.parentId === category.id && x.name === spec.name);
@@ -5250,9 +5300,10 @@ async function buildKlineO(guild) {
     await setLeaderboardChannelVisibility(guild, 'creators', getSetting('creator_leaderboard_visibility'));
     await setLeaderboardChannelVisibility(guild, 'campaign', getSetting('campaign_leaderboard_visibility'));
 
-    for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators.'], [CHANNEL_NAMES.contentCollabs, `${communityName()} creator collaborations.`], [CHANNEL_NAMES.creatorOpportunities, 'Approved creator opportunities and briefs.']]) {
+    for (const [name, topic] of [[CHANNEL_NAMES.creatorLounge, 'Private lounge for approved creators. Discussion is open; submit published social content with /submit-content social.'], [CHANNEL_NAMES.contentCollabs, `${communityName()} creator collaborations. Discussion is open; submit published social content with /submit-content social.`]]) {
       await ensureTextChannel(guild, categories.creators, { name, topic }, creatorsPrivate);
     }
+    await ensureTextChannel(guild, categories.creators, { name: CHANNEL_NAMES.creatorOpportunities, topic: 'Approved creator opportunities and briefs. Publishing is restricted to LINKO / KlineO staff.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.kreator.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]))]);
   }
 
   if (moduleEnabled('founder_hub')) {
@@ -6829,9 +6880,10 @@ client.once('clientReady', async () => {
         await syncV102013CommunityHealthActiveRate(fullGuild).catch((error) => logLinkoError('v10.20.13-health-active-rate', error));
         await syncV102014CommunityHealthVisuals(fullGuild).catch((error) => logLinkoError('v10.20.14-health-visuals', error));
         await syncV102015CommunityHealthPolish(fullGuild).catch((error) => logLinkoError('v10.20.15-health-polish', error));
+        await syncV102016KreatorPublishingGate(fullGuild).catch((error) => logLinkoError('v10.20.16-kreator-publishing-gate', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.15 active: polished Community Health visuals, sparklines and compact metrics, corrected active-rate population, and audited systems.');
+        console.log('LINKO v10.20.16 active: KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
@@ -7022,6 +7074,25 @@ client.on('messageCreate', async (message) => {
   const isPublicBlocked = PUBLIC_NO_LINK_CHANNELS.has(channelBase);
   const isSignal = SIGNAL_CHANNELS.has(channelBase);
   const managed = managedChannelRow(message.channel.id);
+
+  const kreatorDiscussionChannels = new Set([
+    baseChannelName(CHANNEL_NAMES.creatorLounge),
+    baseChannelName(CHANNEL_NAMES.contentCollabs),
+  ]);
+  if (
+    moduleEnabled('kreator') &&
+    kreatorDiscussionChannels.has(channelBase) &&
+    !hasStaffRole(message.member) &&
+    containsSupportedSocialPostUrl(message.content)
+  ) {
+    await message.delete().catch(() => {});
+    const notice = await message.channel.send({
+      content: `<@${message.author.id}> 🎨 **Want to share published content?**\nThis channel is for discussion and collaboration. Submit your post through LINKO so it can be reviewed, published in **#published-kontents**, and tracked for ${xpLabel()}.\n\nUse: **/submit-content social**\n\nDirect social-post links posted here do not earn ${xpLabel()} or reaction rewards.`,
+      allowedMentions: { users: [message.author.id], parse: [] },
+    }).catch(() => null);
+    if (notice) setTimeout(() => notice.delete().catch(() => {}), 20000);
+    return;
+  }
   if (channelBase === 'introductions' && hasVerifiedRole(message.member)) {
     ensureUserRow(message.author.id, message.member.joinedTimestamp ?? null);
     db.prepare('UPDATE member_activation SET introduced_at = COALESCE(introduced_at, ?) WHERE user_id = ?').run(now(), message.author.id);
