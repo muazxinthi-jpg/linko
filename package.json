@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.16",
+  "version": "10.20.17",
   "private": true,
-  "description": "LINKO v10.20.16 — KREATOR publishing gate routes social posts through Linko",
+  "description": "LINKO v10.20.17 — KlineO product education guide published through Linko",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
