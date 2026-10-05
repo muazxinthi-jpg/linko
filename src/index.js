@@ -3407,10 +3407,12 @@ function leaderboardUsername(guild, userId) {
   const raw = member?.user?.username || member?.displayName || 'member';
   const safe = String(raw)
     .replace(/\\/g, '\\\\')
-    .replace(/([\`*_~|>])/g, '\\$1')
+    .replace(/([\`*_~|>\[\]()])/g, '\\$1')
     .replace(/[\r\n]+/g, ' ')
     .slice(0, 40);
-  return `@${safe || 'member'}`;
+  const label = `@${safe || 'member'}`;
+  const id = String(userId ?? '');
+  return /^\d{15,25}$/.test(id) ? `[${label}](https://discord.com/users/${id})` : label;
 }
 
 function buildCommunityLeaderboardEmbeds(guild, limit = 50) {
@@ -4930,6 +4932,13 @@ async function syncV102019LeaderboardUsernames(guild) {
   await updateAllLeaderboards(guild).catch((error) => logLinkoError('v10.20.19:leaderboard-refresh', error));
   setSetting('v10_20_19_leaderboard_usernames_synced', '1');
   console.log('LINKO v10.20.19 leaderboard username sync complete · raw Discord IDs removed from public leaderboard display.');
+}
+
+async function syncV102020ClickableLeaderboardUsernames(guild) {
+  if (getSetting('v10_20_20_clickable_leaderboard_usernames_synced') === '1') return;
+  await updateAllLeaderboards(guild).catch((error) => logLinkoError('v10.20.20:leaderboard-refresh', error));
+  setSetting('v10_20_20_clickable_leaderboard_usernames_synced', '1');
+  console.log('LINKO v10.20.20 leaderboard link sync complete · usernames remain mobile-safe and are clickable on desktop/web.');
 }
 
 async function ensureVoiceChannel(guild, category, spec, permissionOverwrites = []) {
@@ -7000,9 +7009,10 @@ client.once('clientReady', async () => {
         await syncV102016KreatorPublishingGate(fullGuild).catch((error) => logLinkoError('v10.20.16-kreator-publishing-gate', error));
         await syncV102017KlineOGuide(fullGuild).catch((error) => logLinkoError('v10.20.17-klineo-guide', error));
         await syncV102019LeaderboardUsernames(fullGuild).catch((error) => logLinkoError('v10.20.19-leaderboard-usernames', error));
+        await syncV102020ClickableLeaderboardUsernames(fullGuild).catch((error) => logLinkoError('v10.20.20-clickable-leaderboard-usernames', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.19 active: mobile-safe leaderboard usernames, cleaned KlineO guide styling, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
+        console.log('LINKO v10.20.20 active: clickable mobile-safe leaderboard usernames, cleaned KlineO guide styling, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
