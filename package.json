@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.17",
+  "version": "10.20.18",
   "private": true,
-  "description": "LINKO v10.20.17 — KlineO product education guide published through Linko",
+  "description": "LINKO v10.20.18 — cleaned KlineO product guide presentation",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
