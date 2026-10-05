@@ -1,3 +1,14 @@
+# LINKO v10.20.17
+
+LINKO v10.20.17 adds a permanent KlineO education guide to the **START HERE** section.
+
+- Adds read-only `📘・what-is-klineo` for the KlineO server only.
+- Publishes four simple educational cards covering KlineO.xyz, KlineO.io and how the two products connect.
+- Posts a short seeded announcement linking members to the guide.
+- LINKO edits the existing seeded cards on future restarts instead of creating duplicates.
+- Existing channels, KXP, referrals, creator workflows and databases are unchanged.
+
+---
 # LINKO v10.16.0
 
 LINKO v10.16 replaces free-form language-community creation with standardized preferred-language selection and demand-based channel creation.
