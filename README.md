@@ -1,3 +1,11 @@
+# LINKO v10.20.18
+
+- Removes long-dash styling from KlineO.xyz and KlineO.io guide labels.
+- Uses clean product title + subtitle formatting.
+- Removes visible internal `[KLINEO-GUIDE-*]` markers from guide cards.
+- Keeps guide updates duplicate-safe by matching existing legacy markers or current embed titles.
+
+---
 # LINKO v10.20.17
 
 LINKO v10.20.17 adds a permanent KlineO education guide to the **START HERE** section.
