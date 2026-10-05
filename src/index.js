@@ -3095,17 +3095,17 @@ function buildKlineOGuideEmbeds() {
   const overview = new EmbedBuilder()
     .setColor(BRAND.lime)
     .setTitle('What is KlineO?')
-    .setDescription('KlineO has two main products built for two different sides of digital asset markets.\n\n🟢 **KlineO.xyz — Trading Terminal** helps people trade markets.\n🔵 **KlineO.io — Liquidity Studio** helps organizations understand and operate the markets around digital assets.')
+    .setDescription('KlineO has two main products built for two different sides of digital asset markets.\n\n🟢 **KlineO.xyz**\nTrading Terminal for people who trade markets.\n\n🔵 **KlineO.io**\nLiquidity Studio for organizations that understand and operate the markets around digital assets.')
     .addFields(
       { name: 'For everyday users', value: '**KlineO.xyz** is the place to start if you are a trader, creator, community member or trading team.' },
       { name: 'For organizations', value: '**KlineO.io** is built for founders, projects, foundations, VCs, accelerators, chains, treasury teams and exchanges.' },
     )
-    .setFooter({ text: '[KLINEO-GUIDE-OVERVIEW]' });
+    .setFooter({ text: 'KlineO Guide' });
 
   const trading = new EmbedBuilder()
     .setColor(BRAND.blue)
-    .setTitle('🟢 KlineO.xyz — Trading Terminal')
-    .setDescription('Crypto traders often jump between charts, news, indicators, exchanges, bots and tracking tools. **KlineO.xyz brings that workflow into one trading environment.**')
+    .setTitle('🟢 KlineO.xyz')
+    .setDescription('**Trading Terminal**\n\nCrypto traders often jump between charts, news, indicators, exchanges, bots and tracking tools. **KlineO.xyz brings that workflow into one trading environment.**')
     .addFields(
       { name: 'Simple workflow', value: '**Discover → Research → Analyze → Plan → Trade → Monitor → Review**' },
       { name: 'What it helps with', value: 'Market research, technical analysis, news and sentiment, AI-assisted workflows, trade planning, connected execution, DCA, copy trading, futures workflows and trade review.' },
@@ -3113,12 +3113,12 @@ function buildKlineOGuideEmbeds() {
       { name: 'Important', value: 'KlineO is not simply a bot that says BUY or SELL. Think of it as a trading workspace that helps you understand the market and manage the full trading workflow.' },
       { name: 'Explore', value: '[KlineO.xyz](https://klineo.xyz)' },
     )
-    .setFooter({ text: '[KLINEO-GUIDE-TRADING]' });
+    .setFooter({ text: 'KlineO Guide' });
 
   const studio = new EmbedBuilder()
     .setColor(BRAND.emerald)
-    .setTitle('🔵 KlineO.io — Liquidity Studio')
-    .setDescription('Liquidity Studio is **not mainly built for the average trader**. It is built for organizations responsible for tokens, liquidity, treasury and market operations.')
+    .setTitle('🔵 KlineO.io')
+    .setDescription('**Liquidity Studio**\n\nLiquidity Studio is **not mainly built for the average trader**. It is built for organizations responsible for tokens, liquidity, treasury and market operations.')
     .addFields(
       { name: 'Who is it for?', value: 'Founders, token projects, foundations, VCs, accelerators, blockchain ecosystems, treasury teams and exchanges.' },
       { name: 'Simple workflow', value: '**Observe → Understand → Compare scenarios → Decide → Record → Review**' },
@@ -3126,13 +3126,13 @@ function buildKlineOGuideEmbeds() {
       { name: 'Why it matters', value: 'Instead of managing market decisions across spreadsheets, dashboards, reports and chat groups, Liquidity Studio gives teams a structured place to work through those decisions.' },
       { name: 'Explore', value: '[KlineO.io](https://klineo.io)' },
     )
-    .setFooter({ text: '[KLINEO-GUIDE-STUDIO]' });
+    .setFooter({ text: 'KlineO Guide' });
 
   const connected = new EmbedBuilder()
     .setColor(BRAND.lime)
     .setTitle('🔗 How the two products connect')
     .setDescription('**KlineO.xyz helps people operate their trades.**\n\nTraders research, plan, execute, monitor and review.\n\n**KlineO.io helps organizations operate the markets around digital assets.**\n\nProjects and institutions observe, understand, plan, manage liquidity and review decisions.\n\n**Two products. Two different users. One connected market ecosystem.**')
-    .setFooter({ text: '[KLINEO-GUIDE-CONNECTED]' });
+    .setFooter({ text: 'KlineO Guide' });
 
   return [overview, trading, studio, connected];
 }
@@ -3140,8 +3140,24 @@ function buildKlineOGuideEmbeds() {
 async function publishKlineOGuide(guild, channel) {
   if (!channel) return false;
   const embeds = buildKlineOGuideEmbeds();
-  const markers = ['[KLINEO-GUIDE-OVERVIEW]', '[KLINEO-GUIDE-TRADING]', '[KLINEO-GUIDE-STUDIO]', '[KLINEO-GUIDE-CONNECTED]'];
-  for (let i = 0; i < embeds.length; i++) await seedMessage(channel, markers[i], { embeds: [embeds[i]] });
+  const legacyMarkers = ['[KLINEO-GUIDE-OVERVIEW]', '[KLINEO-GUIDE-TRADING]', '[KLINEO-GUIDE-STUDIO]', '[KLINEO-GUIDE-CONNECTED]'];
+  const titles = ['What is KlineO?', '🟢 KlineO.xyz', '🔵 KlineO.io', '🔗 How the two products connect'];
+  const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+
+  for (let i = 0; i < embeds.length; i++) {
+    const existing = recent?.find((m) =>
+      m.author.id === client.user.id &&
+      (
+        m.embeds.some((e) => e.footer?.text === legacyMarkers[i]) ||
+        m.embeds.some((e) => e.title === titles[i])
+      )
+    );
+    if (existing) {
+      await existing.edit({ content: null, embeds: [embeds[i]], components: [] });
+    } else {
+      await channel.send({ embeds: [embeds[i]] });
+    }
+  }
   return true;
 }
 const OFFICIAL_LINKS = {
@@ -6967,7 +6983,7 @@ client.once('clientReady', async () => {
         await syncV102017KlineOGuide(fullGuild).catch((error) => logLinkoError('v10.20.17-klineo-guide', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.17 active: KlineO product guide + announcement, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
+        console.log('LINKO v10.20.18 active: cleaned KlineO guide styling, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
