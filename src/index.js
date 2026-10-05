@@ -1122,7 +1122,7 @@ const CATEGORY_NAMES = {
 };
 
 const CHANNEL_NAMES = {
-  welcome: '👋・welcome', rules: '📜・rules', verify: '✅・verify', links: '🔗・official-links', announcements: '📢・announcements',
+  welcome: '👋・welcome', guide: '📘・what-is-klineo', rules: '📜・rules', verify: '✅・verify', links: '🔗・official-links', announcements: '📢・announcements',
   general: '💬・general', marketChat: '📊・market-chat', tradeSetups: '🎯・trade-setups', aiAgentLab: '🤖・ai-agent-lab',
   productUpdates: '🚀・product-updates', productFeedback: '💡・product-feedback', bugReports: '🐞・bug-reports', help: '🆘・help', onboardingHelp: '🆘・onboarding-help', introductions: '👤・introductions', wins: '🏆・wins-and-learnings',
   howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', communityLeaderboard: '👥・community-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
@@ -1203,7 +1203,7 @@ const LEGACY_CATEGORY_NAMES = new Map([
   ['09・VOICE', CATEGORY_NAMES.voice], ['10・STAFF', CATEGORY_NAMES.staff],
 ]);
 const LEGACY_CHANNEL_NAMES = new Map([
-  ['welcome', CHANNEL_NAMES.welcome], ['rules', CHANNEL_NAMES.rules], ['verify', CHANNEL_NAMES.verify], ['official-links', CHANNEL_NAMES.links], ['announcements', CHANNEL_NAMES.announcements],
+  ['welcome', CHANNEL_NAMES.welcome], ['what-is-klineo', CHANNEL_NAMES.guide], ['rules', CHANNEL_NAMES.rules], ['verify', CHANNEL_NAMES.verify], ['official-links', CHANNEL_NAMES.links], ['announcements', CHANNEL_NAMES.announcements],
   ['general', CHANNEL_NAMES.general], ['market-chat', CHANNEL_NAMES.marketChat], ['trade-setups', CHANNEL_NAMES.tradeSetups], ['ai-agent-lab', CHANNEL_NAMES.aiAgentLab],
   ['product-updates', CHANNEL_NAMES.productUpdates], ['product-feedback', CHANNEL_NAMES.productFeedback], ['bug-reports', CHANNEL_NAMES.bugReports], ['help', CHANNEL_NAMES.help], ['introductions', CHANNEL_NAMES.introductions], ['wins-and-learnings', CHANNEL_NAMES.wins],
   ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['community-leaderboard', CHANNEL_NAMES.communityLeaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
@@ -3091,6 +3091,59 @@ function buildSocialEmbed() {
     .setFooter({ text: '[KLINEO-SOCIAL]' });
   return withImageOrPlaceholder(e, 'social', 'Social section');
 }
+function buildKlineOGuideEmbeds() {
+  const overview = new EmbedBuilder()
+    .setColor(BRAND.lime)
+    .setTitle('What is KlineO?')
+    .setDescription('KlineO has two main products built for two different sides of digital asset markets.\n\n🟢 **KlineO.xyz — Trading Terminal** helps people trade markets.\n🔵 **KlineO.io — Liquidity Studio** helps organizations understand and operate the markets around digital assets.')
+    .addFields(
+      { name: 'For everyday users', value: '**KlineO.xyz** is the place to start if you are a trader, creator, community member or trading team.' },
+      { name: 'For organizations', value: '**KlineO.io** is built for founders, projects, foundations, VCs, accelerators, chains, treasury teams and exchanges.' },
+    )
+    .setFooter({ text: '[KLINEO-GUIDE-OVERVIEW]' });
+
+  const trading = new EmbedBuilder()
+    .setColor(BRAND.blue)
+    .setTitle('🟢 KlineO.xyz — Trading Terminal')
+    .setDescription('Crypto traders often jump between charts, news, indicators, exchanges, bots and tracking tools. **KlineO.xyz brings that workflow into one trading environment.**')
+    .addFields(
+      { name: 'Simple workflow', value: '**Discover → Research → Analyze → Plan → Trade → Monitor → Review**' },
+      { name: 'What it helps with', value: 'Market research, technical analysis, news and sentiment, AI-assisted workflows, trade planning, connected execution, DCA, copy trading, futures workflows and trade review.' },
+      { name: 'Who is it for?', value: 'Traders, creators, communities and trading teams.' },
+      { name: 'Important', value: 'KlineO is not simply a bot that says BUY or SELL. Think of it as a trading workspace that helps you understand the market and manage the full trading workflow.' },
+      { name: 'Explore', value: '[KlineO.xyz](https://klineo.xyz)' },
+    )
+    .setFooter({ text: '[KLINEO-GUIDE-TRADING]' });
+
+  const studio = new EmbedBuilder()
+    .setColor(BRAND.emerald)
+    .setTitle('🔵 KlineO.io — Liquidity Studio')
+    .setDescription('Liquidity Studio is **not mainly built for the average trader**. It is built for organizations responsible for tokens, liquidity, treasury and market operations.')
+    .addFields(
+      { name: 'Who is it for?', value: 'Founders, token projects, foundations, VCs, accelerators, blockchain ecosystems, treasury teams and exchanges.' },
+      { name: 'Simple workflow', value: '**Observe → Understand → Compare scenarios → Decide → Record → Review**' },
+      { name: 'Simple example', value: 'If a project notices its token liquidity getting worse, the team can study what changed, review the evidence, compare possible actions, make a decision and later measure what happened.' },
+      { name: 'Why it matters', value: 'Instead of managing market decisions across spreadsheets, dashboards, reports and chat groups, Liquidity Studio gives teams a structured place to work through those decisions.' },
+      { name: 'Explore', value: '[KlineO.io](https://klineo.io)' },
+    )
+    .setFooter({ text: '[KLINEO-GUIDE-STUDIO]' });
+
+  const connected = new EmbedBuilder()
+    .setColor(BRAND.lime)
+    .setTitle('🔗 How the two products connect')
+    .setDescription('**KlineO.xyz helps people operate their trades.**\n\nTraders research, plan, execute, monitor and review.\n\n**KlineO.io helps organizations operate the markets around digital assets.**\n\nProjects and institutions observe, understand, plan, manage liquidity and review decisions.\n\n**Two products. Two different users. One connected market ecosystem.**')
+    .setFooter({ text: '[KLINEO-GUIDE-CONNECTED]' });
+
+  return [overview, trading, studio, connected];
+}
+
+async function publishKlineOGuide(guild, channel) {
+  if (!channel) return false;
+  const embeds = buildKlineOGuideEmbeds();
+  const markers = ['[KLINEO-GUIDE-OVERVIEW]', '[KLINEO-GUIDE-TRADING]', '[KLINEO-GUIDE-STUDIO]', '[KLINEO-GUIDE-CONNECTED]'];
+  for (let i = 0; i < embeds.length; i++) await seedMessage(channel, markers[i], { embeds: [embeds[i]] });
+  return true;
+}
 const OFFICIAL_LINKS = {
   website: ['official_website', '🌐 Website'],
   liquidity_studio: ['official_liquidity_studio', '💧 Liquidity Studio'],
@@ -4777,6 +4830,34 @@ async function syncV102015CommunityHealthPolish(guild) {
   console.log('LINKO v10.20.15 Community Health polish sync complete · refined sparklines, spacing, trend pills and active subtitle.');
 }
 
+async function syncV102017KlineOGuide(guild) {
+  if (communityName().trim().toLowerCase() !== 'klineo') return false;
+  await guild.channels.fetch();
+  await guild.roles.fetch();
+
+  const startCategory = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === CATEGORY_NAMES.start);
+  if (!startCategory) return false;
+
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const guide = await ensureTextChannel(guild, startCategory, {
+    name: CHANNEL_NAMES.guide,
+    topic: 'Simple guide to KlineO.xyz Trading Terminal, KlineO.io Liquidity Studio, who each product is for, and how they connect.',
+  }, readOnlyOverwrites(guild.roles.everyone, staff));
+
+  await publishKlineOGuide(guild, guide);
+
+  const announcements = guild.channels.cache.find((ch) => ch.isTextBased?.() && baseChannelName(ch.name) === 'announcements');
+  const general = guild.channels.cache.find((ch) => ch.isTextBased?.() && baseChannelName(ch.name) === 'general');
+  if (announcements) {
+    const generalLine = general ? `\nQuestions after reading? Continue the conversation in <#${general.id}>.` : '';
+    await seedMessage(announcements, '[KLINEO-GUIDE-ANNOUNCEMENT]', {
+      content: `📘 **New to KlineO? Start here.**\n\nWe added a simple guide explaining the difference between **KlineO.xyz Trading Terminal** and **KlineO.io Liquidity Studio**, who each product is built for, and how they connect.\n\nRead it here → <#${guide.id}>${generalLine}\n\n[KLINEO-GUIDE-ANNOUNCEMENT]`,
+    });
+  }
+
+  console.log('LINKO v10.20.17 KlineO product guide synced.');
+  return true;
+}
 async function syncV102016KreatorPublishingGate(guild) {
   if (getSetting('v10_20_16_kreator_publishing_gate_synced') === '1') return;
   await guild.channels.fetch();
@@ -5227,6 +5308,7 @@ async function buildKlineO(guild) {
   setSetupPhase('04/11 · Create START HERE + community channels');
   const channels = {};
   channels.welcome = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.welcome, topic: `${communityName()} welcome and onboarding. Start here.` }, startReadOnly);
+  if (communityName().trim().toLowerCase() === 'klineo') channels.guide = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.guide, topic: 'Simple guide to KlineO.xyz Trading Terminal, KlineO.io Liquidity Studio, who each product is for, and how they connect.' }, startReadOnly);
   channels.rules = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.rules, topic: `${communityName()} community and security rules.` }, startReadOnly);
   channels.verify = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.verify, topic: `${communityName()} verification and access.` }, startReadOnly);
   channels.links = await ensureTextChannel(guild, categories.start, { name: CHANNEL_NAMES.links, topic: `${communityName()} official links only.` }, startReadOnly);
@@ -5363,6 +5445,7 @@ async function buildKlineO(guild) {
   const verifyButton = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('linko_onboarding_start').setLabel('START ONBOARDING').setStyle(ButtonStyle.Success));
   await seedMessage(channels.verify, '[KLINEO-VERIFY]', { embeds: [buildVerifyEmbed()], components: [verifyButton] });
   await seedMessage(channels.welcome, '[KLINEO-WELCOME]', { embeds: [buildWelcomeEmbed(channels)] });
+  if (channels.guide) await publishKlineOGuide(guild, channels.guide);
   const rulesLines = [
     `**${communityName()} Community Rules**`,
     '',
@@ -6881,9 +6964,10 @@ client.once('clientReady', async () => {
         await syncV102014CommunityHealthVisuals(fullGuild).catch((error) => logLinkoError('v10.20.14-health-visuals', error));
         await syncV102015CommunityHealthPolish(fullGuild).catch((error) => logLinkoError('v10.20.15-health-polish', error));
         await syncV102016KreatorPublishingGate(fullGuild).catch((error) => logLinkoError('v10.20.16-kreator-publishing-gate', error));
+        await syncV102017KlineOGuide(fullGuild).catch((error) => logLinkoError('v10.20.17-klineo-guide', error));
         if (projectProfileComplete()) await refreshBrandMessages(fullGuild).catch((error) => logLinkoError('project-profile-brand-refresh', error));
         console.log(`Registered LINKO commands in ${fullGuild.name} (${fullGuild.id}) · XP label: ${xpLabel()}`);
-        console.log('LINKO v10.20.16 active: KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
+        console.log('LINKO v10.20.17 active: KlineO product guide + announcement, KREATOR publishing gate, polished Community Health visuals, audited leaderboards, and existing workflows preserved.');
 
         const recurring = (fn) => () => runWithGuild(fullGuild.id, () => fn(fullGuild).catch(console.error));
         setInterval(recurring(checkPendingReferrals), 60 * 60 * 1000);
