@@ -1,8 +1,8 @@
 {
   "name": "linko-klineo-community-bot",
-  "version": "10.20.19",
+  "version": "10.20.20",
   "private": true,
-  "description": "LINKO v10.20.19 — mobile-safe username rendering across all leaderboards",
+  "description": "LINKO v10.20.20 — clickable mobile-safe usernames across all leaderboards",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
