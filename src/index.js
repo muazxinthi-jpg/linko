@@ -4481,11 +4481,18 @@ async function reconcileReviewedKreatorCards(guild) {
       if (!button) continue;
       const userId = button.split(':')[1];
       const profile = kreatorProfile(userId);
-      if (profile?.status === 'pending') continue;
-      // Old orphan cards may exist from a previous migration. Do not guess their state:
-      // leave them for human review unless the member has the approved KREATOR role.
-      const member = profile ? null : await guild.members.fetch(userId).catch(() => null);
-      if (!profile && !member?.roles.cache.some((role) => role.name === 'KREATOR')) continue;
+      const member = await guild.members.fetch(userId).catch(() => null);
+      const approvedRole = member?.roles.cache.some((role) => role.name === 'KREATOR');
+      if (profile?.status === 'pending' && !approvedRole) continue;
+      // An existing KREATOR role confirms approved access even if an old
+      // application record was left pending by a prior workflow.
+      if (profile?.status === 'pending' && approvedRole) {
+        db.prepare("UPDATE kreator_profiles SET status='approved',reviewed_at=COALESCE(reviewed_at,?) WHERE user_id=?")
+          .run(now(), userId);
+        setParticipationLane(userId, 'kreator');
+      }
+      // Preserve orphan cards without an approved role for human review.
+      if (!profile && !approvedRole) continue;
       await msg.delete().catch((error) => logLinkoError('reviewed-kreator-card-cleanup', error));
     }
     checked += batch.size;
