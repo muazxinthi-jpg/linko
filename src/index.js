@@ -4477,7 +4477,7 @@ async function reconcileReviewedKreatorCards(guild) {
       if (!marker.includes('[LINKO-KREATOR-PROFILE]')) continue;
       const button = msg.components?.flatMap((r) => r.components ?? [])
         .map((c) => String(c.customId ?? c.data?.custom_id ?? ''))
-        .find((id) => /^kreator_profile_(approve|decline):\\d+$/.test(id));
+        .find((id) => /^kreator_profile_(approve|decline):\d+$/.test(id));
       if (!button) continue;
       const userId = button.split(':')[1];
       const profile = kreatorProfile(userId);
