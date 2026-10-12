@@ -1128,7 +1128,7 @@ const CHANNEL_NAMES = {
   howKxp: '⚡・how-to-earn-kxp', botCommands: '🤖・bot-commands', leaderboard: '🏆・kxp-leaderboard', communityLeaderboard: '👥・community-leaderboard', referralLeaderboard: '🤝・referral-leaderboard', rankUps: '📈・rank-ups', referrals: '🤝・referrals', events: '📅・events',
   analystChat: '🧠・analyst-chat', tradeAnalysis: '📉・trade-analysis', marketThesis: '🌐・market-thesis', aiStrategies: '🤖・ai-strategies',
   sharePost: '📣・published-kontents', contentMissions: '🎯・content-missions', creatorLeaderboard: '🏅・kreator-leaderboard', campaignLeaderboard: '🏁・campaign-leaderboard',
-  creatorLounge: '🎨・kreator-lounge', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
+  creatorLounge: '💬・kreator-chat', contentCollabs: '🤝・content-and-collabs', creatorOpportunities: '💼・creator-opportunities',
   founderLobby: '🏛️・founder-lobby', founderDirectory: '📇・founder-directory', liquidityStudio: '💧・liquidity-studio', marketStructure: '📐・market-structure', founderResources: '📚・founder-resources', studioRequests: '📩・studio-requests',
   studioAnnouncements: '📢・studio-announcements', clientSupport: '🆘・client-support',
   strategist: '♟️・strategist-room', vanguard: '🛡️・vanguard-lounge', prime: '💎・prime-room',
@@ -1209,7 +1209,7 @@ const LEGACY_CHANNEL_NAMES = new Map([
   ['how-to-earn-kxp', CHANNEL_NAMES.howKxp], ['bot-commands', CHANNEL_NAMES.botCommands], ['leaderboard', CHANNEL_NAMES.leaderboard], ['🏆・leaderboard', CHANNEL_NAMES.leaderboard], ['kxp-leaderboard', CHANNEL_NAMES.leaderboard], ['community-leaderboard', CHANNEL_NAMES.communityLeaderboard], ['referral-leaderboard', CHANNEL_NAMES.referralLeaderboard], ['rank-ups', CHANNEL_NAMES.rankUps], ['referrals', CHANNEL_NAMES.referrals], ['events', CHANNEL_NAMES.events],
   ['analyst-chat', CHANNEL_NAMES.analystChat], ['trade-analysis', CHANNEL_NAMES.tradeAnalysis], ['market-thesis', CHANNEL_NAMES.marketThesis], ['ai-strategies', CHANNEL_NAMES.aiStrategies],
   ['share-your-post', CHANNEL_NAMES.sharePost], ['submit-your-post', CHANNEL_NAMES.sharePost], ['published-kontents', CHANNEL_NAMES.sharePost], ['community-directory', '🌐・community-directory'], ['content-missions', CHANNEL_NAMES.contentMissions], ['creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['🏅・creator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['kreator-leaderboard', CHANNEL_NAMES.creatorLeaderboard], ['campaign-leaderboard', CHANNEL_NAMES.campaignLeaderboard],
-  ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['kreator-lounge', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
+  ['creator-lounge', CHANNEL_NAMES.creatorLounge], ['kreator-lounge', CHANNEL_NAMES.creatorLounge], ['kreator-chat', CHANNEL_NAMES.creatorLounge], ['content-and-collabs', CHANNEL_NAMES.contentCollabs], ['creator-opportunities', CHANNEL_NAMES.creatorOpportunities],
   ['founder-lobby', CHANNEL_NAMES.founderLobby], ['founder-directory', CHANNEL_NAMES.founderDirectory], ['liquidity-studio', CHANNEL_NAMES.liquidityStudio], ['market-structure', CHANNEL_NAMES.marketStructure], ['founder-resources', CHANNEL_NAMES.founderResources], ['studio-requests', CHANNEL_NAMES.studioRequests],
   ['studio-announcements', CHANNEL_NAMES.studioAnnouncements], ['client-support', CHANNEL_NAMES.clientSupport],
   ['strategist-room', CHANNEL_NAMES.strategist], ['vanguard-lounge', CHANNEL_NAMES.vanguard], ['prime-room', CHANNEL_NAMES.prime],
@@ -4250,7 +4250,7 @@ async function ensureKreatorHubCategory(guild, permissionOverwrites = []) {
   );
   const kreatorBases = new Set([
     'share-your-post','submit-your-post','published-kontents','content-missions','kreator-leaderboard','creator-leaderboard',
-    'campaign-leaderboard','creator-lounge','kreator-lounge','content-and-collabs','creator-opportunities',
+    'campaign-leaderboard','creator-lounge','kreator-lounge','kreator-chat','content-and-collabs','creator-opportunities',
   ]);
   for (const oldCategory of legacyCategories.values()) {
     const children = guild.channels.cache.filter((x) => x.parentId === oldCategory.id);
@@ -4458,6 +4458,61 @@ async function removeKreatorReviewCards(guild, userId) {
     if (ok) removed++;
   }
   return removed;
+}
+
+// Repair old application cards after approvals without changing approved profiles.
+// Scan the latest messages every startup, not just once per migration version.
+async function reconcileReviewedKreatorCards(guild) {
+  const review = guild.channels.cache.find((ch) =>
+    ch.type === ChannelType.GuildText && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.kreatorApplications));
+  if (!review) return;
+  let before;
+  let checked = 0;
+  do {
+    const batch = await review.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+    if (!batch.size) break;
+    for (const msg of batch.values()) {
+      if (msg.author?.id !== client.user.id) continue;
+      const marker = String(msg.embeds?.[0]?.footer?.text ?? '');
+      if (!marker.includes('[LINKO-KREATOR-PROFILE]')) continue;
+      const button = msg.components?.flatMap((r) => r.components ?? [])
+        .map((c) => String(c.customId ?? c.data?.custom_id ?? ''))
+        .find((id) => /^kreator_profile_(approve|decline):\d+$/.test(id));
+      if (!button) continue;
+      const userId = button.split(':')[1];
+      const profile = kreatorProfile(userId);
+      const member = await guild.members.fetch(userId).catch(() => null);
+      const approvedRole = member?.roles.cache.some((role) => role.name === 'KREATOR');
+      if (profile?.status === 'pending' && !approvedRole) continue;
+      // An existing KREATOR role confirms approved access even if an old
+      // application record was left pending by a prior workflow.
+      if (profile?.status === 'pending' && approvedRole) {
+        db.prepare("UPDATE kreator_profiles SET status='approved',reviewed_at=COALESCE(reviewed_at,?) WHERE user_id=?")
+          .run(now(), userId);
+        setParticipationLane(userId, 'kreator');
+      }
+      // Preserve orphan cards without an approved role for human review.
+      if (!profile && !approvedRole) continue;
+      await msg.delete().catch((error) => logLinkoError('reviewed-kreator-card-cleanup', error));
+    }
+    checked += batch.size;
+    before = batch.last()?.id;
+  } while (checked < 500);
+}
+async function syncKreatorHangout(guild) {
+  if (!moduleEnabled('kreator')) return;
+  const hub = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === '🎨・KREATOR HUB');
+  const kreator = guild.roles.cache.find((r) => r.name === 'KREATOR');
+  if (!hub || !kreator) return;
+  const staff = staffRoleNames().map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
+  const textPerms = privateFor(guild.roles.everyone, [kreator, ...staff]);
+  let chat = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildText && ch.parentId === hub.id && ch.name === CHANNEL_NAMES.creatorLounge);
+  if (!chat) {
+    chat = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildText && ch.parentId === hub.id && ['creator-lounge','kreator-lounge'].includes(baseChannelName(ch.name)));
+    if (chat) await chat.edit({ name: CHANNEL_NAMES.creatorLounge, reason: 'LINKO preserve existing KREATOR lounge history as Kreator Chat' });
+  }
+  await ensureTextChannel(guild, hub, { name: CHANNEL_NAMES.creatorLounge, topic: 'Private discussion for approved KREATORS. Published content still goes through Linko approval.' }, textPerms);
+  await ensureVoiceChannel(guild, hub, { name: '🔊 Kreator Hangout', userLimit: 25 }, privateVoiceFor(guild.roles.everyone, [kreator, ...staff]));
 }
 
 async function syncV10202KreatorApplications(guild) {
@@ -5638,6 +5693,8 @@ async function buildKlineO(guild) {
   if (channels.founderDirectory) await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: `**${communityName()} Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]` });
 
   await syncInformationChannelVisibility(guild);
+  await reconcileReviewedKreatorCards(guild);
+  await syncKreatorHangout(guild);
   setSetupPhase(`COMPLETE · ${communityName()} structure synced successfully`);
   return { roles, categories, channels };
 }
@@ -7029,6 +7086,8 @@ client.once('clientReady', async () => {
         await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
         await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
+        await reconcileReviewedKreatorCards(fullGuild).catch((error) => logLinkoError('kreator-card-reconciliation', error));
+        await syncKreatorHangout(fullGuild).catch((error) => logLinkoError('kreator-hangout-sync', error));
         await syncV10204CommunityChannelPrefixes(fullGuild).catch((error) => logLinkoError('v10.20.4-community-channel-prefixes', error));
         await syncV10205CommunityCountryCodes(fullGuild).catch((error) => logLinkoError('v10.20.5-community-country-codes', error));
         await syncV10206UnifiedAnnouncements(fullGuild).catch((error) => logLinkoError('v10.20.6-unified-announcements', error));
