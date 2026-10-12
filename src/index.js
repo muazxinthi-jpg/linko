@@ -4516,7 +4516,7 @@ async function reconcileCompletedContentReviewCards(guild) {
     for (const message of batch.values()) {
       if (message.author?.id !== client.user.id) continue;
       const title = String(message.embeds?.[0]?.title ?? '');
-      const match = title.match(/(?:social|Signal) submission #(\\d+)$/i);
+      const match = title.match(/(?:social|Signal) submission #(\d+)$/i);
       if (!match) continue;
       const table = /Signal submission/i.test(title) ? 'signal_submissions' : 'social_submissions';
       const item = db.prepare(`SELECT status FROM ${table} WHERE id=?`).get(Number(match[1]));
@@ -6916,7 +6916,7 @@ async function handleSocialReview(interaction, id, approved) {
 
   if (xp > 0) {
     const daily = getDaily(sub.user_id);
-    if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
+    if (approved && Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
     await addXp(interaction.guild, sub.user_id, xp, `Approved ${communityName()} social contribution #${id}`, interaction.user.id);
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
