@@ -4499,6 +4499,43 @@ async function reconcileReviewedKreatorCards(guild) {
     before = batch.last()?.id;
   } while (checked < 500);
 }
+// Keep the moderator inbox actionable: completed reviews live in the database,
+// while approved posts and signals remain in their destination channels.
+async function reconcileCompletedContentReviewCards(guild) {
+  const review = guild.channels.cache.find((ch) =>
+    ch.type === ChannelType.GuildText && baseChannelName(ch.name) === baseChannelName(CHANNEL_NAMES.socialSubmissions));
+  if (!review) return;
+  let before;
+  let scanned = 0;
+  do {
+    const batch = await review.messages.fetch({ limit: 100, ...(before ? { before } : {}) }).catch((error) => {
+      logLinkoError('content-review-fetch', error);
+      return null;
+    });
+    if (!batch?.size) break;
+    for (const message of batch.values()) {
+      if (message.author?.id !== client.user.id) continue;
+      const title = String(message.embeds?.[0]?.title ?? '');
+      const match = title.match(/(?:social|Signal) submission #(\d+)$/i);
+      if (!match) continue;
+      const table = /Signal submission/i.test(title) ? 'signal_submissions' : 'social_submissions';
+      const item = db.prepare(`SELECT status FROM ${table} WHERE id=?`).get(Number(match[1]));
+      // Do not remove pending or unknown submissions, which may require manual review.
+      if (!item || item.status === 'pending') continue;
+      await message.delete().catch((error) => logLinkoError('content-review-cleanup', error));
+    }
+    scanned += batch.size;
+    before = batch.last()?.id;
+  } while (scanned < 1000);
+}
+async function removeCompletedReviewMessage(interaction) {
+  await interaction.deferUpdate();
+  await interaction.message.delete().catch(async (error) => {
+    logLinkoError('review-card-delete', error);
+    await interaction.message.edit({ components: [] }).catch(() => {});
+  });
+}
+
 async function syncKreatorHangout(guild) {
   if (!moduleEnabled('kreator')) return;
   const hub = guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === '🎨・KREATOR HUB');
@@ -5694,6 +5731,7 @@ async function buildKlineO(guild) {
 
   await syncInformationChannelVisibility(guild);
   await reconcileReviewedKreatorCards(guild);
+  await reconcileCompletedContentReviewCards(guild);
   await syncKreatorHangout(guild);
   setSetupPhase(`COMPLETE · ${communityName()} structure synced successfully`);
   return { roles, categories, channels };
@@ -6878,7 +6916,7 @@ async function handleSocialReview(interaction, id, approved) {
 
   if (xp > 0) {
     const daily = getDaily(sub.user_id);
-    if (Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
+    if (approved && Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
     await addXp(interaction.guild, sub.user_id, xp, `Approved ${communityName()} social contribution #${id}`, interaction.user.id);
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
@@ -6894,7 +6932,7 @@ async function handleSocialReview(interaction, id, approved) {
     { name: 'Status', value: xp > 0 ? `Approved · +${xp} ${label} · Published` : 'Rejected', inline: true },
     ...(sub.campaign_id ? [{ name: 'Campaign', value: `#${sub.campaign_id}`, inline: true }] : []),
   ).setFooter({ text: `${xp > 0 ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
-  await interaction.update({ embeds: [embed], components: [] });
+  await removeCompletedReviewMessage(interaction);
   scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild); scheduleLeaderboardUpdate(interaction.guild);
 }
 
@@ -6939,7 +6977,7 @@ async function handleSignalReview(interaction, id, approved) {
     { name: 'Destination', value: signalSectionLabel(sub.section), inline: true },
     { name: 'Status', value: approved ? `Approved · Published${xp ? ` · +${xp} ${xpLabel()}` : ''}` : 'Rejected', inline: true },
   ).setFooter({ text: `${approved ? 'Approved' : 'Rejected'} by ${interaction.user.tag}` });
-  await interaction.update({ embeds: [updated], components: [] });
+  await removeCompletedReviewMessage(interaction);
   scheduleModInboxUpdate(interaction.guild); scheduleHealthUpdate(interaction.guild); scheduleLeaderboardUpdate(interaction.guild);
 }
 
@@ -7087,6 +7125,7 @@ client.once('clientReady', async () => {
         await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
         await reconcileReviewedKreatorCards(fullGuild).catch((error) => logLinkoError('kreator-card-reconciliation', error));
+        await reconcileCompletedContentReviewCards(fullGuild).catch((error) => logLinkoError('completed-content-review-cleanup', error));
         await syncKreatorHangout(fullGuild).catch((error) => logLinkoError('kreator-hangout-sync', error));
         await syncV10204CommunityChannelPrefixes(fullGuild).catch((error) => logLinkoError('v10.20.4-community-channel-prefixes', error));
         await syncV10205CommunityCountryCodes(fullGuild).catch((error) => logLinkoError('v10.20.5-community-country-codes', error));
