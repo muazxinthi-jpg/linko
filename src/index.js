@@ -5264,6 +5264,39 @@ async function maybeAwardReferralRoleBonus(_guild, _memberId, _roleName) {
   // No automatic Creator/Founder referral bonus in v5.
 }
 
+// Access policy: official notices are visible to all members; approved social content
+// is visible to verified members. Never broaden review, founder, or client channels.
+async function syncInformationChannelVisibility(guild) {
+  const everyone = guild.roles.everyone;
+  const verified = guild.roles.cache.find((r) => r.name === 'VERIFIED MEMBER');
+  const staff = staffRoleNames().map((name) => guild.roles.cache.find((r) => r.name === name)).filter(Boolean);
+  const core = guild.roles.cache.find((r) => r.name === coreRoleName());
+  const team = guild.roles.cache.find((r) => r.name === teamRoleName());
+  const publicNotices = readOnlyOverwrites(everyone, [core, team]);
+  const find = (name) => guild.channels.cache.find((c) =>
+    c.type === ChannelType.GuildText && baseChannelName(c.name) === baseChannelName(name));
+  for (const name of [CHANNEL_NAMES.announcements, CHANNEL_NAMES.studioAnnouncements]) {
+    if (name === CHANNEL_NAMES.studioAnnouncements && !moduleEnabled('liquidity_studio')) continue;
+    const channel = find(name);
+    if (!channel) continue;
+    await channel.permissionOverwrites.set(publicNotices, 'LINKO public announcement visibility');
+  }
+  if (moduleEnabled('kreator') && verified) {
+    const feed = find(CHANNEL_NAMES.sharePost);
+    if (feed) {
+      const readOnlyVerified = [
+        overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
+        overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+          [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePublicThreads,
+            PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads]),
+        ...staff.map((role) => overwrite(role.id,
+          [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
+      ];
+      await feed.permissionOverwrites.set(readOnlyVerified, 'LINKO verified Published Kontents visibility');
+    }
+  }
+}
+
 async function syncAnnouncementChannelPermissions(guild) {
   const channel = guild.channels.cache.find((c) => baseChannelName(c.name) === 'announcements' && c.isTextBased());
   if (!channel) return;
@@ -5445,7 +5478,7 @@ async function buildKlineO(guild) {
   }
 
   if (moduleEnabled('liquidity_studio')) {
-    channels.studioAnnouncements = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.studioAnnouncements, topic: 'Private Liquidity Studio notices.' }, [overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]), overwrite(roles.studio.id, [PermissionFlagsBits.ViewChannel], [PermissionFlagsBits.SendMessages]), ...staff.map((r) => overwrite(r.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]))]);
+    channels.studioAnnouncements = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.studioAnnouncements, topic: 'Public Liquidity Studio announcements. Read-only for community members.' }, announcementReadOnly);
     channels.clientSupport = await ensureTextChannel(guild, categories.studio, { name: CHANNEL_NAMES.clientSupport, topic: 'General support for active Liquidity Studio clients.' }, studioPrivate);
   }
 
@@ -5604,6 +5637,7 @@ async function buildKlineO(guild) {
   if (channels.founderLobby) await seedMessage(channels.founderLobby, '[KLINEO-FOUNDERS]', { embeds: [buildFounderHubEmbed()] });
   if (channels.founderDirectory) await seedMessage(channels.founderDirectory, '[KLINEO-FOUNDER-DIRECTORY]', { content: `**${communityName()} Founder Directory**\n\nApproved Founder Hub members and their project/founder social links appear here.\n\n[KLINEO-FOUNDER-DIRECTORY]` });
 
+  await syncInformationChannelVisibility(guild);
   setSetupPhase(`COMPLETE · ${communityName()} structure synced successfully`);
   return { roles, categories, channels };
 }
@@ -6991,6 +7025,7 @@ client.once('clientReady', async () => {
         await syncV1019DiscordStructure(fullGuild).catch((error) => logLinkoError('v10.19-structure-sync', error));
         await syncCanonicalGeneralAndAuditDuplicates(fullGuild).catch((error) => logLinkoError('v10.19.1-channel-dedup', error));
         await syncV1020ContentStructure(fullGuild).catch((error) => logLinkoError('v10.20-content-structure', error));
+        await syncInformationChannelVisibility(fullGuild).catch((error) => logLinkoError('information-channel-visibility', error));
         await backfillApprovedSocialPosts(fullGuild).catch((error) => logLinkoError('v10.20.1-published-backfill', error));
         await syncV10202KreatorApplications(fullGuild).catch((error) => logLinkoError('v10.20.2-kreator-applications', error));
         await syncV10203KreatorQueueCleanup(fullGuild).catch((error) => logLinkoError('v10.20.3-kreator-queue-cleanup', error));
