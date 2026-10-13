@@ -1965,7 +1965,7 @@ async function backfillRecentActivity(guild, days = 7) {
   console.log(`[LINKO HEALTH] Backfill complete: ${recorded} human messages, ${users.size} active members, ${qualityCandidates} quality candidates, ${scanned} messages scanned.`);
 }
 function containsLink(content) {
-  return /(https?:\/\/|www\.|discord\.gg\/|discord\.com\/invite\/|(?:^|\s)[a-z0-9][a-z0-9.-]*\.(?:com|io|xyz|net|org|gg|app|ai|finance|exchange)\b)/i.test(content);
+  return /(https?:\/\/|www\.|discord\.gg\/|discord\.com\/invite\/|(?:^|\s)[a-z0-9][a-z0-9.-]*\.(?:com|io|xyz|net|org|gg|app|ai|finance|exchange|de|co|dev|me|ru|uk|tv|link|ly|site|online|shop|info|cc|to|so|pro|cloud|fun)\b)/i.test(content);
 }
 async function enforceCommunityLinkRule(message) {
   if (hasStaffRole(message.member) || message.member.permissions.has(PermissionFlagsBits.Administrator)) return false;
@@ -7361,18 +7361,27 @@ client.on('messageReactionRemove', async (reaction, user, details) => {
   } catch (error) { logLinkoError('messageReactionRemove', error); }
 });
 
+client.on('messageUpdate', async (_oldMessage, updated) => {
+  if (!updated.guild || !isAllowedGuild(updated.guild.id) || updated.author?.bot) return;
+  return runWithGuild(updated.guild.id, async () => {
+    const message = updated.partial ? await updated.fetch().catch(() => null) : updated;
+    if (!message?.member || message.author?.bot) return;
+    await enforceCommunityLinkRule(message);
+  }).catch((error) => logLinkoError('link-moderation-message-edit', error));
+});
+
 client.on('messageCreate', async (message) => {
   if (!message.guild || !isAllowedGuild(message.guild.id) || message.author.bot || !message.member) return;
   return runWithGuild(message.guild.id, async () => {
   const channelName = message.channel.name;
   const channelBase = baseChannelName(channelName);
+  if (await enforceCommunityLinkRule(message)) return;
   if (channelBase === 'bot-commands' && !hasStaffRole(message.member)) {
     await message.delete().catch(() => {});
     await message.author.send('Use slash commands in **#bot-commands** (for example `/rank`, `/points`, `/leaderboard`, `/invite`, `/invites`, `/wallet`). Plain chat is removed to keep the command channel clean.').catch(() => {});
     return;
   }
-  // Always check before XP or lane-specific handling: no manual links in any channel.
-  if (await enforceCommunityLinkRule(message)) return;
+  // Link moderation ran before all channel-specific handlers.
   const isPublicBlocked = PUBLIC_NO_LINK_CHANNELS.has(channelBase);
   const isSignal = SIGNAL_CHANNELS.has(channelBase);
   const managed = managedChannelRow(message.channel.id);
