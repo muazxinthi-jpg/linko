@@ -197,6 +197,13 @@ const SCHEMA_SQL = `
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS link_violations (
+    user_id TEXT PRIMARY KEY,
+    window_started_at INTEGER NOT NULL,
+    violations INTEGER NOT NULL DEFAULT 0,
+    timeout_level INTEGER NOT NULL DEFAULT 0,
+    last_violation_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -1448,6 +1455,8 @@ const commands = [
     )),
   new SlashCommandBuilder().setName('refresh-stats').setDescription('Staff: refresh live server counters now.'),
   new SlashCommandBuilder().setName('mod-help').setDescription('Staff: show the LINKO moderator command guide.'),
+  new SlashCommandBuilder().setName('unmute').setDescription('Staff: remove a member timeout and reset link-spam warning counter.')
+    .addUserOption((o) => o.setName('member').setDescription('Member to unmute').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('project-profile')
@@ -1957,6 +1966,41 @@ async function backfillRecentActivity(guild, days = 7) {
 }
 function containsLink(content) {
   return /(https?:\/\/|www\.|discord\.gg\/|discord\.com\/invite\/|(?:^|\s)[a-z0-9][a-z0-9.-]*\.(?:com|io|xyz|net|org|gg|app|ai|finance|exchange)\b)/i.test(content);
+}
+async function enforceCommunityLinkRule(message) {
+  if (hasStaffRole(message.member) || message.member.permissions.has(PermissionFlagsBits.Administrator)) return false;
+  if (!containsLink(message.content)) return false;
+  await message.delete().catch((error) => logLinkoError('link-filter-delete', error));
+  const timestamp = now();
+  const last = db.prepare('SELECT * FROM link_violations WHERE user_id=?').get(message.author.id);
+  const inWindow = last && timestamp - Number(last.window_started_at) <= 10 * 60 * 1000;
+  const count = (inWindow ? Number(last.violations) : 0) + 1;
+  const windowStart = inWindow ? Number(last.window_started_at) : timestamp;
+  let level = Number(last?.timeout_level ?? 0);
+  let duration = 0;
+  if (count >= 3) {
+    level += 1;
+    duration = [24, 48, 168][Math.min(level, 3) - 1] * 60 * 60 * 1000;
+  }
+  db.prepare(`INSERT INTO link_violations(user_id,window_started_at,violations,timeout_level,last_violation_at)
+    VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET window_started_at=excluded.window_started_at,
+    violations=excluded.violations,timeout_level=excluded.timeout_level,last_violation_at=excluded.last_violation_at`)
+    .run(message.author.id, duration ? timestamp : windowStart, duration ? 0 : count, level, timestamp);
+  if (duration) {
+    const label = level === 1 ? '24 hours' : level === 2 ? '48 hours' : '7 days';
+    const muted = await message.member.timeout(duration, 'LINKO repeated unapproved link sharing').then(() => true).catch((error) => {
+      logLinkoError('link-filter-timeout', error);
+      return false;
+    });
+    await message.author.send(muted
+      ? `Your account has been timed out for **${label}** after repeated manual link sharing. Moderators can remove the timeout. Submit social posts via **/submit-content social**.`
+      : `Your link was removed and repeated violations were recorded. Please use **/submit-content social**. Staff have been alerted to review your account.`).catch(() => {});
+    const log = message.guild.channels.cache.find((c) => baseChannelName(c.name) === baseChannelName(CHANNEL_NAMES.moderation));
+    if (log?.isTextBased()) await log.send(`🔗 Link-spam enforcement: <@${message.author.id}> · level ${level} · ${muted ? 'timeout '+label : 'timeout failed, manual review required'} · <#${message.channel.id}>`, { allowedMentions: { parse: [] } }).catch(() => {});
+  } else {
+    await message.author.send(`Your link in **#${message.channel.name}** was removed. Public links must go through **/submit-content social** for approval and publication in **#published-kontents**. Warning **${count}/3** within 10 minutes.`).catch(() => {});
+  }
+  return true;
 }
 function canShareSignalLinks(member) {
   return hasStaffRole(member) || member.roles.cache.some((r) => ['STRATEGIST', 'VANGUARD', 'PRIME'].includes(r.name));
@@ -7327,6 +7371,8 @@ client.on('messageCreate', async (message) => {
     await message.author.send('Use slash commands in **#bot-commands** (for example `/rank`, `/points`, `/leaderboard`, `/invite`, `/invites`, `/wallet`). Plain chat is removed to keep the command channel clean.').catch(() => {});
     return;
   }
+  // Always check before XP or lane-specific handling: no manual links in any channel.
+  if (await enforceCommunityLinkRule(message)) return;
   const isPublicBlocked = PUBLIC_NO_LINK_CHANNELS.has(channelBase);
   const isSignal = SIGNAL_CHANNELS.has(channelBase);
   const managed = managedChannelRow(message.channel.id);
@@ -7867,6 +7913,15 @@ client.on('interactionCreate', async (interaction) => {
 
     // Acknowledge long-running setup immediately. Discord requires an initial
     // interaction response within ~3 seconds; command logging must never block it.
+    if (interaction.commandName === 'unmute') {
+      if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+      const target = interaction.options.getUser('member', true);
+      const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+      if (!member) return interaction.reply({ content: 'Member not found.', ephemeral: true });
+      await member.timeout(null, `LINKO moderator unmute by ${interaction.user.tag}`);
+      db.prepare('UPDATE link_violations SET violations=0,window_started_at=?,last_violation_at=? WHERE user_id=?').run(now(), now(), target.id);
+      return interaction.reply({ content: `✅ Removed timeout for <@${target.id}> and cleared current link-warning window.`, ephemeral: true });
+    }
     if (interaction.commandName === 'setup-klineo' || interaction.commandName === 'setup-linko') {
       if (!isAdmin(interaction)) return interaction.reply({ content: 'Server owner / Administrator only.', ephemeral: true });
       seedKlineOProjectProfile(interaction.guild);
