@@ -1780,7 +1780,8 @@ function buildAnnouncementPayload(draft, guild = null) {
 
   if (draft.xOnly) {
     return {
-      content: `**𝕏 NEW ON X**\n${links[0].url}`,
+      content: `@everyone\n**𝕏 NEW ON X**\n${links[0].url}`,
+      allowedMentions: { parse: ['everyone'] },
       embeds: [],
       components: linkRow ? [linkRow] : [],
     };
@@ -1797,7 +1798,7 @@ function buildAnnouncementPayload(draft, guild = null) {
   if (body) embed.setDescription(body);
   if (draft.imageUrl) embed.setImage(draft.imageUrl);
 
-  return { embeds: [embed], components: linkRow ? [linkRow] : [] };
+  return { content: '@everyone', embeds: [embed], components: linkRow ? [linkRow] : [], allowedMentions: { parse: ['everyone'] } };
 }
 function staffRoleNames() {
   return [coreRoleName(), teamRoleName(), 'MODERATOR'];
@@ -5376,15 +5377,8 @@ async function syncInformationChannelVisibility(guild) {
   if (moduleEnabled('kreator') && verified) {
     const feed = find(CHANNEL_NAMES.sharePost);
     if (feed) {
-      const readOnlyVerified = [
-        overwrite(everyone.id, [], [PermissionFlagsBits.ViewChannel]),
-        overwrite(verified.id, [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-          [PermissionFlagsBits.SendMessages, PermissionFlagsBits.CreatePublicThreads,
-            PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads]),
-        ...staff.map((role) => overwrite(role.id,
-          [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages])),
-      ];
-      await feed.permissionOverwrites.set(readOnlyVerified, 'LINKO verified Published Kontents visibility');
+      const readOnlyVerified = readOnlyOverwrites(everyone, staff);
+      await feed.permissionOverwrites.set(readOnlyVerified, 'LINKO public read-only Published Kontents visibility');
     }
   }
 }
@@ -6867,8 +6861,8 @@ async function publishApprovedSocialSubmission(guild, sub, { backfill = false } 
   const awarded = Number(sub.xp_awarded ?? 0);
 
   const posted = await feed.send({
-    content: `**📣 ${communityName()} Kontent Published**\n<@${sub.user_id}> · **+${awarded} ${label}**\n${laneLine}${campaignLine}${reactionLine}${restoredLine}\n${sub.url}`,
-    allowedMentions: { parse: [], users: [sub.user_id] },
+    content: `${backfill ? '' : '@everyone\n'}**📣 ${communityName()} Kontent Published**\n<@${sub.user_id}> · **+${awarded} ${label}**\n${laneLine}${campaignLine}${reactionLine}${restoredLine}\n${sub.url}`,
+    allowedMentions: { parse: backfill ? [] : ['everyone'], users: [sub.user_id] },
   });
   db.prepare('UPDATE social_submissions SET share_message_id = ? WHERE id = ?').run(posted.id, sub.id);
   return posted;
