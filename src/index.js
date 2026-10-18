@@ -4574,11 +4574,15 @@ async function reconcileCompletedContentReviewCards(guild) {
   } while (scanned < 1000);
 }
 async function removeCompletedReviewMessage(interaction) {
-  await interaction.deferUpdate();
+  // The interaction was acknowledged immediately by the review handler.
+  // Deleting a completed card must never leave the interaction unacknowledged
+  // or crash Linko if the Discord API rejects the delete.
   await interaction.message.delete().catch(async (error) => {
     logLinkoError('review-card-delete', error);
     await interaction.message.edit({ components: [] }).catch(() => {});
   });
+  await interaction.editReply({ content: '✅ Review processed. The completed item has been removed from the queue.' }).catch((error) =>
+    logLinkoError('review-completion-reply', error));
 }
 
 async function syncKreatorHangout(guild) {
@@ -6940,21 +6944,22 @@ async function backfillApprovedSocialPosts(guild) {
 async function handleSocialReview(interaction, id, approved) {
   const xp = approved ? getSettingInt('kxp_social_post') : 0;
   const label = xpLabel();
-  if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+  if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.editReply({ content: 'Staff only.', ephemeral: true });
+  await interaction.deferReply({ ephemeral: true });
   const sub = db.prepare('SELECT * FROM social_submissions WHERE id = ?').get(id);
-  if (!sub || sub.status !== 'pending') return interaction.reply({ content: 'This submission has already been reviewed or does not exist.', ephemeral: true });
+  if (!sub || sub.status !== 'pending') return interaction.editReply({ content: 'This submission has already been reviewed or does not exist.', ephemeral: true });
 
   const member = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
-  if (!member || !hasVerifiedRole(member)) return interaction.reply({ content: 'Cannot approve because the submitter is no longer a verified member.', ephemeral: true });
+  if (!member || !hasVerifiedRole(member)) return interaction.editReply({ content: 'Cannot approve because the submitter is no longer a verified member.', ephemeral: true });
 
   const creatorSubmission = Number(sub.creator_eligible) === 1;
   if (creatorSubmission && !(hasKreatorRole(member) && kreatorProfileApproved(member.id))) {
-    return interaction.reply({ content: 'Cannot approve this as a KREATOR post because the submitter is no longer an approved KREATOR.', ephemeral: true });
+    return interaction.editReply({ content: 'Cannot approve this as a KREATOR post because the submitter is no longer an approved KREATOR.', ephemeral: true });
   }
 
   if (xp > 0) {
     const daily = getDaily(sub.user_id);
-    if (approved && Number(daily.social_count) >= 2) return interaction.reply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
+    if (approved && Number(daily.social_count) >= 2) return interaction.editReply({ content: 'This member already has 2 rewarded social posts today. Reject or review tomorrow.', ephemeral: true });
     db.prepare('UPDATE daily_xp SET social_count = social_count + 1 WHERE user_id = ? AND day = ?').run(sub.user_id, dayKey());
     await addXp(interaction.guild, sub.user_id, xp, `Approved ${communityName()} social contribution #${id}`, interaction.user.id);
     db.prepare('UPDATE social_submissions SET status = ?, reviewed_by = ?, reviewed_at = ?, xp_awarded = ? WHERE id = ?').run('approved', interaction.user.id, now(), xp, id);
@@ -6975,17 +6980,18 @@ async function handleSocialReview(interaction, id, approved) {
 }
 
 async function handleSignalReview(interaction, id, approved) {
-  if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', ephemeral: true });
+  if (!hasStaffRole(interaction.member) && !isAdmin(interaction)) return interaction.editReply({ content: 'Staff only.', ephemeral: true });
+  await interaction.deferReply({ ephemeral: true });
   const sub = db.prepare('SELECT * FROM signal_submissions WHERE id=?').get(id);
-  if (!sub || sub.status !== 'pending') return interaction.reply({ content: 'This Signal submission has already been reviewed or does not exist.', ephemeral: true });
+  if (!sub || sub.status !== 'pending') return interaction.editReply({ content: 'This Signal submission has already been reviewed or does not exist.', ephemeral: true });
 
   let xp = 0;
   if (approved) {
     const target = interaction.guild.channels.cache.find((ch) => ch.isTextBased() && baseChannelName(ch.name) === sub.section);
-    if (!target) return interaction.reply({ content: `Cannot publish because **${signalSectionLabel(sub.section)}** is missing. Run /setup-linko or enable Signal Room first.`, ephemeral: true });
+    if (!target) return interaction.editReply({ content: `Cannot publish because **${signalSectionLabel(sub.section)}** is missing. Run /setup-linko or enable Signal Room first.`, ephemeral: true });
 
     const member = await interaction.guild.members.fetch(sub.user_id).catch(() => null);
-    if (!member || !hasVerifiedRole(member)) return interaction.reply({ content: 'Cannot approve because the submitter is no longer a verified member.', ephemeral: true });
+    if (!member || !hasVerifiedRole(member)) return interaction.editReply({ content: 'Cannot approve because the submitter is no longer a verified member.', ephemeral: true });
 
     const configured = Math.max(0, getSettingInt('kxp_message'));
     const daily = getDaily(sub.user_id);
